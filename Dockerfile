@@ -4,11 +4,14 @@ WORKDIR /app
 
 ENV AGH_DATA_DIR=/data
 ENV PYTHONUNBUFFERED=1
+ENV UV_SYSTEM_PYTHON=1
 
-COPY pyproject.toml README.md ./
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+COPY pyproject.toml uv.lock README.md ./
 COPY agh ./agh
 
-RUN pip install --no-cache-dir .
+RUN uv sync --locked --no-dev
 
 RUN mkdir -p /data/logs /data/secrets /data/packs
 
