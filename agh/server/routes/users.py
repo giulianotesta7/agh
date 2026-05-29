@@ -151,7 +151,7 @@ def create_user(
     payload: UserCreate,
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
-) -> dict[str, str | bool]:
+) -> dict[str, Any]:
     email = _clean_email(payload.email)
     role = _clean_role(payload.role)
     _ensure_actor_can_create(current_user, role)
@@ -159,12 +159,18 @@ def create_user(
     connection = _connect(request)
     try:
         user_id = generate_prefixed_id("usr")
+        token = generate_api_token()
         try:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 "INSERT INTO users (id, email, role, active) VALUES (?, ?, ?, 1)",
                 (user_id, email, role),
             )
-            connection.commit()
+            connection.execute(
+                "INSERT INTO tokens (id, user_id, token_hash) VALUES (?, ?, ?)",
+                (generate_prefixed_id("tok"), user_id, hash_token(token)),
+            )
+            created = _get_user(connection, user_id)
         except sqlite3.IntegrityError as exc:
             connection.rollback()
             if "users.email" in str(exc) or "UNIQUE" in str(exc):
@@ -172,7 +178,12 @@ def create_user(
                     status_code=status.HTTP_409_CONFLICT, detail="email already exists"
                 ) from exc
             raise
-        return _user_response(_get_user(connection, user_id))
+        except Exception:
+            connection.rollback()
+            raise
+        else:
+            connection.commit()
+        return {"user": _user_response(created), "token": token}
     finally:
         connection.close()
 

@@ -163,6 +163,12 @@ uv run pytest tests/test_user_routes.py -q
 
 uv run pytest -q
 # 56 passed, 1 warning in 3.16s (after PR3A review fixes)
+
+uv run pytest tests/test_user_routes.py -q
+# 9 passed, 1 warning in 0.45s (after create-user initial token UX change)
+
+uv run pytest -q
+# 56 passed, 1 warning in 3.23s (after create-user initial token UX change)
 ```
 
 ## TDD Evidence
@@ -171,7 +177,7 @@ Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were wr
 
 ## Deviations from Design
 
-None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite directly, stores only `tokens.token_hash`, runs migrations before bootstrap, and writes the one bootstrap plaintext token under `$AGH_DATA_DIR/secrets/initial_owner_token` so Docker's `AGH_DATA_DIR=/data` yields the specified `/data/secrets/initial_owner_token` path. PR2B-3 uses stdlib `urllib.request` instead of adding an HTTP dependency, stores the default config at `~/.config/agh/config.toml`, supports `AGH_CONFIG_FILE` for test isolation/overrides, and never adds a reveal-secret flag. PR3A keeps create-user token issuance out of `POST /users` because specs only require plaintext issuance for rotate/reset; `DELETE /users/{id}` deactivates (`active=0`) because the schema has no `deleted_at` column and auth already denies inactive users.
+None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite directly, stores only `tokens.token_hash`, runs migrations before bootstrap, and writes the one bootstrap plaintext token under `$AGH_DATA_DIR/secrets/initial_owner_token` so Docker's `AGH_DATA_DIR=/data` yields the specified `/data/secrets/initial_owner_token` path. PR2B-3 uses stdlib `urllib.request` instead of adding an HTTP dependency, stores the default config at `~/.config/agh/config.toml`, supports `AGH_CONFIG_FILE` for test isolation/overrides, and never adds a reveal-secret flag. PR3A returns an initial plaintext token once from `POST /users` for better admin UX while storing only `tokens.token_hash`; `DELETE /users/{id}` deactivates (`active=0`) because the schema has no `deleted_at` column and auth already denies inactive users.
 
 ## Issues Found / Review Fixes
 
@@ -190,6 +196,7 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - PR3A decision: admin token rotate/reset is treated as user administration, so admins may rotate/reset `member` tokens only; owners may rotate/reset any user token. This matches the prompt's admin-can-manage-members-only constraint.
 - PR3A implementation uses simple FastAPI `HTTPException.detail` strings rather than the design's future `{error:{code,message}}` helper because existing auth routes currently use detail strings and the prompt requested simple errors for now.
 - PR3A fresh review found unauthorized member target routes leaked user existence, owner-protection checks were not transactionally safe, and email canonicalization was case-sensitive. Fixed by checking admin/owner permission before target lookup, wrapping target read/check/write in `BEGIN IMMEDIATE`, lowercasing stored emails (including bootstrap owner), and adding tests for non-enumeration, case-insensitive duplicates, and concurrent owner demotions.
+- User asked whether create-user should return an initial token for better UX. Updated `POST /users` to atomically create the user and initial token hash, returning plaintext `token` once alongside `user`; rotate/reset still revoke previous active tokens and return new plaintext tokens once.
 
 ## Remaining Tasks
 

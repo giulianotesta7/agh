@@ -29,14 +29,24 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _create_user(
+def _create_user_response(
     client: TestClient, token: str, email: str, role: str
 ) -> dict[str, Any]:
     response = client.post(
         "/api/v1/users", json={"email": email, "role": role}, headers=_auth(token)
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    body = response.json()
+    assert set(body) == {"user", "token"}
+    assert body["token"]
+    assert "token_hash" not in response.text
+    return body
+
+
+def _create_user(
+    client: TestClient, token: str, email: str, role: str
+) -> dict[str, Any]:
+    return _create_user_response(client, token, email, role)["user"]
 
 
 def _rotate_token(client: TestClient, actor_token: str, user_id: str) -> str:
@@ -53,7 +63,15 @@ def _rotate_token(client: TestClient, actor_token: str, user_id: str) -> str:
 def test_owner_user_crud_lists_no_token_hashes(tmp_path: Path, monkeypatch) -> None:
     client, owner_token = _client_with_owner(tmp_path, monkeypatch)
 
-    created = _create_user(client, owner_token, "admin@example.com", "admin")
+    create_response = client.post(
+        "/api/v1/users",
+        json={"email": "admin@example.com", "role": "admin"},
+        headers=_auth(owner_token),
+    )
+    assert create_response.status_code == 201
+    create_body = create_response.json()
+    created = create_body["user"]
+    initial_token = create_body["token"]
 
     created_id = cast(str, created["id"])
     assert created_id.startswith("usr_")
@@ -65,6 +83,10 @@ def test_owner_user_crud_lists_no_token_hashes(tmp_path: Path, monkeypatch) -> N
     }
     assert "token" not in created
     assert "token_hash" not in created
+    assert (
+        client.get("/api/v1/me", headers=_auth(initial_token)).json()["email"]
+        == "admin@example.com"
+    )
 
     listed = client.get("/api/v1/users", headers=_auth(owner_token))
     assert listed.status_code == 200
@@ -195,8 +217,29 @@ def test_invalid_and_duplicate_email_are_rejected(tmp_path: Path, monkeypatch) -
     )
     assert invalid.status_code == 400
 
-    created = _create_user(client, owner_token, "Member@Example.com", "member")
+    create_response = client.post(
+        "/api/v1/users",
+        json={"email": "Member@Example.com", "role": "member"},
+        headers=_auth(owner_token),
+    )
+    assert create_response.status_code == 201
+    create_body = create_response.json()
+    created = create_body["user"]
+    initial_token = create_body["token"]
     assert created["email"] == "member@example.com"
+    assert (
+        client.get("/api/v1/me", headers=_auth(initial_token)).json()["email"]
+        == "member@example.com"
+    )
+    connection = connect_database(get_database_path(tmp_path))
+    try:
+        rows = connection.execute(
+            "SELECT token_hash FROM tokens WHERE user_id = ?", (created["id"],)
+        ).fetchall()
+        assert [row["token_hash"] for row in rows] == [hash_token(initial_token)]
+        assert initial_token not in rows[0]["token_hash"]
+    finally:
+        connection.close()
     duplicate = client.post(
         "/api/v1/users",
         json={"email": "member@example.com", "role": "member"},
@@ -209,7 +252,9 @@ def test_token_rotate_and_reset_revoke_previous_tokens_and_store_hash_only(
     tmp_path: Path, monkeypatch
 ) -> None:
     client, owner_token = _client_with_owner(tmp_path, monkeypatch)
-    member = _create_user(client, owner_token, "member@example.com", "member")
+    created = _create_user_response(client, owner_token, "member@example.com", "member")
+    member = created["user"]
+    initial = created["token"]
 
     first = _rotate_token(client, owner_token, str(member["id"]))
     assert client.get("/api/v1/me", headers=_auth(first)).status_code == 200
@@ -233,9 +278,15 @@ def test_token_rotate_and_reset_revoke_previous_tokens_and_store_hash_only(
             (member["id"],),
         ).fetchall()
         rows_by_hash = {row["token_hash"]: row for row in rows}
-        assert set(rows_by_hash) == {hash_token(first), hash_token(second)}
+        assert set(rows_by_hash) == {
+            hash_token(initial),
+            hash_token(first),
+            hash_token(second),
+        }
+        assert rows_by_hash[hash_token(initial)]["revoked_at"] is not None
         assert rows_by_hash[hash_token(first)]["revoked_at"] is not None
         assert rows_by_hash[hash_token(second)]["revoked_at"] is None
+        assert initial not in rows_by_hash
         assert first not in rows_by_hash
         assert second not in rows_by_hash
     finally:
