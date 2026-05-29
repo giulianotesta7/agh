@@ -24,7 +24,7 @@ Every pack MUST be identified as `<domain>/<name>@<version>` where `domain` and 
 
 ### Requirement: Required agh.pack.toml manifest
 
-Every published pack MUST include `agh.pack.toml` declaring at minimum domain, name, version, and compatible metadata required for validation. Publish MUST fail if the manifest is missing or invalid.
+Every published pack MUST include `agh.pack.toml` declaring domain, name, version, description, and compatible metadata required for validation. Publish MUST fail if the manifest is missing or invalid.
 
 #### Scenario: Publish without manifest fails
 
