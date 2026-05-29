@@ -18,6 +18,7 @@
 - [x] 2.2 (PR3A administrative closeout) Mark DB/migration task complete because the existing merged schema/migration work covers users, tokens, projects, memberships, packs, versions, assignments, `schema_migrations`, and SQLite idempotency tests.
 - [x] 3.1 (PR3A split) Add server user CRUD and token rotate/reset routes with role enforcement and sole-owner protection tests.
 - [x] 3.2 (PR3B split) Add server project CRUD, duplicate active normalized URL `409`, developer membership add/remove routes, admin/member project access checks, and inactive project denial tests.
+- [x] 3.3 (PR3C split) Add Typer `user`, `token`, and `project` command groups mapping to `/api/v1`, using saved config credentials and masking stored secrets in command output.
 
 ## Files Changed (PR2A)
 
@@ -88,6 +89,16 @@
 | `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 3.2 complete only |
 | `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records cumulative PR3B progress and validation |
 | `sdd/apply-pr3b-result.md` | Created | Standard SDD apply result envelope for PR3B |
+
+## Files Changed (PR3C)
+
+| File | Action | Notes |
+|------|--------|-------|
+| `agh/cli/main.py` | Modified | Adds plain Typer `user`, `token`, and `project` groups; maps user CRUD, token rotate/reset, project CRUD, and project membership add/remove to existing `/api/v1` routes via saved config Bearer auth; rejects redirects and masks token-like fields except newly issued tokens. |
+| `tests/test_cli_admin_commands.py` | Created | Focused CLI tests for API method/path/body mapping, stored token non-disclosure, newly issued token display, auth error exit code, and command/group help behavior. |
+| `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 3.3 complete only. |
+| `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records cumulative PR3C progress and validation. |
+| `sdd/apply-pr3c-result.md` | Generated local artifact | Standard SDD apply result envelope for PR3C; intentionally ignored by `.gitignore` under `sdd/`. |
 
 ## Validation
 
@@ -226,15 +237,33 @@ uv run pytest tests/test_common_helpers.py tests/test_project_routes.py -q
 
 uv run pytest -q
 # 60 passed, 1 warning in 3.61s (after percent-encoded host fix)
+
+uv run pytest tests/test_cli_admin_commands.py -q
+# 2 passed, 1 failed (auth-failure test expected 403 but fake handler returned 404 for DELETE /forbidden)
+
+uv run pytest tests/test_cli_admin_commands.py tests/test_cli_login.py -q
+# 12 passed in 3.87s
+
+uv run pytest -q
+# 63 passed, 1 warning in 4.79s
+
+uv run pytest tests/test_cli_admin_commands.py -q
+# 4 passed in 1.79s (after PR3C review fixes)
+
+uv run pytest -q
+# 64 passed, 1 warning in 5.34s (after PR3C review fixes)
+
+git diff --check
+# passed
 ```
 
 ## TDD Evidence
 
-Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation.
+Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation. PR3C standard-mode tests were added with implementation; a focused test initially exposed a fake-handler route mismatch before passing.
 
 ## Deviations from Design
 
-None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite directly, stores only `tokens.token_hash`, runs migrations before bootstrap, and writes the one bootstrap plaintext token under `$AGH_DATA_DIR/secrets/initial_owner_token` so Docker's `AGH_DATA_DIR=/data` yields the specified `/data/secrets/initial_owner_token` path. PR2B-3 uses stdlib `urllib.request` instead of adding an HTTP dependency, stores the default config at `~/.config/agh/config.toml`, supports `AGH_CONFIG_FILE` for test isolation/overrides, and never adds a reveal-secret flag. PR3A returns an initial plaintext token once from `POST /users` for better admin UX while storing only `tokens.token_hash`; `DELETE /users/{id}` deactivates (`active=0`) because the schema has no `deleted_at` column and auth already denies inactive users. PR3B keeps project errors as simple `HTTPException.detail` strings and uses `404` for member direct reads of missing/non-member/inactive projects to avoid practical project-existence leakage; owner/admin may inspect inactive projects while members list/read active developer projects only.
+None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite directly, stores only `tokens.token_hash`, runs migrations before bootstrap, and writes the one bootstrap plaintext token under `$AGH_DATA_DIR/secrets/initial_owner_token` so Docker's `AGH_DATA_DIR=/data` yields the specified `/data/secrets/initial_owner_token` path. PR2B-3 uses stdlib `urllib.request` instead of adding an HTTP dependency, stores the default config at `~/.config/agh/config.toml`, supports `AGH_CONFIG_FILE` for test isolation/overrides, and never adds a reveal-secret flag. PR3A returns an initial plaintext token once from `POST /users` for better admin UX while storing only `tokens.token_hash`; `DELETE /users/{id}` deactivates (`active=0`) because the schema has no `deleted_at` column and auth already denies inactive users. PR3B keeps project errors as simple `HTTPException.detail` strings and uses `404` for member direct reads of missing/non-member/inactive projects to avoid practical project-existence leakage; owner/admin may inspect inactive projects while members list/read active developer projects only. PR3C keeps CLI output as plain JSON rather than rich tables, uses stdlib `urllib.request` to avoid a new HTTP dependency, and treats create/rotate/reset `token` values as the only permitted plaintext secret outputs because the server returns them once at issuance.
 
 ## Issues Found / Review Fixes
 
@@ -261,15 +290,18 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - PR3B adversarial review found percent-encoded path variants (`app%2Egit`, encoded slashes) still bypassed repo uniqueness. Fixed normalization to percent-decode path before lowercasing and `.git` stripping, with helper and duplicate create tests.
 - PR3B final adversarial review found encoded trailing slashes and dot-segment variants (`./`, `%2e`, `../`, `.git/.`) still bypassed uniqueness. Fixed repo URL normalization to resolve dot segments after percent-decoding and before `.git` stripping, with helper and API duplicate tests.
 - PR3B adversarial review found percent-encoded hosts (`github%2ecom`) still bypassed uniqueness. Fixed host canonicalization to percent-decode before lowercasing/trailing-dot stripping, with helper and API duplicate tests.
+- PR3C fresh review found subgroup `--help` output showed only the root manual, making `agh user --help`, `agh project --help`, and `agh project member --help` non-discoverable. Fixed CLI subgroups to preserve generated subgroup help while unknown subgroup commands still show the main manual.
+- PR3C security review found API error payloads could echo token-like fields and `token_hash` normal output used partial masking. Fixed structured error redaction and made `token_hash` always fully redacted as `****`, with tests.
+- PR3C review noted `sdd/apply-pr3c-result.md` is an ignored local artifact, not a committed PR file; corrected the progress table wording.
 
 ## Remaining Tasks
 
-- [ ] 3.3 Add Typer `user`, `token`, and `project` command groups in `agh/cli/main.py` mapping to `/api/v1` and masking secrets in config output.
+- [x] 3.3 Add Typer `user`, `token`, and `project` command groups in `agh/cli/main.py` mapping to `/api/v1` and masking secrets in config output.
 - [ ] 3.4 Add `agh/cli/workspace_sync.py` for git remote lookup, no `--project`, `.agh/project.toml`, `--remote`, and `--force` link-only behavior; test with temp git repos.
 - [ ] 4.1–6.4 unchanged.
 
 ## Workload / PR Boundary
 
-- **Mode**: stacked PR slice (PR3B) targeting current `main` after merged PR #7, per prompt boundary
-- **Boundary**: Server project CRUD and developer membership/access routes only: `agh/server/routes/projects.py`, app wiring, and focused route tests. No CLI `agh project`, `agh sync`, pull-manifest, project-pack assignments, pack APIs, pull, workspace behavior, agent integrations, web UI, OAuth/SSO, or commits.
-- **Review impact**: focused server API slice with one route module and one focused test file; intended as one stacked work unit under the resolved auto-chain strategy
+- **Mode**: stacked PR slice (PR3C) targeting current `main` after merged PR #8, per prompt boundary
+- **Boundary**: CLI admin/project commands only: Typer `user`, `token`, and `project` groups mapped to existing user/token/project APIs, with saved config Bearer auth and secret masking. No `agh sync`, workspace link, packs, assignments, pull, agent integrations, web UI, OAuth/SSO, or server API changes.
+- **Review impact**: focused CLI slice with one modified CLI entrypoint and one focused CLI test file; intended as one stacked work unit under the resolved stacked-to-main strategy
