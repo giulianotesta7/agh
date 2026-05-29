@@ -20,9 +20,9 @@ context: |
 
   Logging: stdout/stderr plus `/data/logs/agh.log` when using container filesystem layout.
 
-  Repository state: Phase 1 scaffold complete — `agh` package, pytest smoke tests, health endpoint, logging, Dockerfile healthcheck.
+  Repository state: Phase 1 scaffold complete — `agh` package, pytest smoke tests, health endpoint, logging, Dockerfile healthcheck. Python tooling uses `uv` for local dependency sync and test execution.
 
-  Test runner verified: `python -m pytest` (Phase 1 apply).
+  Test runner verified: `uv run pytest` (tooling update after Phase 1 apply).
 rules:
   proposal:
     require_problem_statement: true
@@ -33,21 +33,21 @@ rules:
   tasks:
     protect_review_workload: true
   apply:
-    test_command: "python -m pytest"
+    test_command: "uv run pytest"
   verify:
-    test_command: "python -m pytest"
+    test_command: "uv run pytest"
 testing:
-  detected: "2026-03-27"
+  detected: "2026-05-28"
   runner:
-    command: "python -m pytest"
+    command: "uv run pytest"
     framework: pytest
   layers:
-    unit: "python -m pytest tests/"
+    unit: "uv run pytest tests/"
     integration: ""
     e2e: ""
   commands:
     unit:
-      - "python -m pytest"
+      - "uv run pytest"
     integration: []
     e2e: []
   coverage:

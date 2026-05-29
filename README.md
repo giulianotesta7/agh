@@ -5,10 +5,8 @@ Self-hosted FastAPI service and `agh` CLI for distributing versioned agent guida
 ## Development
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install -e .
-python -m pytest
+uv sync
+uv run pytest
 ```
 
 ## Server
