@@ -1,0 +1,62 @@
+strict_tdd: false
+context: |
+  Product: Agent Guidance Hub (AGH) — self-hosted FastAPI service plus local Python/Typer CLI binary `agh` for teams to centrally manage and distribute versioned agent guidance packs (instructions, rules, skills) across developer repositories (repository: `aictx`).
+
+  Approved stack and packaging: FastAPI server; Python/Typer CLI; SQLite + filesystem as default storage; server default port 8912; server delivered as Docker image, CLI installed on admin/developer workstations.
+
+  Security and auth: first server start creates bootstrap owner from `AGH_BOOTSTRAP_OWNER_EMAIL` and writes initial token to `/data/secrets/initial_owner_token` (logs path only); `agh login` stores `instance_url`, email, token in `~/.config/agh/config.toml` with restrictive permissions and validates `/api/v1/me`; user identifier is a valid email; API tokens stored hashed in DB (field may be named `token`).
+
+  Authorization model: roles `owner` / `admin` / `member` with owners protected; admins manage members; owners create admins/members. Project membership includes role-less developer membership; any active user may be a project developer.
+
+  Projects and sync: projects link to normalized git repository URLs; `agh sync` matches the local git remote (default `--remote origin`, `--force` replaces `.agh/project.toml` link only) against accessible AGH projects — no manual project override.
+
+  Packs: primary entity name `pack`; ID format `<domain>/<name>@<version>` with required free domains, SemVer versions, `latest` allowed for assignment/consumption but publishing uses exact versions; manifest `agh.pack.toml` required; sources include `instructions/AGENTS.md` and/or `instructions/CLAUDE.md`, optional `skills/<skill>/SKILL.md` (no `default.md` fallback).
+
+  Agent integrations (MVP): Claude → `CLAUDE.md` + `.claude/skills/<name>/SKILL.md`; OpenCode → `AGENTS.md` + `.opencode/skills/<name>/SKILL.md`; detect local availability and show ✓/✗ advisory.
+
+  Pull behavior: applies assigned project packs with managed blocks + checksums, `.agh/packs` cache, symlinks/managed files, `.agh/lock.toml`; supports `--dry-run` and `--force` for modified managed blocks.
+
+  Version control guidance: commit `.agh/project.toml` and `.agh/lock.toml`; do not commit `.agh/packs/`.
+
+  Logging: stdout/stderr plus `/data/logs/agh.log` when using container filesystem layout.
+
+  Repository state: Phase 1 scaffold complete — `agh` package, pytest smoke tests, health endpoint, logging, Dockerfile healthcheck.
+
+  Test runner verified: `python -m pytest` (Phase 1 apply).
+rules:
+  proposal:
+    require_problem_statement: true
+  spec:
+    require_acceptance_criteria: true
+  design:
+    require_tradeoffs: true
+  tasks:
+    protect_review_workload: true
+  apply:
+    test_command: "python -m pytest"
+  verify:
+    test_command: "python -m pytest"
+testing:
+  detected: "2026-03-27"
+  runner:
+    command: "python -m pytest"
+    framework: pytest
+  layers:
+    unit: "python -m pytest tests/"
+    integration: ""
+    e2e: ""
+  commands:
+    unit:
+      - "python -m pytest"
+    integration: []
+    e2e: []
+  coverage:
+    command: ""
+    commands: []
+quality:
+  lint: ""
+  lint_commands: []
+  typecheck: ""
+  typecheck_commands: []
+  format: ""
+  format_commands: []

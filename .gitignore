@@ -1,0 +1,17 @@
+# Local Pi runtime state
+.atl/
+.pi/
+.pi-lens/
+sdd/
+
+# Python/cache artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+agh.egg-info/
+
+# Local AGH development data
+.agh-data/
