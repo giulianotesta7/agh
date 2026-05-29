@@ -33,13 +33,14 @@ Chain strategy: stacked-to-main
 
 - [x] 1.1 Create `pyproject.toml`, `agh/__init__.py`, `agh/server/app.py`, `agh/cli/main.py`, and `tests/` with FastAPI, Typer, pytest dependencies and `agh` entrypoint.
 - [x] 1.2 Add RED smoke tests in `tests/test_scaffold.py` for `GET /api/v1/health`, `agh --help`, `$AGH_DATA_DIR/logs/agh.log` creation, and default port constant `8912`.
-- [x] 1.3 Implement health route, Typer help, basic stdout/file logging, `Dockerfile` health check, then run `pytest`.
-- [x] 1.4 Update `openspec/config.yaml` `apply.test_command`, `verify.test_command`, and testing runner fields to the verified `pytest` command.
+- [x] 1.3 Implement health route, Typer help, basic stdout/file logging, `Dockerfile` health check, then run `uv run pytest`.
+- [x] 1.4 Update `openspec/config.yaml` `apply.test_command`, `verify.test_command`, and testing runner fields to the verified `uv run pytest` command.
 
 ## Phase 2: Common Validation, Storage, Auth Bootstrap
 
 - [x] 2.1 Add `agh/common/ids.py`, `validation.py`, `repo_url.py`, `pack_manifest.py`, `checksums.py` with unit tests for prefixed IDs, email, slug/SemVer/latest, URL normalization, and managed payload hashes.
 - [ ] 2.2 Add `agh/server/db.py` and `agh/server/migrations/*.sql` for users, tokens, projects, memberships, packs, versions, assignments, and `schema_migrations`; test migration idempotency on SQLite.
+  - PR2B-1 partial: SQLite connection helper, initial migration, and idempotency/schema tests implemented; checkbox remains open for parent-controlled Phase 2 completion.
 - [ ] 2.3 Add `agh/server/auth.py`, bootstrap startup, hashed Bearer tokens, `/api/v1/me`, and secret write to `/data/secrets/initial_owner_token`; test no token logging and no re-bootstrap.
 - [ ] 2.4 Add `agh/cli/config.py` and `login` command storing `~/.config/agh/config.toml` mode `0600` after validating `/api/v1/me`; test invalid login preserves prior config.
 

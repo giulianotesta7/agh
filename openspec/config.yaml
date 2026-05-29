@@ -4,7 +4,7 @@ context: |
 
   Approved stack and packaging: FastAPI server; Python/Typer CLI; SQLite + filesystem as default storage; server default port 8912; server delivered as Docker image, CLI installed on admin/developer workstations.
 
-  Security and auth: first server start creates bootstrap owner from `AGH_BOOTSTRAP_OWNER_EMAIL` and writes initial token to `/data/secrets/initial_owner_token` (logs path only); `agh login` stores `instance_url`, email, token in `~/.config/agh/config.toml` with restrictive permissions and validates `/api/v1/me`; user identifier is a valid email; API tokens stored hashed in DB (field may be named `token`).
+  Security and auth: first server start creates bootstrap owner from `AGH_BOOTSTRAP_OWNER_EMAIL` and writes initial token to `/data/secrets/initial_owner_token` (logs path only); `agh login` stores `instance_url`, email, token in `~/.config/agh/config.toml` with restrictive permissions and validates `/api/v1/me`; user identifier is a valid email; API tokens stored hashed in DB in `tokens.token_hash`.
 
   Authorization model: roles `owner` / `admin` / `member` with owners protected; admins manage members; owners create admins/members. Project membership includes role-less developer membership; any active user may be a project developer.
 

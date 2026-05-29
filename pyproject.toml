@@ -20,5 +20,8 @@ agh = "agh.cli.main:app"
 where = ["."]
 include = ["agh*"]
 
+[tool.setuptools.package-data]
+"agh.server.migrations" = ["*.sql"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
