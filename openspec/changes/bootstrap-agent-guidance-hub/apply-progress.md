@@ -34,7 +34,7 @@
 |------|--------|-------|
 | `agh/server/db.py` | Created | SQLite database path, connection configuration, and idempotent migration runner |
 | `agh/server/migrations/__init__.py` | Created | Package marker for migration resources |
-| `agh/server/migrations/001_initial_schema.sql` | Created | Initial metadata schema for users, tokens, projects, memberships, packs, pack versions, assignments |
+| `agh/server/migrations/001_initial_schema.sql` | Created | Initial metadata schema for users, token hashes, projects, memberships, packs, pack versions, assignments |
 | `tests/test_db_migrations.py` | Created | Unit tests for data-dir path, schema creation, idempotency, uniqueness, and foreign keys |
 | `pyproject.toml` | Modified | Includes SQL migrations as package data for installed distributions |
 | `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Added PR2B-1 partial note while leaving 2.2 unchecked |
@@ -82,7 +82,8 @@ None — PR2B-1 follows the lightweight SQL migration design using stdlib `sqlit
 - Fresh review found malformed TOML escaped as `tomllib.TOMLDecodeError`. Fixed manifest loader to wrap malformed TOML in `PackManifestError`.
 - Fresh review noted the packs spec did not explicitly require `description`; updated the spec to match the approved manifest contract and implementation.
 - PR2B-1 focused RED test initially failed because `agh.server.db` did not exist; implemented `db.py` and migrations to satisfy it.
-- Fresh review found migration application was not atomic because `executescript()` could leave partial schema before recording `schema_migrations`. Fixed migration execution to run statements inside the caller transaction and added a failing-migration rollback test.
+- Fresh review found migration application was not atomic because `executescript()` could leave partial schema before recording `schema_migrations`. Fixed migration execution to run statements inside a savepoint and added a failing-migration rollback test.
+- User requested explicit DB naming: changed `tokens.token` to `tokens.token_hash` and added schema test coverage.
 
 ## Remaining Tasks
 

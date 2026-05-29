@@ -18,6 +18,11 @@ def table_names(connection: sqlite3.Connection) -> set[str]:
     return {row[0] for row in rows}
 
 
+def column_names(connection: sqlite3.Connection, table: str) -> set[str]:
+    rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    return {row[1] for row in rows}
+
+
 def test_get_database_path_respects_agh_data_dir(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("AGH_DATA_DIR", str(tmp_path))
 
@@ -41,6 +46,10 @@ def test_run_migrations_creates_initial_schema(tmp_path: Path) -> None:
             "pack_versions",
             "project_packs",
         }
+        token_columns = column_names(connection, "tokens")
+        assert "token_hash" in token_columns
+        assert "token" not in token_columns
+
         applied = connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()

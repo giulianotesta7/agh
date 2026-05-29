@@ -36,7 +36,7 @@ Build one Python distribution with `agh.server`, `agh.cli`, and `agh.common`. Se
 
 ### Data model
 
-Tables: `users(id,email unique,role,active,created_at,updated_at)`, `tokens(id,user_id,token,created_at,revoked_at)` where `token` stores hash only, `projects(id,name,repo_url,repo_url_normalized,active)`, `project_members(project_id,user_id)`, `packs(id,domain,name,created_by)`, `pack_versions(id,pack_id,version,manifest_json,storage_path,created_at,checksum)`, `project_packs(id,project_id,pack_id,version_ref,position,active)`.
+Tables: `users(id,email unique,role,active,created_at,updated_at)`, `tokens(id,user_id,token_hash,created_at,revoked_at)` where `token_hash` stores the hashed API token only, `projects(id,name,repo_url,repo_url_normalized,active)`, `project_members(project_id,user_id)`, `packs(id,domain,name,created_by)`, `pack_versions(id,pack_id,version,manifest_json,storage_path,created_at,checksum)`, `project_packs(id,project_id,pack_id,version_ref,position,active)`.
 
 ### API route map
 
