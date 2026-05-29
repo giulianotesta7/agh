@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections.abc import Iterable
 from importlib import resources
 from pathlib import Path
 
-from agh.server.app import get_data_dir
-
 DATABASE_FILENAME = "agh.sqlite3"
 MIGRATIONS_PACKAGE = "agh.server.migrations"
+
+
+def get_data_dir() -> Path:
+    """Return the AGH data directory."""
+    return Path(os.environ.get("AGH_DATA_DIR", ".agh-data"))
 
 
 def get_database_path(data_dir: Path | str | None = None) -> Path:
@@ -47,11 +51,17 @@ def run_migrations(
 
     try:
         _ensure_schema_migrations_table(connection)
-        applied_versions = _applied_versions(connection)
-        for version, sql in _iter_migrations():
-            if version in applied_versions:
-                continue
-            _apply_migration(connection, version, sql)
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            applied_versions = _applied_versions(connection)
+            for version, sql in _iter_migrations():
+                if version in applied_versions:
+                    continue
+                _apply_migration(connection, version, sql)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
     finally:
         if owns_connection:
             connection.close()

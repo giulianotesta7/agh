@@ -41,7 +41,7 @@ Chain strategy: stacked-to-main
 - [x] 2.1 Add `agh/common/ids.py`, `validation.py`, `repo_url.py`, `pack_manifest.py`, `checksums.py` with unit tests for prefixed IDs, email, slug/SemVer/latest, URL normalization, and managed payload hashes.
 - [ ] 2.2 Add `agh/server/db.py` and `agh/server/migrations/*.sql` for users, tokens, projects, memberships, packs, versions, assignments, and `schema_migrations`; test migration idempotency on SQLite.
   - PR2B-1 partial: SQLite connection helper, initial migration, and idempotency/schema tests implemented; checkbox remains open for parent-controlled Phase 2 completion.
-- [ ] 2.3 Add `agh/server/auth.py`, bootstrap startup, hashed Bearer tokens, `/api/v1/me`, and secret write to `/data/secrets/initial_owner_token`; test no token logging and no re-bootstrap.
+- [x] 2.3 Add `agh/server/auth.py`, bootstrap startup, hashed Bearer tokens, `/api/v1/me`, and secret write to `/data/secrets/initial_owner_token`; test no token logging and no re-bootstrap.
 - [ ] 2.4 Add `agh/cli/config.py` and `login` command storing `~/.config/agh/config.toml` mode `0600` after validating `/api/v1/me`; test invalid login preserves prior config.
 
 ## Phase 3: Users, Projects, and Sync

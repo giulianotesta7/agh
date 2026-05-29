@@ -3,27 +3,18 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+
+from agh.server.db import get_data_dir, get_database_path, run_migrations
 
 DEFAULT_PORT = 8912
 
 _LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 _LOGGING_CONFIGURED = False
 _HANDLER_MARKER = "_agh_managed_handler"
-
-
-def get_data_dir() -> Path:
-    """Return the AGH data directory.
-
-    Local development defaults to a writable repo-local directory. The Docker
-    image sets ``AGH_DATA_DIR=/data`` so self-hosted deployments use the
-    container volume layout from the SDD design.
-    """
-    return Path(os.environ.get("AGH_DATA_DIR", ".agh-data"))
 
 
 def configure_logging() -> Path:
@@ -72,12 +63,28 @@ def configure_logging() -> Path:
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     configure_logging()
+    data_dir = get_data_dir()
+    db_path = get_database_path(data_dir)
+    run_migrations(db_path)
+
+    from agh.server.auth import CurrentUser, bootstrap_initial_owner, get_current_user
+
+    bootstrap_initial_owner(data_dir=data_dir, db_path=db_path)
 
     application = FastAPI(title="Agent Guidance Hub", version="0.1.0")
+    application.state.db_path = db_path
 
     @application.get("/api/v1/health")
     def health() -> dict[str, str | int]:
         return {"status": "ok", "port": DEFAULT_PORT}
+
+    @application.get("/api/v1/me")
+    def me(current_user: CurrentUser = Depends(get_current_user)) -> dict[str, str]:
+        return {
+            "id": current_user.id,
+            "email": current_user.email,
+            "role": current_user.role,
+        }
 
     return application
 

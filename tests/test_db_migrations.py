@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -54,6 +55,33 @@ def test_run_migrations_creates_initial_schema(tmp_path: Path) -> None:
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()
         assert [row[0] for row in applied] == ["001_initial_schema"]
+    finally:
+        connection.close()
+
+
+def test_run_migrations_is_safe_for_concurrent_startup(tmp_path: Path) -> None:
+    db_path = tmp_path / "agh.sqlite3"
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(run_migrations, db_path) for _ in range(8)]
+        for future in futures:
+            future.result()
+
+    connection = connect_database(db_path)
+    try:
+        rows = connection.execute(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        ).fetchall()
+        assert [row[0] for row in rows] == ["001_initial_schema"]
+        assert table_names(connection) >= {
+            "users",
+            "tokens",
+            "projects",
+            "project_members",
+            "packs",
+            "pack_versions",
+            "project_packs",
+        }
     finally:
         connection.close()
 
