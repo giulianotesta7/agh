@@ -21,6 +21,7 @@ from agh.cli.config import (
     save_config,
     validate_login,
 )
+from agh.cli.workspace_sync import WorkspaceSyncError, sync_workspace
 
 APP_HELP = """Agent Guidance Hub — manage and distribute agent guidance packs.
 
@@ -33,6 +34,7 @@ Commands:
   user         Manage users.
   token        Rotate or reset user API tokens.
   project      Manage projects and developer memberships.
+  sync         Link this git repository to its matching AGH project.
 
 Global options:
   --help       Show this help page.
@@ -216,6 +218,35 @@ def _echo_payload(payload: Any, *, allow_plain_token: bool = False) -> None:
 
 def _body_without_none(**fields: Any) -> dict[str, Any]:
     return {key: value for key, value in fields.items() if value is not None}
+
+
+@app.command("sync", help="Link this git repository to its matching AGH project.")
+def sync(
+    remote: Annotated[
+        str,
+        typer.Option("--remote", help="Git remote name to match against AGH projects."),
+    ] = "origin",
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Replace only .agh/project.toml if it exists."),
+    ] = False,
+) -> None:
+    """Match the selected git remote to an accessible AGH project and write .agh/project.toml."""
+    try:
+        result = sync_workspace(remote=remote, force=force)
+    except WorkspaceSyncError as exc:
+        _fail(str(exc), code=exc.code)
+
+    _echo_payload(
+        {
+            "project_id": result.project_id,
+            "project_name": result.project_name,
+            "instance_url": result.instance_url,
+            "repo_url_normalized": result.repo_url_normalized,
+            "project_file": str(result.link_path),
+            "replaced": result.replaced,
+        }
+    )
 
 
 @app.callback(invoke_without_command=True)
