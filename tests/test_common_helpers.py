@@ -80,7 +80,40 @@ def test_repo_url_normalization_matches_common_github_forms() -> None:
     https = normalize_repo_url("https://github.com/org/app.git")
     ssh = normalize_repo_url("git@github.com:org/app.git")
     alt = normalize_repo_url("ssh://git@github.com/org/app")
-    assert https == ssh == alt == "github.com/org/app"
+    mixed_case = normalize_repo_url("git@github.com:Org/App.git")
+    uppercase_suffix = normalize_repo_url("git@github.com:Org/App.GIT")
+    encoded_host_https = normalize_repo_url("https://github%2ecom/org/app.git")
+    host_dot_https = normalize_repo_url("https://github.com./Org/App.GIT/")
+    host_dot_ssh_url = normalize_repo_url("ssh://git@github.com./Org/App.GIT/")
+    host_dot_scp = normalize_repo_url("git@github.com.:Org/App.GIT")
+    percent_encoded_suffix = normalize_repo_url("https://github.com/org/app%2Egit")
+    percent_encoded_path = normalize_repo_url("ssh://git@github.com/org%2Fapp.git")
+    encoded_trailing_slash = normalize_repo_url("https://github.com/org/app.git%2F")
+    dot_segment = normalize_repo_url("https://github.com/org/./app.git")
+    encoded_dot_segment = normalize_repo_url("https://github.com/org/%2e/app.git")
+    parent_segment = normalize_repo_url("https://github.com/org/../org/app.git")
+    scp_dot_segment = normalize_repo_url("git@github.com:org/./app.git")
+    git_suffix_dot = normalize_repo_url("https://github.com/org/app.git/.")
+    assert (
+        https
+        == ssh
+        == alt
+        == mixed_case
+        == uppercase_suffix
+        == encoded_host_https
+        == host_dot_https
+        == host_dot_ssh_url
+        == host_dot_scp
+        == percent_encoded_suffix
+        == percent_encoded_path
+        == encoded_trailing_slash
+        == dot_segment
+        == encoded_dot_segment
+        == parent_segment
+        == scp_dot_segment
+        == git_suffix_dot
+        == "github.com/org/app"
+    )
 
 
 def test_pack_manifest_loader_and_validation(tmp_path: Path) -> None:

@@ -48,7 +48,7 @@ Chain strategy: stacked-to-main
 ## Phase 3: Users, Projects, and Sync
 
 - [x] 3.1 Add user CRUD/token rotate/reset routes in `agh/server/routes/users.py` plus role/owner-protection tests.
-- [ ] 3.2 Add project CRUD, duplicate normalized URL `409`, developer membership, and access checks in `agh/server/routes/projects.py`; test inactive project denial.
+- [x] 3.2 Add project CRUD, duplicate normalized URL `409`, developer membership, and access checks in `agh/server/routes/projects.py`; test inactive project denial.
 - [ ] 3.3 Add Typer `user`, `token`, and `project` command groups in `agh/cli/main.py` mapping to `/api/v1` and masking secrets in config output.
 - [ ] 3.4 Add `agh/cli/workspace_sync.py` for git remote lookup, no `--project`, `.agh/project.toml`, `--remote`, and `--force` link-only behavior; test with temp git repos.
 

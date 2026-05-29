@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
     run_migrations(db_path)
 
     from agh.server.auth import CurrentUser, bootstrap_initial_owner, get_current_user
+    from agh.server.routes.projects import router as projects_router
     from agh.server.routes.users import router as users_router
 
     bootstrap_initial_owner(data_dir=data_dir, db_path=db_path)
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     application = FastAPI(title="Agent Guidance Hub", version="0.1.0")
     application.state.db_path = db_path
     application.include_router(users_router, prefix="/api/v1")
+    application.include_router(projects_router, prefix="/api/v1")
 
     @application.get("/api/v1/health")
     def health() -> dict[str, str | int]:

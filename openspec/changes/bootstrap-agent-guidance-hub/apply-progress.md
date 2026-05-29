@@ -17,6 +17,7 @@
 - [x] 2.4 (PR2B-3 split) Add `agh/cli/config.py`, `agh login`, `agh config show`, validated `/api/v1/me` login, atomic restricted config writes, invalid-login preservation, and polished no-arg/top-level help.
 - [x] 2.2 (PR3A administrative closeout) Mark DB/migration task complete because the existing merged schema/migration work covers users, tokens, projects, memberships, packs, versions, assignments, `schema_migrations`, and SQLite idempotency tests.
 - [x] 3.1 (PR3A split) Add server user CRUD and token rotate/reset routes with role enforcement and sole-owner protection tests.
+- [x] 3.2 (PR3B split) Add server project CRUD, duplicate active normalized URL `409`, developer membership add/remove routes, admin/member project access checks, and inactive project denial tests.
 
 ## Files Changed (PR2A)
 
@@ -76,6 +77,17 @@
 | `tests/test_user_routes.py` | Created | FastAPI integration tests for owner/admin/member permissions, email validation, no token hash leakage, token revoke/issue lifecycle, inactive/delete behavior, and sole-owner protection |
 | `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks 3.1 complete and administratively closes 2.2 with rationale |
 | `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records cumulative PR3A progress and validation |
+
+## Files Changed (PR3B)
+
+| File | Action | Notes |
+|------|--------|-------|
+| `agh/server/routes/projects.py` | Created | Authenticated project CRUD, active duplicate repo conflict handling, admin/member read policies, developer membership add/remove routes, and inactive project denial behavior using direct SQLite access |
+| `agh/server/app.py` | Modified | Wires project routes under `/api/v1` |
+| `tests/test_project_routes.py` | Created | FastAPI integration coverage for project CRUD, duplicate conflicts, developer membership access gain/loss, inactive denial, Bearer auth, and admin-only mutations |
+| `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 3.2 complete only |
+| `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records cumulative PR3B progress and validation |
+| `sdd/apply-pr3b-result.md` | Created | Standard SDD apply result envelope for PR3B |
 
 ## Validation
 
@@ -169,15 +181,60 @@ uv run pytest tests/test_user_routes.py -q
 
 uv run pytest -q
 # 56 passed, 1 warning in 3.23s (after create-user initial token UX change)
+
+uv run pytest tests/test_project_routes.py -q
+# RED before implementation: 4 failed with 404 Not Found for missing `/api/v1/projects` routes
+
+uv run pytest tests/test_project_routes.py -q
+# 4 passed, 1 warning in 0.43s
+
+uv run pytest -q
+# 60 passed, 1 warning in 3.49s
+
+uv run pytest tests/test_common_helpers.py tests/test_project_routes.py -q
+# 24 passed, 1 warning in 0.44s (after PR3B repo URL case-normalization fix)
+
+uv run pytest -q
+# 60 passed, 1 warning in 3.51s (after PR3B repo URL case-normalization fix)
+
+uv run pytest tests/test_common_helpers.py tests/test_project_routes.py -q
+# 24 passed, 1 warning in 0.46s (after uppercase .GIT suffix fix)
+
+uv run pytest -q
+# 60 passed, 1 warning in 3.52s (after uppercase .GIT suffix fix)
+
+uv run pytest tests/test_common_helpers.py tests/test_project_routes.py -q
+# 24 passed, 1 warning in 0.49s (after trailing-dot host fix)
+
+uv run pytest -q
+# 60 passed, 1 warning in 3.54s (after trailing-dot host fix)
+
+uv run pytest tests/test_common_helpers.py tests/test_project_routes.py -q
+# 24 passed, 1 warning in 0.45s (after percent-encoded path fix)
+
+uv run pytest -q
+# 60 passed, 1 warning in 3.52s (after percent-encoded path fix)
+
+uv run pytest tests/test_common_helpers.py tests/test_project_routes.py -q
+# 24 passed, 1 warning in 0.47s (after dot-segment/trailing encoded slash fix)
+
+uv run pytest -q
+# 60 passed, 1 warning in 3.55s (after dot-segment/trailing encoded slash fix)
+
+uv run pytest tests/test_common_helpers.py tests/test_project_routes.py -q
+# 24 passed, 1 warning in 0.48s (after percent-encoded host fix)
+
+uv run pytest -q
+# 60 passed, 1 warning in 3.61s (after percent-encoded host fix)
 ```
 
 ## TDD Evidence
 
-Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation.
+Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation.
 
 ## Deviations from Design
 
-None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite directly, stores only `tokens.token_hash`, runs migrations before bootstrap, and writes the one bootstrap plaintext token under `$AGH_DATA_DIR/secrets/initial_owner_token` so Docker's `AGH_DATA_DIR=/data` yields the specified `/data/secrets/initial_owner_token` path. PR2B-3 uses stdlib `urllib.request` instead of adding an HTTP dependency, stores the default config at `~/.config/agh/config.toml`, supports `AGH_CONFIG_FILE` for test isolation/overrides, and never adds a reveal-secret flag. PR3A returns an initial plaintext token once from `POST /users` for better admin UX while storing only `tokens.token_hash`; `DELETE /users/{id}` deactivates (`active=0`) because the schema has no `deleted_at` column and auth already denies inactive users.
+None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite directly, stores only `tokens.token_hash`, runs migrations before bootstrap, and writes the one bootstrap plaintext token under `$AGH_DATA_DIR/secrets/initial_owner_token` so Docker's `AGH_DATA_DIR=/data` yields the specified `/data/secrets/initial_owner_token` path. PR2B-3 uses stdlib `urllib.request` instead of adding an HTTP dependency, stores the default config at `~/.config/agh/config.toml`, supports `AGH_CONFIG_FILE` for test isolation/overrides, and never adds a reveal-secret flag. PR3A returns an initial plaintext token once from `POST /users` for better admin UX while storing only `tokens.token_hash`; `DELETE /users/{id}` deactivates (`active=0`) because the schema has no `deleted_at` column and auth already denies inactive users. PR3B keeps project errors as simple `HTTPException.detail` strings and uses `404` for member direct reads of missing/non-member/inactive projects to avoid practical project-existence leakage; owner/admin may inspect inactive projects while members list/read active developer projects only.
 
 ## Issues Found / Review Fixes
 
@@ -197,16 +254,22 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - PR3A implementation uses simple FastAPI `HTTPException.detail` strings rather than the design's future `{error:{code,message}}` helper because existing auth routes currently use detail strings and the prompt requested simple errors for now.
 - PR3A fresh review found unauthorized member target routes leaked user existence, owner-protection checks were not transactionally safe, and email canonicalization was case-sensitive. Fixed by checking admin/owner permission before target lookup, wrapping target read/check/write in `BEGIN IMMEDIATE`, lowercasing stored emails (including bootstrap owner), and adding tests for non-enumeration, case-insensitive duplicates, and concurrent owner demotions.
 - User asked whether create-user should return an initial token for better UX. Updated `POST /users` to atomically create the user and initial token hash, returning plaintext `token` once alongside `user`; rotate/reset still revoke previous active tokens and return new plaintext tokens once.
+- PR3B policy decision: member direct reads use `404 Not Found` for missing, non-member, and inactive projects; owner/admin list/read can include inactive projects for inspection. Membership add/remove reject inactive or missing projects with `404`.
+- PR3B security review found active normalized repo uniqueness could be bypassed with GitHub path case variants because `normalize_repo_url()` only lowercased host. Fixed common repo URL normalization to lowercase path components and added duplicate create/update tests for mixed-case owner/repo variants.
+- PR3B re-review found uppercase `.GIT` suffix variants still bypassed uniqueness because suffix stripping happened before lowercasing. Fixed normalization to lowercase path before stripping `.git`, with tests for `Org/App.GIT` variants.
+- PR3B second re-review found DNS trailing-dot host variants (`github.com.`) still bypassed repo uniqueness. Fixed host canonicalization to strip trailing dots for HTTPS, `ssh://`, and scp-like SSH forms, with duplicate tests for all supported forms.
+- PR3B adversarial review found percent-encoded path variants (`app%2Egit`, encoded slashes) still bypassed repo uniqueness. Fixed normalization to percent-decode path before lowercasing and `.git` stripping, with helper and duplicate create tests.
+- PR3B final adversarial review found encoded trailing slashes and dot-segment variants (`./`, `%2e`, `../`, `.git/.`) still bypassed uniqueness. Fixed repo URL normalization to resolve dot segments after percent-decoding and before `.git` stripping, with helper and API duplicate tests.
+- PR3B adversarial review found percent-encoded hosts (`github%2ecom`) still bypassed uniqueness. Fixed host canonicalization to percent-decode before lowercasing/trailing-dot stripping, with helper and API duplicate tests.
 
 ## Remaining Tasks
 
-- [ ] 3.2 Add project CRUD, duplicate normalized URL `409`, developer membership, and access checks in `agh/server/routes/projects.py`; test inactive project denial.
 - [ ] 3.3 Add Typer `user`, `token`, and `project` command groups in `agh/cli/main.py` mapping to `/api/v1` and masking secrets in config output.
 - [ ] 3.4 Add `agh/cli/workspace_sync.py` for git remote lookup, no `--project`, `.agh/project.toml`, `--remote`, and `--force` link-only behavior; test with temp git repos.
 - [ ] 4.1–6.4 unchanged.
 
 ## Workload / PR Boundary
 
-- **Mode**: stacked PR slice (PR3A) targeting current `main` after merged PR #6, per prompt boundary
-- **Boundary**: Server user administration and token lifecycle routes only: `agh/server/routes/users.py`, app wiring, role/owner-protection tests, and administrative 2.2 closeout. No CLI `agh user`/`agh token`/`agh project`, project APIs, sync, packs, pull, workspace behavior, agent integrations, web UI, OAuth/SSO, or commits.
+- **Mode**: stacked PR slice (PR3B) targeting current `main` after merged PR #7, per prompt boundary
+- **Boundary**: Server project CRUD and developer membership/access routes only: `agh/server/routes/projects.py`, app wiring, and focused route tests. No CLI `agh project`, `agh sync`, pull-manifest, project-pack assignments, pack APIs, pull, workspace behavior, agent integrations, web UI, OAuth/SSO, or commits.
 - **Review impact**: focused server API slice with one route module and one focused test file; intended as one stacked work unit under the resolved auto-chain strategy
