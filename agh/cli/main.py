@@ -57,11 +57,13 @@ app = typer.Typer(
     cls=AghHelpGroup,
     help="Agent Guidance Hub — manage and distribute agent guidance packs.",
     no_args_is_help=False,
+    rich_markup_mode=None,
 )
 config_app = typer.Typer(
     cls=AghHelpGroup,
     help="Inspect local AGH CLI configuration.",
     no_args_is_help=False,
+    rich_markup_mode=None,
 )
 app.add_typer(config_app, name="config")
 
