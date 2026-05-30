@@ -63,7 +63,7 @@ Project membership MUST NOT assign per-project roles for MVP. A user is either a
 
 - GIVEN user U is not a developer on project P
 - WHEN U requests P's pull-manifest
-- THEN the request is forbidden
+- THEN the request is rejected without confirming whether project P exists
 
 ### Requirement: Project-pack assignment
 

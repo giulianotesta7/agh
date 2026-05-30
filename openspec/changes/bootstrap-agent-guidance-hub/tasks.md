@@ -56,7 +56,7 @@ Chain strategy: stacked-to-main
 
 - [x] 4.1 Add filesystem pack storage under `/data/packs/` and pack publish/list/file routes in `agh/server/routes/packs.py`; test required `agh.pack.toml`, instruction sources, skills, immutability, and no `latest` publish.
 - [x] 4.2 Add project-pack assignment routes and `latest` resolution by highest SemVer; test ordering by `position ASC`, then `domain/name ASC`.
-- [ ] 4.3 Add pull-manifest schema and file download URLs in `agh/server/routes/projects.py`; test project developer authorization and resolved concrete versions.
+- [x] 4.3 Add pull-manifest schema and file download URLs in `agh/server/routes/projects.py`; test project developer authorization and resolved concrete versions.
 - [ ] 4.4 Add CLI `pack publish/list` and project assignment commands with manifest validation errors surfaced as exit code `2`.
 
 ## Phase 5: Pull Core

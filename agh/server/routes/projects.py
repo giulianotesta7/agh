@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import (  # pyright: ignore[reportMissingImports]
     APIRouter,
@@ -14,6 +17,7 @@ from fastapi import (  # pyright: ignore[reportMissingImports]
 )
 from pydantic import BaseModel  # pyright: ignore[reportMissingImports]
 
+from agh.common.checksums import managed_payload_checksum
 from agh.common.ids import generate_prefixed_id, is_valid_prefixed_id
 from agh.common.repo_url import normalize_repo_url
 from agh.common.validation import PackRef, parse_pack_ref
@@ -216,6 +220,41 @@ def _resolve_pack_version(
     return str(row["version"])
 
 
+def _resolved_pack_version_row(
+    connection: sqlite3.Connection, pack_id: str, version_ref: str
+) -> sqlite3.Row:
+    if version_ref == "latest":
+        rows = connection.execute(
+            """
+            SELECT id, version, manifest_json, storage_path, checksum
+            FROM pack_versions
+            WHERE pack_id = ?
+            """,
+            (pack_id,),
+        ).fetchall()
+        if not rows:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="pack version not found"
+            )
+        return max(
+            rows,
+            key=lambda row: tuple(int(part) for part in str(row["version"]).split(".")),
+        )
+    row = connection.execute(
+        """
+        SELECT id, version, manifest_json, storage_path, checksum
+        FROM pack_versions
+        WHERE pack_id = ? AND version = ?
+        """,
+        (pack_id, version_ref),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="pack version not found"
+        )
+    return row
+
+
 def _project_pack_response(
     connection: sqlite3.Connection, row: sqlite3.Row
 ) -> dict[str, str | int | bool]:
@@ -257,6 +296,131 @@ def _assignment_row(
             status_code=status.HTTP_404_NOT_FOUND, detail="project pack not found"
         )
     return row
+
+
+def _active_project_pack_rows(
+    connection: sqlite3.Connection, project_id: str
+) -> list[sqlite3.Row]:
+    return connection.execute(
+        """
+        SELECT project_packs.id, project_packs.project_id, project_packs.pack_id,
+               project_packs.version_ref, project_packs.position,
+               packs.domain, packs.name
+        FROM project_packs
+        JOIN packs ON packs.id = project_packs.pack_id
+        WHERE project_packs.project_id = ? AND project_packs.active = 1
+        ORDER BY project_packs.position ASC, packs.domain ASC, packs.name ASC
+        """,
+        (project_id,),
+    ).fetchall()
+
+
+def _pack_file_download_url(domain: str, name: str, version: str, path: str) -> str:
+    quoted_path = quote(path, safe="/")
+    return f"/api/v1/packs/{domain}/{name}/versions/{version}/files/{quoted_path}"
+
+
+def _read_pack_file(storage_dir: Path, relative_path: str) -> str | None:
+    candidate = storage_dir / relative_path
+    try:
+        resolved_root = storage_dir.resolve(strict=True)
+        resolved_candidate = candidate.resolve(strict=True)
+        resolved_candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return None
+    if not resolved_candidate.is_file():
+        return None
+    return resolved_candidate.read_text(encoding="utf-8")
+
+
+def _instruction_artifact(
+    *, domain: str, name: str, version: str, storage_dir: Path, path: str
+) -> dict[str, str] | None:
+    content = _read_pack_file(storage_dir, path)
+    if content is None:
+        return None
+    target_agent = "opencode" if path.endswith("AGENTS.md") else "claude"
+    target_path = "AGENTS.md" if target_agent == "opencode" else "CLAUDE.md"
+    return {
+        "kind": "instruction",
+        "path": path,
+        "target_agent": target_agent,
+        "target_path": target_path,
+        "checksum": managed_payload_checksum(content),
+        "download_url": _pack_file_download_url(domain, name, version, path),
+    }
+
+
+def _skill_artifacts(
+    *, domain: str, name: str, version: str, storage_dir: Path
+) -> list[dict[str, str]]:
+    skills_dir = storage_dir / "skills"
+    if not skills_dir.is_dir() or skills_dir.is_symlink():
+        return []
+    artifacts: list[dict[str, str]] = []
+    for skill_dir in sorted(item for item in skills_dir.iterdir() if item.is_dir()):
+        path = f"skills/{skill_dir.name}/SKILL.md"
+        content = _read_pack_file(storage_dir, path)
+        if content is None:
+            continue
+        checksum = managed_payload_checksum(content)
+        download_url = _pack_file_download_url(domain, name, version, path)
+        artifacts.extend(
+            [
+                {
+                    "kind": "skill",
+                    "path": path,
+                    "target_agent": "opencode",
+                    "target_path": f".opencode/skills/{skill_dir.name}/SKILL.md",
+                    "checksum": checksum,
+                    "download_url": download_url,
+                },
+                {
+                    "kind": "skill",
+                    "path": path,
+                    "target_agent": "claude",
+                    "target_path": f".claude/skills/{skill_dir.name}/SKILL.md",
+                    "checksum": checksum,
+                    "download_url": download_url,
+                },
+            ]
+        )
+    return artifacts
+
+
+def _pull_manifest_pack(
+    connection: sqlite3.Connection, row: sqlite3.Row
+) -> dict[str, Any]:
+    version_row = _resolved_pack_version_row(
+        connection, str(row["pack_id"]), str(row["version_ref"])
+    )
+    version = str(version_row["version"])
+    domain = str(row["domain"])
+    name = str(row["name"])
+    storage_dir = Path(str(version_row["storage_path"]))
+    artifacts: list[dict[str, str]] = []
+    for instruction_path in ["instructions/AGENTS.md", "instructions/CLAUDE.md"]:
+        artifact = _instruction_artifact(
+            domain=domain,
+            name=name,
+            version=version,
+            storage_dir=storage_dir,
+            path=instruction_path,
+        )
+        if artifact is not None:
+            artifacts.append(artifact)
+    artifacts.extend(
+        _skill_artifacts(
+            domain=domain, name=name, version=version, storage_dir=storage_dir
+        )
+    )
+    return {
+        "id": f"{domain}/{name}@{version}",
+        "assignment_id": row["id"],
+        "position": int(row["position"]),
+        "manifest": json.loads(str(version_row["manifest_json"])),
+        "artifacts": artifacts,
+    }
 
 
 @router.get("")
@@ -320,6 +484,33 @@ def list_project_packs(
         ).fetchall()
         return {
             "project_packs": [_project_pack_response(connection, row) for row in rows]
+        }
+    finally:
+        connection.close()
+
+
+@router.get("/{project_id}/pull-manifest")
+def get_pull_manifest(
+    project_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    connection = _connect(request)
+    try:
+        if current_user.role in {"owner", "admin"}:
+            project = _get_active_project(connection, project_id)
+        else:
+            project = _ensure_member_can_read_project(
+                connection, project_id, current_user.id
+            )
+        rows = _active_project_pack_rows(connection, project_id)
+        return {
+            "project": {
+                "id": project["id"],
+                "name": project["name"],
+                "repo_url_normalized": project["repo_url_normalized"],
+            },
+            "packs": [_pull_manifest_pack(connection, row) for row in rows],
         }
     finally:
         connection.close()
