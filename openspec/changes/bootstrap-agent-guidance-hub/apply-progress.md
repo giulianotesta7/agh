@@ -167,6 +167,15 @@
 | `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 5.1 complete only. |
 | `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records cumulative PR5A progress, validation, and review fixes. |
 
+## Files Changed (PR5B)
+
+| File | Action | Notes |
+|------|--------|-------|
+| `agh/cli/pull_plan.py` | Created | Adds dry-run-safe pull planning over resolved artifacts with stable exit codes, target validation, marker conflict aggregation, and same-target multi-artifact accumulation. |
+| `tests/test_pull_plan.py` | Created | Focused coverage for dry-run no-write behavior, updates/noops, conflict exit code `3`, multiple artifacts per target, validation errors, symlink refusal, corrupt marker wrapping, and same-target conflict/status regressions. |
+| `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 5.2 complete only. |
+| `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records cumulative PR5B progress, validation, and review fixes. |
+
 ## Validation
 
 ```text
@@ -481,11 +490,44 @@ uv run pytest -q
 
 git diff --check
 # passed
+
+uv run pytest tests/test_pull_plan.py -q
+# 10 passed in 0.03s
+
+uv run pytest -q
+# 122 passed, 1 warning in 14.30s
+
+git diff --check
+# passed
+
+uv run pytest tests/test_pull_plan.py -q
+# 12 passed in 0.03s (after PR5B review fix)
+
+uv run pytest -q
+# 124 passed, 1 warning in 14.51s (after PR5B review fix)
+
+git diff --check
+# passed
+
+uv run --with pyright pyright agh/cli/pull_plan.py tests/test_pull_plan.py
+# 0 errors, 0 warnings, 0 informations
+
+uv run pytest tests/test_pull_plan.py tests/test_pull_markers.py -q
+# 27 passed in 0.05s (after PR5B same-target accumulation fix)
+
+uv run pytest -q
+# 124 passed, 1 warning in 14.46s (after PR5B same-target accumulation fix)
+
+uv run --with pyright pyright tests/test_pull_plan.py agh/cli/pull_plan.py
+# 0 errors, 0 warnings, 0 informations
+
+git diff --check
+# passed
 ```
 
 ## TDD Evidence
 
-Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation. PR3C standard-mode tests were added with implementation; a focused test initially exposed a fake-handler route mismatch before passing. PR3D standard-mode tests were added with implementation and passed focused temp-git-repo coverage. PR4A standard-mode tests were added with implementation and passed focused FastAPI pack-route coverage. PR4B standard-mode tests were added with implementation and passed focused FastAPI project-pack assignment coverage. PR4C tests were written before production code; the focused RED run failed with 404s for the missing pull-manifest route before implementation. PR5A marker tests were written alongside the pure marker module and cover rendering, parsing, insert/update/noop, checksum conflicts, corrupt markers, duplicate blocks, and CRLF/trailing-newline normalization.
+Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation. PR3C standard-mode tests were added with implementation; a focused test initially exposed a fake-handler route mismatch before passing. PR3D standard-mode tests were added with implementation and passed focused temp-git-repo coverage. PR4A standard-mode tests were added with implementation and passed focused FastAPI pack-route coverage. PR4B standard-mode tests were added with implementation and passed focused FastAPI project-pack assignment coverage. PR4C tests were written before production code; the focused RED run failed with 404s for the missing pull-manifest route before implementation. PR5A marker tests were written alongside the pure marker module and cover rendering, parsing, insert/update/noop, checksum conflicts, corrupt markers, duplicate blocks, and CRLF/trailing-newline normalization. PR5B pull-plan tests were added with the pure planning module and cover dry-run no-write behavior, updates/noops, conflict exit code 3, multiple artifacts for one target, validation exit code 2, symlink refusal, and corrupt marker wrapping.
 
 ## Deviations from Design
 
@@ -530,6 +572,7 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - PR4D third security review found symlink rejection and file collection still used unbounded recursive tree walks before caps. Replaced recursive `rglob()` traversal with bounded, schema-aware streaming collection over only `agh.pack.toml`, `instructions/{AGENTS.md,CLAUDE.md}`, and `skills/<slug>/SKILL.md`; added too-many-files regression coverage.
 - PR5A fresh/security review found marker planning normalized whole-file text and mutated unmanaged CRLF content, accepted non-hex checksum metadata, and allowed payload marker delimiter injection to escape the managed block envelope. Fixed parsing/planning to preserve original text outside managed blocks, require `sha256:<64 lowercase hex>`, validate marker metadata values, reject AGH marker delimiter lines in payloads before rendering, and added regressions.
 - PR5A fresh/security review found marker planning normalized whole files to LF, mutating unmanaged CRLF content, accepted malformed `sha256:nothex` checksum metadata, and allowed payload marker delimiter injection. Fixed parser/planner to preserve original text outside managed ranges, validate `sha256:<64 lowercase hex>`, and reject AGH marker delimiter lines inside payloads; added regression tests.
+- PR5B fresh/security review found per-target planning overwrote earlier artifact statuses, allowing a later same-target artifact to hide conflicts or changes. Fixed target status/conflict accumulation across artifacts and added same-target conflict-preservation and changed-status regressions.
 
 ## Remaining Tasks
 
@@ -540,10 +583,11 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - [x] 4.3 Add pull-manifest schema and file download URLs in `agh/server/routes/projects.py`; test project developer authorization and resolved concrete versions.
 - [x] 4.4 Add CLI `pack publish/list` and project assignment commands with manifest validation errors surfaced as exit code `2`.
 - [x] 5.1 Add `agh/cli/pull_markers.py` for AGH BEGIN/END parsing, normalized payload checksums, insert/update without replacing unmanaged content; test mismatch detection.
-- [ ] 5.2–6.4 unchanged.
+- [x] 5.2 Add `agh/cli/pull_plan.py` for dry-run/conflict planning and exit codes `0/1/2/3/4/5`; test dry-run writes nothing and conflicts return `3`.
+- [ ] 5.3–6.4 unchanged.
 
 ## Workload / PR Boundary
 
-- **Mode**: stacked PR slice (PR5A) targeting current `main` after PR4D readiness, per prompt boundary
-- **Boundary**: Pull marker parsing/rendering/planning only. No `agh pull` command wiring, pull-manifest fetching, cache, `.agh/lock.toml`, filesystem writes, agent integrations, server API changes, web UI, OAuth/SSO, or PR/merge actions.
-- **Review impact**: focused pull-core foundation with one helper module, one focused test file, and OpenSpec progress/task updates.
+- **Mode**: stacked PR slice (PR5B) targeting current `main` after PR5A readiness, per prompt boundary
+- **Boundary**: Pull dry-run/conflict planning only. No `agh pull` command wiring, pull-manifest fetching, cache, `.agh/lock.toml` writes, agent integrations, server API changes, web UI, OAuth/SSO, or PR/merge actions.
+- **Review impact**: focused pull-core planning slice with one helper module, one focused test file, and OpenSpec progress/task updates.
