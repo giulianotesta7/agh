@@ -158,6 +158,15 @@
 | `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records cumulative PR4D progress and validation. |
 | `sdd/apply-pr4d-result.md` | Generated local artifact | Standard SDD apply result envelope for PR4D; intentionally ignored by `.gitignore` under `sdd/`. |
 
+## Files Changed (PR5A)
+
+| File | Action | Notes |
+|------|--------|-------|
+| `agh/cli/pull_markers.py` | Created | Adds pure marker parsing/rendering/planning helpers for AGH-managed blocks, checksum conflict detection, delimiter injection rejection, checksum metadata validation, and unmanaged-content-preserving updates. |
+| `tests/test_pull_markers.py` | Created | Focused coverage for render/checksum normalization, insert/update/noop/conflict planning, corrupt markers, duplicate blocks, CRLF unmanaged preservation, checksum format rejection, and marker delimiter payload rejection. |
+| `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 5.1 complete only. |
+| `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records cumulative PR5A progress, validation, and review fixes. |
+
 ## Validation
 
 ```text
@@ -442,11 +451,41 @@ uv run pytest -q
 
 git diff --check
 # passed
+
+uv run pytest tests/test_pull_markers.py -q
+# 15 passed in 0.02s (after PR5A review fixes)
+
+uv run pytest -q
+# 112 passed, 1 warning in 14.30s (after PR5A review fixes)
+
+git diff --check
+# passed
+
+uv run --with pyright pyright tests/test_pull_markers.py agh/cli/pull_markers.py
+# 0 errors, 0 warnings, 0 informations
+
+uv run pytest tests/test_pull_markers.py -q
+# 12 passed in 0.02s
+
+uv run pytest -q
+# 109 passed, 1 warning in 14.30s
+
+git diff --check
+# passed
+
+uv run pytest tests/test_pull_markers.py -q
+# 15 passed in 0.02s (after PR5A review fixes)
+
+uv run pytest -q
+# 112 passed, 1 warning in 14.31s (after PR5A review fixes)
+
+git diff --check
+# passed
 ```
 
 ## TDD Evidence
 
-Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation. PR3C standard-mode tests were added with implementation; a focused test initially exposed a fake-handler route mismatch before passing. PR3D standard-mode tests were added with implementation and passed focused temp-git-repo coverage. PR4A standard-mode tests were added with implementation and passed focused FastAPI pack-route coverage. PR4B standard-mode tests were added with implementation and passed focused FastAPI project-pack assignment coverage. PR4C tests were written before production code; the focused RED run failed with 404s for the missing pull-manifest route before implementation.
+Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation. PR3C standard-mode tests were added with implementation; a focused test initially exposed a fake-handler route mismatch before passing. PR3D standard-mode tests were added with implementation and passed focused temp-git-repo coverage. PR4A standard-mode tests were added with implementation and passed focused FastAPI pack-route coverage. PR4B standard-mode tests were added with implementation and passed focused FastAPI project-pack assignment coverage. PR4C tests were written before production code; the focused RED run failed with 404s for the missing pull-manifest route before implementation. PR5A marker tests were written alongside the pure marker module and cover rendering, parsing, insert/update/noop, checksum conflicts, corrupt markers, duplicate blocks, and CRLF/trailing-newline normalization.
 
 ## Deviations from Design
 
@@ -489,6 +528,8 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - PR4D fresh/security review found local pack publish validation read symlinked `agh.pack.toml` before rejection, allowed symlinked instruction directories to pass local validation, let binary manifests escape without exit code 2, lacked local file-count/path/size caps, and included unexpected hidden files like `.env`. Fixed validation to reject all symlinks before manifest reads, require real instruction/skill files, wrap Unicode errors, enforce local caps before reading/posting, and allow only `agh.pack.toml`, instruction files, and `skills/<slug>/SKILL.md`; added regression tests.
 - PR4D second security review found `agh.pack.toml` was still parsed before size caps and symlinked parent path components could be resolved before validation. Fixed pack root resolution to reject symlinks in any path component, moved file reading/cap enforcement before manifest parsing, and added oversized-manifest and symlinked-parent regressions.
 - PR4D third security review found symlink rejection and file collection still used unbounded recursive tree walks before caps. Replaced recursive `rglob()` traversal with bounded, schema-aware streaming collection over only `agh.pack.toml`, `instructions/{AGENTS.md,CLAUDE.md}`, and `skills/<slug>/SKILL.md`; added too-many-files regression coverage.
+- PR5A fresh/security review found marker planning normalized whole-file text and mutated unmanaged CRLF content, accepted non-hex checksum metadata, and allowed payload marker delimiter injection to escape the managed block envelope. Fixed parsing/planning to preserve original text outside managed blocks, require `sha256:<64 lowercase hex>`, validate marker metadata values, reject AGH marker delimiter lines in payloads before rendering, and added regressions.
+- PR5A fresh/security review found marker planning normalized whole files to LF, mutating unmanaged CRLF content, accepted malformed `sha256:nothex` checksum metadata, and allowed payload marker delimiter injection. Fixed parser/planner to preserve original text outside managed ranges, validate `sha256:<64 lowercase hex>`, and reject AGH marker delimiter lines inside payloads; added regression tests.
 
 ## Remaining Tasks
 
@@ -498,10 +539,11 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - [x] 4.2 Add project-pack assignment routes and `latest` resolution by highest SemVer; test ordering by `position ASC`, then `domain/name ASC`.
 - [x] 4.3 Add pull-manifest schema and file download URLs in `agh/server/routes/projects.py`; test project developer authorization and resolved concrete versions.
 - [x] 4.4 Add CLI `pack publish/list` and project assignment commands with manifest validation errors surfaced as exit code `2`.
-- [ ] 5.1–6.4 unchanged.
+- [x] 5.1 Add `agh/cli/pull_markers.py` for AGH BEGIN/END parsing, normalized payload checksums, insert/update without replacing unmanaged content; test mismatch detection.
+- [ ] 5.2–6.4 unchanged.
 
 ## Workload / PR Boundary
 
-- **Mode**: stacked PR slice (PR4D) targeting current `main` after merged PR #13, per prompt boundary
-- **Boundary**: CLI pack publish/list and project pack assignment commands only, using existing server APIs. No `agh pull`, marker application, `.agh/lock.toml`, `.agh/packs` cache, agent integrations, server API changes, web UI, OAuth/SSO, project member list, commits, or PR/merge actions.
-- **Review impact**: focused CLI slice with one new helper module, one modified CLI entrypoint, and one focused CLI test file; intended as one stacked work unit under the resolved stacked-to-main strategy
+- **Mode**: stacked PR slice (PR5A) targeting current `main` after PR4D readiness, per prompt boundary
+- **Boundary**: Pull marker parsing/rendering/planning only. No `agh pull` command wiring, pull-manifest fetching, cache, `.agh/lock.toml`, filesystem writes, agent integrations, server API changes, web UI, OAuth/SSO, or PR/merge actions.
+- **Review impact**: focused pull-core foundation with one helper module, one focused test file, and OpenSpec progress/task updates.
