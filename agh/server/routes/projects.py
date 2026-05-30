@@ -16,6 +16,7 @@ from pydantic import BaseModel  # pyright: ignore[reportMissingImports]
 
 from agh.common.ids import generate_prefixed_id, is_valid_prefixed_id
 from agh.common.repo_url import normalize_repo_url
+from agh.common.validation import PackRef, parse_pack_ref
 from agh.server.auth import CurrentUser, get_current_user
 from agh.server.db import connect_database
 
@@ -30,6 +31,17 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: str | None = None
     repo_url: str | None = None
+    active: bool | None = None
+
+
+class ProjectPackAssign(BaseModel):
+    pack_ref: str
+    position: int = 0
+
+
+class ProjectPackUpdate(BaseModel):
+    pack_ref: str | None = None
+    position: int | None = None
     active: bool | None = None
 
 
@@ -148,6 +160,105 @@ def _get_active_user(connection: sqlite3.Connection, user_id: str) -> sqlite3.Ro
     return row
 
 
+def _validate_assignment_id(assignment_id: str) -> None:
+    if not is_valid_prefixed_id(assignment_id, "asn"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="project pack not found"
+        )
+
+
+def _parse_pack_ref_or_400(pack_ref: str) -> PackRef:
+    try:
+        return parse_pack_ref(pack_ref, allow_latest=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+
+def _pack_row_or_404(connection: sqlite3.Connection, pack_ref: PackRef) -> sqlite3.Row:
+    row = connection.execute(
+        "SELECT id, domain, name FROM packs WHERE domain = ? AND name = ?",
+        (pack_ref.domain, pack_ref.name),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="pack not found"
+        )
+    return row
+
+
+def _resolve_pack_version(
+    connection: sqlite3.Connection, pack_id: str, version_ref: str
+) -> str:
+    if version_ref == "latest":
+        rows = connection.execute(
+            "SELECT version FROM pack_versions WHERE pack_id = ?",
+            (pack_id,),
+        ).fetchall()
+        if not rows:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="pack version not found"
+            )
+        versions = [str(row["version"]) for row in rows]
+        return max(
+            versions,
+            key=lambda version: tuple(int(part) for part in version.split(".")),
+        )
+    row = connection.execute(
+        "SELECT version FROM pack_versions WHERE pack_id = ? AND version = ?",
+        (pack_id, version_ref),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="pack version not found"
+        )
+    return str(row["version"])
+
+
+def _project_pack_response(
+    connection: sqlite3.Connection, row: sqlite3.Row
+) -> dict[str, str | int | bool]:
+    resolved_version = _resolve_pack_version(
+        connection, str(row["pack_id"]), str(row["version_ref"])
+    )
+    return {
+        "id": row["id"],
+        "project_id": row["project_id"],
+        "pack_id": row["pack_id"],
+        "pack_ref": f"{row['domain']}/{row['name']}@{row['version_ref']}",
+        "resolved_ref": f"{row['domain']}/{row['name']}@{resolved_version}",
+        "domain": row["domain"],
+        "name": row["name"],
+        "version_ref": row["version_ref"],
+        "resolved_version": resolved_version,
+        "position": int(row["position"]),
+        "active": bool(row["active"]),
+    }
+
+
+def _assignment_row(
+    connection: sqlite3.Connection, project_id: str, assignment_id: str
+) -> sqlite3.Row:
+    _validate_assignment_id(assignment_id)
+    row = connection.execute(
+        """
+        SELECT project_packs.id, project_packs.project_id, project_packs.pack_id,
+               project_packs.version_ref, project_packs.position, project_packs.active,
+               packs.domain, packs.name
+        FROM project_packs
+        JOIN packs ON packs.id = project_packs.pack_id
+        WHERE project_packs.project_id = ? AND project_packs.id = ?
+        """,
+        (project_id, assignment_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="project pack not found"
+        )
+    return row
+
+
 @router.get("")
 def list_projects(
     request: Request, current_user: CurrentUser = Depends(get_current_user)
@@ -175,6 +286,197 @@ def list_projects(
                 (current_user.id,),
             ).fetchall()
         return {"projects": [_project_response(row) for row in rows]}
+    finally:
+        connection.close()
+
+
+@router.get("/{project_id}/packs")
+def list_project_packs(
+    project_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, list[dict[str, str | int | bool]]]:
+    connection = _connect(request)
+    try:
+        if current_user.role in {"owner", "admin"}:
+            _get_project(connection, project_id)
+            active_filter = ""
+            parameters: tuple[str, ...] = (project_id,)
+        else:
+            _ensure_member_can_read_project(connection, project_id, current_user.id)
+            active_filter = "AND project_packs.active = 1"
+            parameters = (project_id,)
+        rows = connection.execute(
+            f"""
+            SELECT project_packs.id, project_packs.project_id, project_packs.pack_id,
+                   project_packs.version_ref, project_packs.position,
+                   project_packs.active, packs.domain, packs.name
+            FROM project_packs
+            JOIN packs ON packs.id = project_packs.pack_id
+            WHERE project_packs.project_id = ? {active_filter}
+            ORDER BY project_packs.position ASC, packs.domain ASC, packs.name ASC
+            """,
+            parameters,
+        ).fetchall()
+        return {
+            "project_packs": [_project_pack_response(connection, row) for row in rows]
+        }
+    finally:
+        connection.close()
+
+
+@router.post("/{project_id}/packs", status_code=status.HTTP_201_CREATED)
+def assign_project_pack(
+    project_id: str,
+    payload: ProjectPackAssign,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str | int | bool]:
+    _require_project_admin(current_user)
+    pack_ref = _parse_pack_ref_or_400(payload.pack_ref)
+    connection = _connect(request)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            _get_active_project(connection, project_id)
+            pack_row = _pack_row_or_404(connection, pack_ref)
+            _resolve_pack_version(connection, str(pack_row["id"]), pack_ref.version)
+            existing = connection.execute(
+                """
+                SELECT id, active FROM project_packs
+                WHERE project_id = ? AND pack_id = ?
+                """,
+                (project_id, pack_row["id"]),
+            ).fetchone()
+            if existing is not None and existing["active"] == 1:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="project pack assignment already exists",
+                )
+            if existing is None:
+                assignment_id = generate_prefixed_id("asn")
+                connection.execute(
+                    """
+                    INSERT INTO project_packs
+                        (id, project_id, pack_id, version_ref, position, active)
+                    VALUES (?, ?, ?, ?, ?, 1)
+                    """,
+                    (
+                        assignment_id,
+                        project_id,
+                        pack_row["id"],
+                        pack_ref.version,
+                        payload.position,
+                    ),
+                )
+            else:
+                assignment_id = str(existing["id"])
+                connection.execute(
+                    """
+                    UPDATE project_packs
+                    SET version_ref = ?, position = ?, active = 1,
+                        updated_at = datetime('now')
+                    WHERE id = ?
+                    """,
+                    (pack_ref.version, payload.position, assignment_id),
+                )
+        except sqlite3.IntegrityError as exc:
+            connection.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="project pack assignment already exists",
+            ) from exc
+        except Exception:
+            connection.rollback()
+            raise
+        else:
+            connection.commit()
+        row = _assignment_row(connection, project_id, assignment_id)
+        return _project_pack_response(connection, row)
+    finally:
+        connection.close()
+
+
+@router.patch("/{project_id}/packs/{assignment_id}")
+def update_project_pack(
+    project_id: str,
+    assignment_id: str,
+    payload: ProjectPackUpdate,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str | int | bool]:
+    _require_project_admin(current_user)
+    connection = _connect(request)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            _get_active_project(connection, project_id)
+            current = _assignment_row(connection, project_id, assignment_id)
+            fields: dict[str, Any] = {}
+            if payload.pack_ref is not None:
+                pack_ref = _parse_pack_ref_or_400(payload.pack_ref)
+                pack_row = _pack_row_or_404(connection, pack_ref)
+                _resolve_pack_version(connection, str(pack_row["id"]), pack_ref.version)
+                fields["pack_id"] = str(pack_row["id"])
+                fields["version_ref"] = pack_ref.version
+            if payload.position is not None:
+                fields["position"] = payload.position
+            if payload.active is not None:
+                fields["active"] = 1 if payload.active else 0
+            if fields:
+                assignments = ", ".join(f"{field} = ?" for field in fields)
+                values = list(fields.values()) + [current["id"]]
+                sql = (
+                    f"UPDATE project_packs SET {assignments}, "
+                    "updated_at = datetime('now') WHERE id = ?"
+                )
+                connection.execute(sql, values)
+        except sqlite3.IntegrityError as exc:
+            connection.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="project pack assignment already exists",
+            ) from exc
+        except Exception:
+            connection.rollback()
+            raise
+        else:
+            connection.commit()
+        row = _assignment_row(connection, project_id, assignment_id)
+        return _project_pack_response(connection, row)
+    finally:
+        connection.close()
+
+
+@router.delete("/{project_id}/packs/{assignment_id}")
+def deactivate_project_pack(
+    project_id: str,
+    assignment_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str | int | bool]:
+    _require_project_admin(current_user)
+    connection = _connect(request)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            _get_active_project(connection, project_id)
+            _assignment_row(connection, project_id, assignment_id)
+            connection.execute(
+                """
+                UPDATE project_packs
+                SET active = 0, updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (assignment_id,),
+            )
+        except Exception:
+            connection.rollback()
+            raise
+        else:
+            connection.commit()
+        row = _assignment_row(connection, project_id, assignment_id)
+        return _project_pack_response(connection, row)
     finally:
         connection.close()
 
