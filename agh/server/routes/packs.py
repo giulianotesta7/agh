@@ -46,7 +46,6 @@ def _pack_version_response(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "id": f"{row['domain']}/{row['name']}@{row['version']}",
         "pack_id": row["pack_id"],
-        "version_id": row["version_id"],
         "domain": row["domain"],
         "name": row["name"],
         "version": row["version"],
@@ -331,9 +330,7 @@ def _validate_staged_pack(staging_dir: Path) -> PackManifest:
         not (staging_dir / "instructions" / "AGENTS.md").is_file()
         and not (staging_dir / "instructions" / "CLAUDE.md").is_file()
     ):
-        raise PackManifestError(
-            "instructions/AGENTS.md or instructions/CLAUDE.md is required"
-        )
+        raise PackManifestError("instruction source AGENTS.md or CLAUDE.md required")
     _validate_skills(staging_dir)
     return manifest
 

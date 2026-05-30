@@ -71,7 +71,7 @@ def test_owner_publishes_lists_and_downloads_pack_files(
     assert body["tags"] == ["team"]
     assert body["checksum"].startswith("sha256:")
     assert body["pack_id"].startswith("pack_")
-    assert body["version_id"].startswith("packv_")
+    assert "version_id" not in body
 
     list_response = client.get("/api/v1/packs", headers=_auth(owner_token))
     assert list_response.status_code == 200
@@ -177,7 +177,7 @@ def test_pack_publish_validation_and_immutability(tmp_path: Path, monkeypatch) -
     default_only["instructions/default.md"] = "No fallback.\n"
     no_instruction = _publish(client, owner_token, default_only)
     assert no_instruction.status_code == 400
-    assert "AGENTS.md" in no_instruction.text
+    assert "instruction source AGENTS.md or CLAUDE.md required" in no_instruction.text
 
     latest = _publish(client, owner_token, _pack_files(version="latest"))
     assert latest.status_code == 400

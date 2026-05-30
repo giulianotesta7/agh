@@ -15,3 +15,5 @@ agh.egg-info/
 
 # Local AGH development data
 .agh-data/
+.agh-data-test/
+.agh-cli-test.toml
