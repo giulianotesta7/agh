@@ -40,7 +40,7 @@ Tables: `users(id,email unique,role,active,created_at,updated_at)`, `tokens(id,u
 
 ### API route map
 
-Public: `GET /api/v1/health`. Auth: `GET /api/v1/me`; `GET/POST/PATCH/DELETE /users`; `POST /users/{id}/token:rotate`; `GET/POST/PATCH/DELETE /projects`; `PUT/DELETE /projects/{id}/members/{user_id}`; `PUT/DELETE /projects/{id}/packs/{assignment_id}`; `GET /projects/{id}/pull-manifest`; `GET/POST /packs`; `GET /packs/{domain}/{name}/versions/{version}/files/{path}`. JSON errors use `{error:{code,message}}`.
+Public: `GET /api/v1/health`. Auth: `GET /api/v1/me`; `GET/POST/PATCH/DELETE /users`; `POST /users/{id}/token:rotate`; `GET/POST/PATCH/DELETE /projects`; `PUT/DELETE /projects/{id}/members/{user_id}`; `GET/POST /projects/{id}/packs`; `PATCH/DELETE /projects/{id}/packs/{assignment_id}`; `GET /projects/{id}/pull-manifest`; `GET/POST /packs`; `GET /packs/{domain}/{name}/versions/{version}/files/{path}`. JSON errors use `{error:{code,message}}`.
 
 Pull-manifest shape: `{project:{id,name,repo_url_normalized}, packs:[{id:"domain/name@resolved", assignment_id, position, manifest, artifacts:[{kind:"instruction|skill", path, target_agent, target_path, checksum, download_url}]}]}`.
 
