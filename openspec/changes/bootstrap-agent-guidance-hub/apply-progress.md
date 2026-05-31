@@ -188,6 +188,16 @@
 | `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 5.4 complete only. |
 | `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records PR5D validation evidence. |
 
+## Files Changed (PR6A)
+
+| File | Action | Notes |
+|------|--------|-------|
+| `agh/cli/agent_integrations.py` | Created | Adds side-effect-free Claude Code and OpenCode advisory detection from PATH commands and workspace directories. |
+| `agh/cli/main.py` | Modified | Adds top-level `agh agent` command and man-like help entry. |
+| `tests/test_agent_command.py` | Created | Covers help visibility, absent-agent exit 0 with ✗ output and no writes, PATH command detection, and workspace directory detection. |
+| `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 6.2 complete only. |
+| `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records PR6A validation evidence. |
+
 ## Validation
 
 ```text
@@ -673,11 +683,23 @@ uv run --with pyright pyright agh/cli/main.py agh/cli/pull_markers.py agh/cli/pu
 
 git diff --check
 # passed
+
+uv run pytest tests/test_agent_command.py -q
+# 4 passed in 0.09s
+
+uv run pytest -q
+# 177 passed, 1 warning in 19.60s
+
+uv run --with pyright pyright agh/cli/agent_integrations.py agh/cli/main.py tests/test_agent_command.py
+# 0 errors, 0 warnings, 0 informations
+
+git diff --check
+# passed
 ```
 
 ## TDD Evidence
 
-Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation. PR3C standard-mode tests were added with implementation; a focused test initially exposed a fake-handler route mismatch before passing. PR3D standard-mode tests were added with implementation and passed focused temp-git-repo coverage. PR4A standard-mode tests were added with implementation and passed focused FastAPI pack-route coverage. PR4B standard-mode tests were added with implementation and passed focused FastAPI project-pack assignment coverage. PR4C tests were written before production code; the focused RED run failed with 404s for the missing pull-manifest route before implementation. PR5A marker tests were written alongside the pure marker module and cover rendering, parsing, insert/update/noop, checksum conflicts, corrupt markers, duplicate blocks, and CRLF/trailing-newline normalization. PR5B pull-plan tests were added with the pure planning module and cover dry-run no-write behavior, updates/noops, conflict exit code 3, multiple artifacts for one target, validation exit code 2, symlink refusal, and corrupt marker wrapping. PR5C cache/lock tests were added with implementation and cover cache population, lock TOML contents, checksum mismatch, unsafe manifest values, symlinked `.agh`, and TOML parseability. PR5D CLI pull tests were added with implementation and cover strict no-write dry-run, normal target/cache/lock writes, conflict exit 3 no writes, force overwrite of managed checksum conflicts only, missing link exit 5, auth exit 4, and invalid manifest/path exit 2.
+Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation. PR3C standard-mode tests were added with implementation; a focused test initially exposed a fake-handler route mismatch before passing. PR3D standard-mode tests were added with implementation and passed focused temp-git-repo coverage. PR4A standard-mode tests were added with implementation and passed focused FastAPI pack-route coverage. PR4B standard-mode tests were added with implementation and passed focused FastAPI project-pack assignment coverage. PR4C tests were written before production code; the focused RED run failed with 404s for the missing pull-manifest route before implementation. PR5A marker tests were written alongside the pure marker module and cover rendering, parsing, insert/update/noop, checksum conflicts, corrupt markers, duplicate blocks, and CRLF/trailing-newline normalization. PR5B pull-plan tests were added with the pure planning module and cover dry-run no-write behavior, updates/noops, conflict exit code 3, multiple artifacts for one target, validation exit code 2, symlink refusal, and corrupt marker wrapping. PR5C cache/lock tests were added with implementation and cover cache population, lock TOML contents, checksum mismatch, unsafe manifest values, symlinked `.agh`, and TOML parseability. PR5D CLI pull tests were added with implementation and cover strict no-write dry-run, normal target/cache/lock writes, conflict exit 3 no writes, force overwrite of managed checksum conflicts only, missing link exit 5, auth exit 4, and invalid manifest/path exit 2. PR6A agent command tests were added with implementation and cover help visibility, absent-agent exit 0/no writes, PATH command detection, and workspace directory detection.
 
 ## Deviations from Design
 

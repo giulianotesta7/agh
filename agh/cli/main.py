@@ -11,6 +11,10 @@ from typing import Annotated, Any, NoReturn
 import typer
 from typer.core import TyperGroup
 
+from agh.cli.agent_integrations import (
+    detect_agent_availability,
+    format_agent_availability,
+)
 from agh.cli.config import (
     AghConfig,
     ConfigError,
@@ -40,6 +44,7 @@ Commands:
   pack         Publish and list guidance packs.
   sync         Link this git repository to its matching AGH project.
   pull         Pull assigned guidance packs into this repository.
+  agent        Show advisory local agent integration availability.
 
 Global options:
   --help       Show this help page.
@@ -285,6 +290,12 @@ def pull(
         }
     )
     raise typer.Exit(result.exit_code)
+
+
+@app.command("agent", help="Show advisory local agent integration availability.")
+def agent() -> None:
+    """Show detected Claude Code and OpenCode local integration availability."""
+    typer.echo(format_agent_availability(detect_agent_availability()))
 
 
 @app.command("sync", help="Link this git repository to its matching AGH project.")

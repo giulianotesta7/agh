@@ -69,6 +69,6 @@ Chain strategy: stacked-to-main
 ## Phase 6: Agents, Docker, Verification
 
 - [ ] 6.1 Add Claude/OpenCode instruction targets and skill placement in `agh/cli/agent_integrations.py`, trying relative symlink then copy fallback with lock `mode`; test fallback paths.
-- [ ] 6.2 Add `agh agent` advisory output with Claude/OpenCode ✓/✗ detection; test absent agents do not fail.
+- [x] 6.2 Add `agh agent` advisory output with Claude/OpenCode ✓/✗ detection; test absent agents do not fail.
 - [ ] 6.3 Finalize `Dockerfile`, `/data` directory creation, log file append behavior, and health probe docs/comments; verify container serves `:8912`.
 - [ ] 6.4 Expand integration tests across auth, API JSON errors, projects, packs, sync, pull, and VCS hints to commit `.agh/project.toml`/`.agh/lock.toml` and ignore `.agh/packs/`.
