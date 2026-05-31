@@ -64,7 +64,7 @@ Chain strategy: stacked-to-main
 - [x] 5.1 Add `agh/cli/pull_markers.py` for AGH BEGIN/END parsing, normalized payload checksums, insert/update without replacing unmanaged content; test mismatch detection.
 - [x] 5.2 Add `agh/cli/pull_plan.py` for dry-run/conflict planning and exit codes `0/1/2/3/4/5`; test dry-run writes nothing and conflicts return `3`.
 - [x] 5.3 Add `.agh/packs/` cache downloads and `.agh/lock.toml` atomic writes in `agh/cli/workspace_pull.py`; test cache population and lock contents.
-- [ ] 5.4 Wire `agh pull --dry-run/--force` to pull-manifest, marker planning, cache, and lock updates; test force overwrites checksum conflicts only in managed blocks.
+- [x] 5.4 Wire `agh pull --dry-run/--force` to pull-manifest, marker planning, cache, and lock updates; test force overwrites checksum conflicts only in managed blocks.
 
 ## Phase 6: Agents, Docker, Verification
 

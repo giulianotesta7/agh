@@ -176,6 +176,18 @@
 | `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 5.2 complete only. |
 | `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records cumulative PR5B progress, validation, and review fixes. |
 
+## Files Changed (PR5D)
+
+| File | Action | Notes |
+|------|--------|-------|
+| `agh/cli/main.py` | Modified | Adds top-level `agh pull` with `--dry-run` and `--force`, stable exit-code mapping, and JSON pull summaries. |
+| `agh/cli/workspace_pull.py` | Modified | Adds project-link reading, pull-manifest fetching, no-write artifact download/validation, pull orchestration, atomic target writes, and cache/lock writing after successful apply. |
+| `agh/cli/pull_markers.py` | Modified | Adds force planning that overwrites checksum-conflicted matching AGH-managed blocks only while preserving unmanaged content. |
+| `agh/cli/pull_plan.py` | Modified | Threads `force` through dry-run-safe planning without changing default conflict behavior. |
+| `tests/test_cli_pull.py` | Created | CLI coverage for strict no-write dry-run, normal target/cache/lock writes, conflict exit 3 no writes, force overwrite, missing link exit 5, auth exit 4, and invalid manifest/path exit 2. |
+| `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 5.4 complete only. |
+| `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records PR5D validation evidence. |
+
 ## Validation
 
 ```text
@@ -607,11 +619,65 @@ uv run --with pyright pyright agh/cli/workspace_pull.py tests/test_workspace_pul
 
 git diff --check
 # passed
+
+uv run pytest tests/test_cli_pull.py -q
+# 7 passed in 3.22s
+
+uv run pytest tests/test_pull_markers.py tests/test_pull_plan.py tests/test_workspace_pull.py tests/test_cli_pull.py -q
+# 66 passed in 5.26s
+
+uv run --with pyright pyright agh/cli/main.py agh/cli/pull_markers.py agh/cli/pull_plan.py agh/cli/workspace_pull.py tests/test_cli_pull.py
+# 0 errors, 0 warnings, 0 informations
+
+uv run pytest -q
+# 163 passed, 1 warning in 19.36s
+
+uv run --with pyright pyright agh/cli/main.py agh/cli/pull_markers.py agh/cli/pull_plan.py agh/cli/workspace_pull.py tests/test_cli_pull.py
+# 0 errors, 0 warnings, 0 informations
+
+git diff --check
+# passed
+
+uv run pytest tests/test_workspace_pull.py tests/test_cli_pull.py -q
+# 45 passed in 5.23s (after PR5D first review fixes)
+
+uv run pytest -q
+# 169 passed, 1 warning in 19.57s (after PR5D first review fixes)
+
+uv run --with pyright pyright agh/cli/main.py agh/cli/pull_markers.py agh/cli/pull_plan.py agh/cli/workspace_pull.py tests/test_cli_pull.py tests/test_workspace_pull.py
+# 0 errors, 0 warnings, 0 informations
+
+git diff --check
+# passed
+
+uv run pytest tests/test_workspace_pull.py tests/test_cli_pull.py -q
+# 47 passed in 5.24s (after PR5D second review fix)
+
+uv run pytest -q
+# 171 passed, 1 warning in 19.63s (after PR5D second review fix)
+
+uv run --with pyright pyright agh/cli/main.py agh/cli/pull_markers.py agh/cli/pull_plan.py agh/cli/workspace_pull.py tests/test_cli_pull.py tests/test_workspace_pull.py
+# 0 errors, 0 warnings, 0 informations
+
+git diff --check
+# passed
+
+uv run pytest tests/test_workspace_pull.py tests/test_cli_pull.py -q
+# 49 passed in 5.24s (after PR5D third review fix)
+
+uv run pytest -q
+# 173 passed, 1 warning in 19.47s (after PR5D third review fix)
+
+uv run --with pyright pyright agh/cli/main.py agh/cli/pull_markers.py agh/cli/pull_plan.py agh/cli/workspace_pull.py tests/test_cli_pull.py tests/test_workspace_pull.py
+# 0 errors, 0 warnings, 0 informations
+
+git diff --check
+# passed
 ```
 
 ## TDD Evidence
 
-Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation. PR3C standard-mode tests were added with implementation; a focused test initially exposed a fake-handler route mismatch before passing. PR3D standard-mode tests were added with implementation and passed focused temp-git-repo coverage. PR4A standard-mode tests were added with implementation and passed focused FastAPI pack-route coverage. PR4B standard-mode tests were added with implementation and passed focused FastAPI project-pack assignment coverage. PR4C tests were written before production code; the focused RED run failed with 404s for the missing pull-manifest route before implementation. PR5A marker tests were written alongside the pure marker module and cover rendering, parsing, insert/update/noop, checksum conflicts, corrupt markers, duplicate blocks, and CRLF/trailing-newline normalization. PR5B pull-plan tests were added with the pure planning module and cover dry-run no-write behavior, updates/noops, conflict exit code 3, multiple artifacts for one target, validation exit code 2, symlink refusal, and corrupt marker wrapping. PR5C cache/lock tests were added with implementation and cover cache population, lock TOML contents, checksum mismatch, unsafe manifest values, symlinked `.agh`, and TOML parseability.
+Strict TDD not active (`openspec/config.yaml: strict_tdd: false`). Tests were written before PR2B-1 production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.db'` before implementation. PR2B-2 tests were also written before production code where practical; the focused RED run failed with `ModuleNotFoundError: No module named 'agh.server.auth'` before implementation. PR2B-3 tests were written before production code where practical; the focused RED run failed because `login`/`config show` were not implemented and no-arg help exited 2. PR3A tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/users` routes before implementation. PR3B tests were written before production code where practical; the focused RED run failed with 404s for the missing `/api/v1/projects` routes before implementation. PR3C standard-mode tests were added with implementation; a focused test initially exposed a fake-handler route mismatch before passing. PR3D standard-mode tests were added with implementation and passed focused temp-git-repo coverage. PR4A standard-mode tests were added with implementation and passed focused FastAPI pack-route coverage. PR4B standard-mode tests were added with implementation and passed focused FastAPI project-pack assignment coverage. PR4C tests were written before production code; the focused RED run failed with 404s for the missing pull-manifest route before implementation. PR5A marker tests were written alongside the pure marker module and cover rendering, parsing, insert/update/noop, checksum conflicts, corrupt markers, duplicate blocks, and CRLF/trailing-newline normalization. PR5B pull-plan tests were added with the pure planning module and cover dry-run no-write behavior, updates/noops, conflict exit code 3, multiple artifacts for one target, validation exit code 2, symlink refusal, and corrupt marker wrapping. PR5C cache/lock tests were added with implementation and cover cache population, lock TOML contents, checksum mismatch, unsafe manifest values, symlinked `.agh`, and TOML parseability. PR5D CLI pull tests were added with implementation and cover strict no-write dry-run, normal target/cache/lock writes, conflict exit 3 no writes, force overwrite of managed checksum conflicts only, missing link exit 5, auth exit 4, and invalid manifest/path exit 2.
 
 ## Deviations from Design
 
@@ -663,6 +729,10 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - PR5C fourth security review found download URLs accepted raw or percent-encoded dot segments under `/api/v1`, which could send Bearer tokens to semantically escaped endpoints. Fixed download URL validation to reject query/fragment/params and decoded `.`/`..` path segments before request creation; added regressions.
 - PR5C fifth security review found percent-encoded slash dot segments (`%2e%2e%2f`, `%2e%2f`) and intermediate path params (`/packs;param/bar`) still passed. Fixed validation to percent-decode the whole path before prefix/segment checks, reject empty decoded segments, and reject semicolons anywhere in the path; added regressions.
 - PR5C sixth security review found fully percent-encoded `/api/v1` prefixes (`%2fapi%2fv1/...`) could pass decoded validation but be concatenated raw into an invalid URL, raising uncaught `InvalidURL`. Fixed download URL validation to require the raw parsed path to start with `/api/v1/` before decoded validation; added regression.
+- PR5D implementation split pull downloads into a no-write `download_manifest_artifacts()` path so `agh pull --dry-run` can fetch/verify artifact content for planning without creating `.agh/packs`, `.agh/lock.toml`, or target files. `populate_cache_and_write_lock()` now preflights cache symlink boundaries before network downloads to preserve PR5C safety behavior.
+- PR5D first security review found portable backslash traversal risk in manifest paths and non-string manifest values being coerced with `str(...)` into real target/cache paths. Fixed relative path validation to reject backslashes and re-check `Path.parts`, added defensive directory-boundary lexical checks, and replaced coercion with required-string manifest field validation; added regressions for backslash traversal and `None` values.
+- PR5D second security review found raw and percent-decoded backslashes in `download_url` could pass URL validation and send Bearer requests through proxy/Windows normalization edge cases. Fixed URL path validation to reject backslashes before and after percent-decoding; added regressions.
+- PR5D third security review found `manifest.project.id` still used `str(...)` coercion for lock output, allowing non-string project IDs into `.agh/lock.toml`. Fixed project metadata validation to reject non-object projects and present non-string IDs, and lock rendering to require string IDs; added regressions.
 
 ## Remaining Tasks
 
@@ -674,7 +744,9 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - [x] 4.4 Add CLI `pack publish/list` and project assignment commands with manifest validation errors surfaced as exit code `2`.
 - [x] 5.1 Add `agh/cli/pull_markers.py` for AGH BEGIN/END parsing, normalized payload checksums, insert/update without replacing unmanaged content; test mismatch detection.
 - [x] 5.2 Add `agh/cli/pull_plan.py` for dry-run/conflict planning and exit codes `0/1/2/3/4/5`; test dry-run writes nothing and conflicts return `3`.
-- [ ] 5.3–6.4 unchanged.
+- [x] 5.3 Add `.agh/packs/` cache downloads and `.agh/lock.toml` atomic writes in `agh/cli/workspace_pull.py`; test cache population and lock contents.
+- [x] 5.4 Wire `agh pull --dry-run/--force` to pull-manifest, marker planning, cache, and lock updates; test force overwrites checksum conflicts only in managed blocks.
+- [ ] 6.1–6.4 unchanged.
 
 ## Workload / PR Boundary
 

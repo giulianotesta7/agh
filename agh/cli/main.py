@@ -23,6 +23,7 @@ from agh.cli.config import (
     validate_login,
 )
 from agh.cli.pack_publish import PackPublishBuildError, build_pack_publish_payload
+from agh.cli.workspace_pull import WorkspacePullError, pull_workspace
 from agh.cli.workspace_sync import WorkspaceSyncError, sync_workspace
 
 APP_HELP = """Agent Guidance Hub — manage and distribute agent guidance packs.
@@ -38,6 +39,7 @@ Commands:
   project      Manage projects and developer memberships.
   pack         Publish and list guidance packs.
   sync         Link this git repository to its matching AGH project.
+  pull         Pull assigned guidance packs into this repository.
 
 Global options:
   --help       Show this help page.
@@ -235,6 +237,54 @@ def _echo_payload(payload: Any, *, allow_plain_token: bool = False) -> None:
 
 def _body_without_none(**fields: Any) -> dict[str, Any]:
     return {key: value for key, value in fields.items() if value is not None}
+
+
+@app.command("pull", help="Pull assigned guidance packs into this repository.")
+def pull(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show planned changes without writing files."),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Overwrite checksum-conflicted AGH-managed blocks only.",
+        ),
+    ] = False,
+) -> None:
+    """Fetch the linked project pull-manifest and apply managed guidance blocks."""
+    try:
+        result = pull_workspace(dry_run=dry_run, force=force)
+    except WorkspacePullError as exc:
+        _fail(str(exc), code=exc.code)
+
+    _echo_payload(
+        {
+            "status": result.status,
+            "dry_run": result.dry_run,
+            "changes": [
+                {
+                    "target_path": change.target_path,
+                    "status": change.status,
+                    "conflicts": [
+                        {
+                            "pack_ref": conflict.pack_ref,
+                            "artifact_path": conflict.artifact_path,
+                            "expected_checksum": conflict.expected_checksum,
+                            "actual_checksum": conflict.actual_checksum,
+                        }
+                        for conflict in change.conflicts
+                    ],
+                }
+                for change in result.plan.changes
+            ],
+            "lock_path": str(result.cache_result.lock_path)
+            if result.cache_result is not None
+            else None,
+        }
+    )
+    raise typer.Exit(result.exit_code)
 
 
 @app.command("sync", help="Link this git repository to its matching AGH project.")

@@ -68,6 +68,7 @@ def plan_pull(
     artifacts: list[PullArtifact],
     *,
     dry_run: bool = False,
+    force: bool = False,
 ) -> PullPlan:
     """Build a pull plan without writing files."""
     root = workspace.resolve()
@@ -81,7 +82,7 @@ def plan_pull(
         current_text = target_text.get(target_key)
         if current_text is None:
             current_text = _read_target(root, target_path)
-        marker_plan = _plan_marker_update(current_text, artifact)
+        marker_plan = _plan_marker_update(current_text, artifact, force=force)
         target_text[target_key] = marker_plan.content
         target_status[target_key] = _combine_status(
             target_status.get(target_key, "noop"), marker_plan.status
@@ -128,7 +129,9 @@ def _combine_status(previous: str, current: str) -> str:
     return "insert"
 
 
-def _plan_marker_update(current_text: str, artifact: PullArtifact) -> MarkerPlan:
+def _plan_marker_update(
+    current_text: str, artifact: PullArtifact, *, force: bool = False
+) -> MarkerPlan:
     try:
         return plan_managed_update(
             current_text,
@@ -137,6 +140,7 @@ def _plan_marker_update(current_text: str, artifact: PullArtifact) -> MarkerPlan
                 artifact_path=artifact.artifact_path,
                 payload=artifact.content,
             ),
+            force=force,
         )
     except MarkerError as exc:
         raise PullPlanError(str(exc), code=EXIT_VALIDATION) from exc

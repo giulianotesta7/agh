@@ -116,7 +116,9 @@ def render_managed_block(pack_ref: str, artifact_path: str, payload: str) -> str
     )
 
 
-def plan_managed_update(text: str, request: ManagedBlockRequest) -> MarkerPlan:
+def plan_managed_update(
+    text: str, request: ManagedBlockRequest, *, force: bool = False
+) -> MarkerPlan:
     """Plan inserting or updating a managed block while preserving unmanaged text."""
     blocks = parse_managed_blocks(text)
     matches = [
@@ -138,6 +140,11 @@ def plan_managed_update(text: str, request: ManagedBlockRequest) -> MarkerPlan:
     block = matches[0]
     actual_checksum = managed_payload_checksum(block.payload)
     if actual_checksum != block.checksum:
+        if force:
+            return MarkerPlan(
+                status="update",
+                content=f"{text[: block.start]}{rendered}{text[block.end :]}",
+            )
         return MarkerPlan(
             status="conflict",
             content=text,

@@ -159,6 +159,8 @@ def test_populate_cache_rejects_checksum_mismatch_without_lock(tmp_path: Path) -
         {"download_url": "/api/v1/%2e%2e%2fadmin"},
         {"download_url": "/api/v1/%2e%2fadmin"},
         {"download_url": "/api/v1/packs;param/bar"},
+        {"download_url": "/api/v1/..\\admin"},
+        {"download_url": "/api/v1/%5c..%5cadmin"},
         {"download_url": "%2fapi%2fv1/packs/acme/onboarding"},
         {"download_url": "/api/v1/packs?x=1"},
         {"path": "instructions/BAD\nNAME.md"},
@@ -170,15 +172,45 @@ def test_populate_cache_rejects_checksum_mismatch_without_lock(tmp_path: Path) -
         {"path": "."},
         {"path": "a/."},
         {"path": "a/./b"},
+        {"path": "a\\..\\secret.md"},
         {"target_path": "."},
         {"target_path": "a/."},
+        {"target_path": "a\\..\\AGENTS.md"},
+        {"path": None},
+        {"target_path": None},
+        {"checksum": None},
+        {"download_url": None},
     ],
 )
 def test_populate_cache_rejects_unsafe_manifest_values(
-    tmp_path: Path, artifact_update: dict[str, str]
+    tmp_path: Path, artifact_update: dict[str, object]
 ) -> None:
     manifest = _manifest()
     manifest["packs"][0]["artifacts"][0].update(artifact_update)
+
+    with pytest.raises(WorkspacePullError) as exc_info:
+        populate_cache_and_write_lock(
+            tmp_path, config=_config("http://127.0.0.1:9"), manifest=manifest
+        )
+
+    assert exc_info.value.code == 2
+
+
+def test_populate_cache_rejects_non_string_project_id(tmp_path: Path) -> None:
+    manifest = _manifest()
+    manifest["project"]["id"] = None
+
+    with pytest.raises(WorkspacePullError) as exc_info:
+        populate_cache_and_write_lock(
+            tmp_path, config=_config("http://127.0.0.1:9"), manifest=manifest
+        )
+
+    assert exc_info.value.code == 2
+
+
+def test_populate_cache_rejects_non_object_project(tmp_path: Path) -> None:
+    manifest = _manifest()
+    manifest["project"] = "bad"
 
     with pytest.raises(WorkspacePullError) as exc_info:
         populate_cache_and_write_lock(
