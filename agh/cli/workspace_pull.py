@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import json
 import os
@@ -14,13 +14,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from agh.cli.agent_integrations import relative_symlink_target, symlink_points_to
 from agh.cli.config import AghConfig, ConfigError, load_config
+from agh.cli.pull_markers import MarkerConflict
 from agh.cli.pull_plan import (
     EXIT_CONFLICT,
     EXIT_NOT_LINKED,
     PullArtifact,
     PullPlan,
     PullPlanError,
+    PullTargetChange,
     plan_pull,
 )
 from agh.common.checksums import managed_payload_checksum
@@ -55,6 +58,7 @@ class DownloadedArtifact:
     target_path: str
     checksum: str
     content: str
+    kind: str
     domain: str
     name: str
     version: str
@@ -108,6 +112,10 @@ def pull_workspace(
     config = _load_config_or_error()
     manifest = fetch_pull_manifest(config=config, project_id=link.project_id)
     downloaded = download_manifest_artifacts(config=config, manifest=manifest)
+    instruction_artifacts = [
+        artifact for artifact in downloaded if artifact.kind == "instruction"
+    ]
+    skill_artifacts = [artifact for artifact in downloaded if artifact.kind == "skill"]
     artifacts = [
         PullArtifact(
             pack_ref=artifact.pack_ref,
@@ -115,21 +123,41 @@ def pull_workspace(
             target_path=artifact.target_path,
             content=artifact.content,
         )
-        for artifact in downloaded
+        for artifact in instruction_artifacts
     ]
     try:
-        plan = plan_pull(workspace, artifacts, dry_run=dry_run, force=force)
+        instruction_plan = plan_pull(workspace, artifacts, dry_run=dry_run, force=force)
     except PullPlanError as exc:
         raise WorkspacePullError(str(exc), code=exc.code) from exc
+    skill_changes = _plan_skill_placements(workspace, skill_artifacts, force=force)
+    plan = _merge_pull_and_skill_plans(
+        instruction_plan, skill_changes=skill_changes, dry_run=dry_run
+    )
     if dry_run or plan.exit_code == EXIT_CONFLICT:
         return WorkspacePullResult(
             status=plan.status, exit_code=plan.exit_code, dry_run=dry_run, plan=plan
         )
     _preflight_workspace_cache_boundaries(workspace, manifest)
     try:
-        _apply_pull_plan(workspace, plan)
-        cache_result = write_cache_and_lock(
-            workspace, manifest=manifest, artifacts=downloaded
+        _apply_pull_plan(workspace, instruction_plan)
+        cache_result = write_cache_artifacts(workspace, artifacts=downloaded)
+        mode_overrides = _place_skill_artifacts(
+            workspace,
+            skill_artifacts=skill_artifacts,
+            cached_artifacts=cache_result.artifacts,
+        )
+        cached_artifacts = [
+            replace(
+                artifact,
+                mode=mode_overrides.get(
+                    (artifact.pack_ref, artifact.path, artifact.target_path),
+                    artifact.mode,
+                ),
+            )
+            for artifact in cache_result.artifacts
+        ]
+        cache_result = write_lock_for_cached_artifacts(
+            workspace, manifest=manifest, artifacts=cached_artifacts
         )
     except OSError as exc:
         raise WorkspacePullError(
@@ -274,6 +302,11 @@ def download_manifest_artifacts(
             artifact_path = _artifact_path(artifact)
             target_path = _target_path(artifact)
             checksum = _artifact_checksum(artifact)
+            kind = _artifact_kind(artifact)
+            target_agent = _target_agent(artifact)
+            _validate_artifact_target(
+                kind=kind, target_agent=target_agent, target_path=target_path
+            )
             download_url = _download_url(artifact)
             content = _download_text(config=config, url=download_url)
             actual_checksum = managed_payload_checksum(content)
@@ -288,6 +321,7 @@ def download_manifest_artifacts(
                     target_path=target_path,
                     checksum=checksum,
                     content=content,
+                    kind=kind,
                     domain=domain,
                     name=name,
                     version=version,
@@ -299,6 +333,15 @@ def download_manifest_artifacts(
 def write_cache_and_lock(
     workspace: Path, *, manifest: object, artifacts: list[DownloadedArtifact]
 ) -> WorkspacePullCacheResult:
+    cache_result = write_cache_artifacts(workspace, artifacts=artifacts)
+    return write_lock_for_cached_artifacts(
+        workspace, manifest=manifest, artifacts=cache_result.artifacts
+    )
+
+
+def write_cache_artifacts(
+    workspace: Path, *, artifacts: list[DownloadedArtifact]
+) -> WorkspacePullCacheResult:
     root = workspace.resolve()
     agh_dir = root / ".agh"
     if agh_dir.is_symlink():
@@ -308,9 +351,6 @@ def write_cache_and_lock(
     agh_dir.mkdir(parents=True, exist_ok=True)
     cache_dir = agh_dir / "packs"
     _ensure_safe_directory_boundary(agh_dir, cache_dir)
-    lock_path = agh_dir / "lock.toml"
-    manifest = _validate_manifest(manifest)
-    _validate_manifest_metadata(manifest)
     cached: list[CachedArtifact] = []
     for artifact in artifacts:
         cache_path = _cache_path(
@@ -331,9 +371,190 @@ def write_cache_and_lock(
                 cache_path=cache_path.relative_to(root),
             )
         )
-    _write_lockfile(lock_path, manifest=manifest, artifacts=cached)
     return WorkspacePullCacheResult(
-        cache_dir=cache_dir, lock_path=lock_path, artifacts=cached
+        cache_dir=cache_dir, lock_path=agh_dir / "lock.toml", artifacts=cached
+    )
+
+
+def write_lock_for_cached_artifacts(
+    workspace: Path, *, manifest: object, artifacts: list[CachedArtifact]
+) -> WorkspacePullCacheResult:
+    root = workspace.resolve()
+    agh_dir = root / ".agh"
+    if agh_dir.is_symlink():
+        raise WorkspacePullError(
+            f"refusing to write through symlinked AGH directory: {agh_dir}", code=2
+        )
+    agh_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = agh_dir / "packs"
+    lock_path = agh_dir / "lock.toml"
+    manifest = _validate_manifest(manifest)
+    _validate_manifest_metadata(manifest)
+    _write_lockfile(lock_path, manifest=manifest, artifacts=artifacts)
+    return WorkspacePullCacheResult(
+        cache_dir=cache_dir, lock_path=lock_path, artifacts=artifacts
+    )
+
+
+def _plan_skill_placements(
+    workspace: Path, skill_artifacts: list[DownloadedArtifact], *, force: bool
+) -> list[PullTargetChange]:
+    root = workspace.resolve()
+    changes: list[PullTargetChange] = []
+    for artifact in skill_artifacts:
+        target_path = _safe_relative_path(artifact.target_path)
+        cache_path = _relative_cache_path_for_artifact(artifact)
+        status, conflicts = _plan_one_skill_placement(
+            root=root,
+            target_path=target_path,
+            cache_path=cache_path,
+            artifact=artifact,
+            force=force,
+        )
+        changes.append(
+            PullTargetChange(
+                target_path=target_path.as_posix(),
+                status=status,
+                content="",
+                conflicts=conflicts,
+            )
+        )
+    return changes
+
+
+def _plan_one_skill_placement(
+    *,
+    root: Path,
+    target_path: Path,
+    cache_path: Path,
+    artifact: DownloadedArtifact,
+    force: bool,
+) -> tuple[str, list[MarkerConflict]]:
+    path = root / target_path
+    _ensure_target_parent_safe(root, path.parent)
+    if not path.exists() and not path.is_symlink():
+        return "insert", []
+    if path.is_symlink():
+        if symlink_points_to(path, root / cache_path):
+            return "noop", []
+        if force:
+            return "update", []
+        return "conflict", [_skill_conflict(artifact, actual_checksum="symlink")]
+    if path.is_file():
+        try:
+            current = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            if force:
+                return "update", []
+            return "conflict", [_skill_conflict(artifact, actual_checksum="non-utf8")]
+        actual_checksum = managed_payload_checksum(current)
+        if actual_checksum == artifact.checksum:
+            return "noop", []
+        if force:
+            return "update", []
+        return "conflict", [_skill_conflict(artifact, actual_checksum=actual_checksum)]
+    return "conflict", [_skill_conflict(artifact, actual_checksum="non-file")]
+
+
+def _skill_conflict(
+    artifact: DownloadedArtifact, *, actual_checksum: str
+) -> MarkerConflict:
+    return MarkerConflict(
+        pack_ref=artifact.pack_ref,
+        artifact_path=artifact.path,
+        expected_checksum=artifact.checksum,
+        actual_checksum=actual_checksum,
+    )
+
+
+def _merge_pull_and_skill_plans(
+    instruction_plan: PullPlan,
+    *,
+    skill_changes: list[PullTargetChange],
+    dry_run: bool,
+) -> PullPlan:
+    changes = sorted(
+        [*instruction_plan.changes, *skill_changes],
+        key=lambda change: change.target_path,
+    )
+    if any(change.conflicts for change in changes):
+        return PullPlan(
+            status="conflict", exit_code=EXIT_CONFLICT, dry_run=dry_run, changes=changes
+        )
+    if any(change.status in {"insert", "update"} for change in changes):
+        return PullPlan(status="changed", exit_code=0, dry_run=dry_run, changes=changes)
+    return PullPlan(status="noop", exit_code=0, dry_run=dry_run, changes=changes)
+
+
+def _place_skill_artifacts(
+    workspace: Path,
+    *,
+    skill_artifacts: list[DownloadedArtifact],
+    cached_artifacts: list[CachedArtifact],
+) -> dict[tuple[str, str, str], str]:
+    root = workspace.resolve()
+    cached_by_key = {
+        (artifact.pack_ref, artifact.path, artifact.target_path): artifact
+        for artifact in cached_artifacts
+    }
+    modes: dict[tuple[str, str, str], str] = {}
+    for artifact in skill_artifacts:
+        key = (artifact.pack_ref, artifact.path, artifact.target_path)
+        cached = cached_by_key[key]
+        target_path = _safe_relative_path(artifact.target_path)
+        target = root / target_path
+        source = root / cached.cache_path
+        _ensure_target_parent_safe(root, target.parent)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        modes[key] = _write_skill_target(
+            target=target, source=source, content=artifact.content
+        )
+    return modes
+
+
+def _write_skill_target(*, target: Path, source: Path, content: str) -> str:
+    if target.exists() and not target.is_file() and not target.is_symlink():
+        raise WorkspacePullError(
+            f"refusing to replace non-file skill target: {target}", code=3
+        )
+    if target.is_symlink():
+        target.unlink()
+    relative_source = relative_symlink_target(source=source, target=target)
+    try:
+        if target.exists():
+            target.unlink()
+        target.symlink_to(relative_source)
+        return "symlink"
+    except OSError:
+        _write_plain_file(target, content)
+        return "copy"
+
+
+def _write_plain_file(path: Path, content: str) -> None:
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    except Exception:
+        with suppress(FileNotFoundError):
+            temp_path.unlink()
+        raise
+
+
+def _relative_cache_path_for_artifact(artifact: DownloadedArtifact) -> Path:
+    return (
+        Path(".agh")
+        / "packs"
+        / artifact.domain
+        / artifact.name
+        / artifact.version
+        / _safe_relative_path(artifact.path)
     )
 
 
@@ -641,6 +862,40 @@ def _artifact_checksum(artifact: dict) -> str:
             "pull manifest artifact checksum must be sha256:<hex>", code=2
         )
     return checksum
+
+
+def _artifact_kind(artifact: dict) -> str:
+    kind = _required_string(artifact, "kind", "artifact kind")
+    if kind not in {"instruction", "skill"}:
+        raise WorkspacePullError(
+            f"unsupported pull manifest artifact kind: {kind}", code=2
+        )
+    return kind
+
+
+def _target_agent(artifact: dict) -> str:
+    agent = _required_string(artifact, "target_agent", "artifact target_agent")
+    if agent not in {"claude", "opencode"}:
+        raise WorkspacePullError(
+            f"unsupported pull manifest target_agent: {agent}", code=2
+        )
+    return agent
+
+
+def _validate_artifact_target(
+    *, kind: str, target_agent: str, target_path: str
+) -> None:
+    if kind != "skill":
+        return
+    parts = Path(target_path).parts
+    expected_prefix = {
+        "claude": (".claude", "skills"),
+        "opencode": (".opencode", "skills"),
+    }[target_agent]
+    if len(parts) != 4 or parts[0:2] != expected_prefix or parts[3] != "SKILL.md":
+        raise WorkspacePullError(
+            f"invalid {target_agent} skill target path: {target_path}", code=2
+        )
 
 
 def _download_url(artifact: dict) -> str:

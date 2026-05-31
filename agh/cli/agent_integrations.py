@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,6 +59,23 @@ def format_agent_availability(agents: list[AgentAvailability]) -> str:
         reason_text = f" ({', '.join(reasons)})" if reasons else ""
         lines.append(f"{agent.name}: {marker} {status}{reason_text}")
     return "\n".join(lines)
+
+
+def relative_symlink_target(*, source: Path, target: Path) -> str:
+    """Return a portable relative symlink target from target parent to source."""
+    return os.path.relpath(source, start=target.parent)
+
+
+def symlink_points_to(path: Path, expected: Path) -> bool:
+    """Return whether a symlink points to the expected path without writes."""
+    try:
+        raw_target = os.readlink(path)
+    except OSError:
+        return False
+    target = Path(raw_target)
+    if not target.is_absolute():
+        target = path.parent / target
+    return target.resolve(strict=False) == expected.resolve(strict=False)
 
 
 def _detect_agent(
