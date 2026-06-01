@@ -14,9 +14,9 @@ context: |
 
   Agent integrations (MVP): Claude → `CLAUDE.md` + `.claude/skills/<name>/SKILL.md`; OpenCode → `AGENTS.md` + `.opencode/skills/<name>/SKILL.md`; detect local availability and show ✓/✗ advisory.
 
-  Pull behavior: applies assigned project packs with managed blocks + checksums, `.agh/packs` cache, symlinks/managed files, `.agh/lock.toml`; supports `--dry-run` and `--force` for modified managed blocks.
+  Pull behavior: applies assigned project packs with managed blocks + checksums, `.agh-cache/packs` cache, symlinks/managed files, `.agh/lock.toml`; supports `--dry-run` and `--force` for modified managed blocks.
 
-  Version control guidance: commit `.agh/project.toml` and `.agh/lock.toml`; do not commit `.agh/packs/`.
+  Version control guidance: commit `.agh/project.toml` and `.agh/lock.toml`; do not commit `.agh-cache/`.
 
   Logging: stdout/stderr plus `/data/logs/agh.log` when using container filesystem layout.
 

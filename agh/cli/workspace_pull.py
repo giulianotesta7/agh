@@ -179,10 +179,10 @@ def pull_workspace(
 def _vcs_guidance_hint(workspace: Path) -> str | None:
     if not _is_git_worktree(workspace):
         return None
-    if _is_git_ignored(workspace, ".agh/packs/"):
+    if _is_git_ignored(workspace, ".agh-cache/"):
         return None
     return (
-        "Hint: add .agh/packs/ to .gitignore. Commit .agh/project.toml "
+        "Hint: add .agh-cache/ to .gitignore. Commit .agh/project.toml "
         "and .agh/lock.toml with your guidance targets."
     )
 
@@ -221,7 +221,7 @@ def populate_cache_and_write_lock(
     config: AghConfig,
     manifest: object,
 ) -> WorkspacePullCacheResult:
-    """Download manifest artifacts into .agh/packs and atomically write lockfile."""
+    """Download manifest artifacts into .agh-cache/packs and atomically write lockfile."""
     manifest = _validate_manifest(manifest)
     _preflight_workspace_cache_boundaries(workspace, manifest)
     downloaded = download_manifest_artifacts(config=config, manifest=manifest)
@@ -235,8 +235,8 @@ def _preflight_workspace_cache_boundaries(workspace: Path, manifest: dict) -> No
         raise WorkspacePullError(
             f"refusing to write through symlinked AGH directory: {agh_dir}", code=2
         )
-    cache_dir = agh_dir / "packs"
-    _ensure_safe_directory_boundary(agh_dir, cache_dir)
+    cache_dir = _workspace_cache_dir(root)
+    _ensure_cache_root_safe(root)
     _preflight_cache_boundaries(cache_dir=cache_dir, manifest=manifest)
 
 
@@ -392,8 +392,8 @@ def write_cache_artifacts(
             f"refusing to write through symlinked AGH directory: {agh_dir}", code=2
         )
     agh_dir.mkdir(parents=True, exist_ok=True)
-    cache_dir = agh_dir / "packs"
-    _ensure_safe_directory_boundary(agh_dir, cache_dir)
+    cache_dir = _workspace_cache_dir(root)
+    _ensure_cache_root_safe(root)
     cached: list[CachedArtifact] = []
     for artifact in artifacts:
         cache_path = _cache_path(
@@ -429,7 +429,8 @@ def write_lock_for_cached_artifacts(
             f"refusing to write through symlinked AGH directory: {agh_dir}", code=2
         )
     agh_dir.mkdir(parents=True, exist_ok=True)
-    cache_dir = agh_dir / "packs"
+    cache_dir = _workspace_cache_dir(root)
+    _ensure_cache_root_safe(root)
     lock_path = agh_dir / "lock.toml"
     manifest = _validate_manifest(manifest)
     _validate_manifest_metadata(manifest)
@@ -480,6 +481,8 @@ def _plan_one_skill_placement(
     if path.is_symlink():
         if symlink_points_to(path, root / cache_path):
             return "noop", []
+        if _symlink_points_into_old_cache(path=path, root=root):
+            return "update", []
         if force:
             return "update", []
         return "conflict", [_skill_conflict(artifact, actual_checksum="symlink")]
@@ -592,7 +595,7 @@ def _write_plain_file(path: Path, content: str) -> None:
 
 def _relative_cache_path_for_artifact(artifact: DownloadedArtifact) -> Path:
     return (
-        Path(".agh")
+        Path(".agh-cache")
         / "packs"
         / artifact.domain
         / artifact.name
@@ -634,6 +637,48 @@ def _write_target_file(root: Path, target_path: Path, content: str) -> None:
         raise
 
 
+def _workspace_cache_dir(root: Path) -> Path:
+    return root / ".agh-cache" / "packs"
+
+
+def _ensure_cache_root_safe(root: Path) -> None:
+    cache_root = root / ".agh-cache"
+    if cache_root.is_symlink():
+        raise WorkspacePullError(
+            f"refusing to write through symlinked AGH cache directory: {cache_root}",
+            code=2,
+        )
+    if cache_root.exists() and not cache_root.is_dir():
+        raise WorkspacePullError(
+            f"refusing to write through non-directory AGH cache path: {cache_root}",
+            code=2,
+        )
+    packs_dir = cache_root / "packs"
+    if packs_dir.exists() and not packs_dir.is_dir():
+        raise WorkspacePullError(
+            f"refusing to write through non-directory AGH cache path: {packs_dir}",
+            code=2,
+        )
+    _ensure_safe_directory_boundary(root, cache_root)
+    _ensure_safe_directory_boundary(root, packs_dir)
+
+
+def _symlink_points_into_old_cache(*, path: Path, root: Path) -> bool:
+    try:
+        raw_target = os.readlink(path)
+    except OSError:
+        return False
+    target = Path(raw_target)
+    if not target.is_absolute():
+        target = path.parent / target
+    old_cache = root / ".agh" / "packs"
+    try:
+        target.resolve(strict=False).relative_to(old_cache.resolve(strict=False))
+    except ValueError:
+        return False
+    return True
+
+
 def _ensure_target_parent_safe(root: Path, directory: Path) -> None:
     root_resolved = root.resolve(strict=False)
     try:
@@ -646,6 +691,10 @@ def _ensure_target_parent_safe(root: Path, directory: Path) -> None:
         if current.is_symlink():
             raise WorkspacePullError(
                 f"refusing to write through symlinked directory: {current}", code=2
+            )
+        if current.exists() and not current.is_dir():
+            raise WorkspacePullError(
+                f"refusing to write through non-directory path: {current}", code=2
             )
 
 
@@ -814,8 +863,8 @@ def _lockfile_toml(*, manifest: dict, artifacts: list[CachedArtifact]) -> str:
 
 def _lock_source_path(cache_path: Path) -> str:
     parts = cache_path.parts
-    if len(parts) < 3 or parts[0] != ".agh" or parts[1] != "packs":
-        raise WorkspacePullError("cache path is not under .agh/packs", code=2)
+    if len(parts) < 3 or parts[0] != ".agh-cache" or parts[1] != "packs":
+        raise WorkspacePullError("cache path is not under .agh-cache/packs", code=2)
     return cache_path.as_posix()
 
 
@@ -965,6 +1014,10 @@ def _ensure_safe_directory_boundary(root: Path, directory: Path) -> None:
         if current.is_symlink():
             raise WorkspacePullError(
                 f"refusing to write through symlinked directory: {current}", code=2
+            )
+        if current.exists() and not current.is_dir():
+            raise WorkspacePullError(
+                f"refusing to write through non-directory path: {current}", code=2
             )
 
 

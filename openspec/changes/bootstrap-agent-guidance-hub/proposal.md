@@ -39,7 +39,7 @@ Teams lack a single place to publish, version, and distribute agent guidance (in
 | `projects` | Project CRUD; normalized repo URL; duplicate-URL policy; role-less membership; project–pack assignment |
 | `packs` | Pack ID format; `agh.pack.toml` validation; immutable SemVer publish; `latest` resolution for assignment/consumption |
 | `cli` | Typer `agh` binary; `~/.config/agh/config.toml` permissions; login validation via `/api/v1/me`; admin/dev commands |
-| `workspace` | `agh sync` (remote URL match, `--force` link-only); `agh pull` (managed markers, checksums, `.agh/lock.toml`, `.agh/packs` cache, `--dry-run`/`--force`); Claude/OpenCode paths; VCS guidance (commit project+lock, ignore cache) |
+| `workspace` | `agh sync` (remote URL match, `--force` link-only); `agh pull` (managed markers, checksums, `.agh/lock.toml`, `.agh-cache/packs` cache, `--dry-run`/`--force`); Claude/OpenCode paths; VCS guidance (commit project+lock, ignore cache) |
 
 ### Modified Capabilities
 

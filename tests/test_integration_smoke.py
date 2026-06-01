@@ -235,7 +235,7 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
         assert '"dry_run"' not in dry_run.stdout
         assert not (repo / "AGENTS.md").exists()
         assert not (repo / "CLAUDE.md").exists()
-        assert not (repo / ".agh" / "packs").exists()
+        assert not (repo / ".agh-cache").exists()
         assert not (repo / ".agh" / "lock.toml").exists()
 
         pull = runner.invoke(cli_app, ["pull"], env=env)
@@ -247,7 +247,7 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
         assert "  .opencode/skills/reviewer/SKILL.md" in pull.stdout
         assert "Lockfile: .agh/lock.toml" in pull.stdout
         assert '"dry_run"' not in pull.stdout
-        assert "Hint: add .agh/packs/ to .gitignore" in pull.stdout
+        assert "Hint: add .agh-cache/ to .gitignore" in pull.stdout
 
         agents = (repo / "AGENTS.md").read_text(encoding="utf-8")
         claude = (repo / "CLAUDE.md").read_text(encoding="utf-8")
@@ -257,7 +257,7 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
         assert "# Claude" in claude
         assert (
             repo
-            / ".agh"
+            / ".agh-cache"
             / "packs"
             / "acme"
             / "onboarding"
@@ -276,7 +276,7 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
         assert lock["project"]["id"] == project["id"]
         assert [pack["ref"] for pack in lock["packs"]] == ["acme/onboarding@1.0.0"]
         sources = {artifact["source"] for artifact in lock["artifacts"]}
-        assert all(source.startswith(".agh/packs/") for source in sources)
+        assert all(source.startswith(".agh-cache/packs/") for source in sources)
         assert any(
             artifact["mode"] in {"symlink", "copy"} for artifact in lock["artifacts"]
         )

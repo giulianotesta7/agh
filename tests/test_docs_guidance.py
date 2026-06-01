@@ -25,7 +25,8 @@ def test_readme_is_docker_first_landing_page_with_doc_links() -> None:
         "[Operations](docs/operations.md)",
         ".agh/project.toml",
         ".agh/lock.toml",
-        ".agh/packs/",
+        ".agh-cache/packs/",
+        ".agh-cache/",
     ]:
         assert expected in readme
 
@@ -83,7 +84,8 @@ def test_quickstart_documents_first_run_and_first_pull() -> None:
         "agh agent",
         ".agh/project.toml",
         ".agh/lock.toml",
-        ".agh/packs/",
+        ".agh-cache/packs/",
+        ".agh-cache/",
     ]:
         assert expected in quickstart
 
@@ -103,7 +105,9 @@ def test_workspace_docs_explain_pull_markers_skills_lock_and_git_rules() -> None
         'mode = "copy"',
         ".agh/project.toml",
         ".agh/lock.toml",
-        ".agh/packs/",
+        ".agh-cache/packs/",
+        ".agh-cache/",
+        "old pre-release `.agh/packs/` cache",
         "Exit codes",
     ]:
         assert expected in workspace

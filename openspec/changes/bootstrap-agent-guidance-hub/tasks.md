@@ -63,7 +63,7 @@ Chain strategy: stacked-to-main
 
 - [x] 5.1 Add `agh/cli/pull_markers.py` for AGH BEGIN/END parsing, normalized payload checksums, insert/update without replacing unmanaged content; test mismatch detection.
 - [x] 5.2 Add `agh/cli/pull_plan.py` for dry-run/conflict planning and exit codes `0/1/2/3/4/5`; test dry-run writes nothing and conflicts return `3`.
-- [x] 5.3 Add `.agh/packs/` cache downloads and `.agh/lock.toml` atomic writes in `agh/cli/workspace_pull.py`; test cache population and lock contents.
+- [x] 5.3 Add `.agh-cache/packs/` cache downloads and `.agh/lock.toml` atomic writes in `agh/cli/workspace_pull.py`; test cache population and lock contents.
 - [x] 5.4 Wire `agh pull --dry-run/--force` to pull-manifest, marker planning, cache, and lock updates; test force overwrites checksum conflicts only in managed blocks.
 
 ## Phase 6: Agents, Docker, Verification
@@ -71,4 +71,4 @@ Chain strategy: stacked-to-main
 - [x] 6.1 Add Claude/OpenCode instruction targets and skill placement in `agh/cli/agent_integrations.py`, trying relative symlink then copy fallback with lock `mode`; test fallback paths.
 - [x] 6.2 Add `agh agent` advisory output with Claude/OpenCode ✓/✗ detection; test absent agents do not fail.
 - [x] 6.3 Finalize `Dockerfile`, `/data` directory creation, log file append behavior, and health probe docs/comments; verify container serves `:8912`.
-- [x] 6.4 Expand integration tests across auth, API JSON errors, projects, packs, sync, pull, and VCS hints to commit `.agh/project.toml`/`.agh/lock.toml` and ignore `.agh/packs/` (VCS pull hint covered in PR6C; broader integration/API JSON covered in PR6D).
+- [x] 6.4 Expand integration tests across auth, API JSON errors, projects, packs, sync, pull, and VCS hints to commit `.agh/project.toml`/`.agh/lock.toml` and ignore `.agh-cache/` (VCS pull hint covered in PR6C; broader integration/API JSON covered in PR6D).

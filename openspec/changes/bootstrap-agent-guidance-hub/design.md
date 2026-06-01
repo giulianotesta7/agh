@@ -14,7 +14,7 @@ Build one Python distribution with `agh.server`, `agh.cli`, and `agh.common`. Se
 | Pack slugs | `domain`/`name`: lowercase ASCII `^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`; no `latest` as domain/name; SemVer exact for publish. | Human-readable, filesystem-safe, free domains without central registry. |
 | Managed markers | HTML comments: `<!-- AGH-BEGIN pack="domain/name@version" artifact="instructions/AGENTS.md" checksum="sha256:<hex>" -->` and `<!-- AGH-END pack="..." -->`. Checksum is SHA-256 of normalized managed payload bytes: UTF-8, LF line endings, exactly one trailing newline. | Comments are valid in Markdown; checksum excludes markers so metadata can change. |
 | Exit codes | `0` success/no-op/dry-run without conflicts; `1` generic/runtime/API; `2` validation/usage; `3` pull conflict; `4` auth; `5` not linked/no matching project. Dry-run returns `3` if it would conflict. | Stable scripting contract. |
-| Skills on Windows | Try relative symlink from agent skill path to `.agh/packs/...`; on failure or Windows without privilege, copy file and record `mode="copy"` in lock. | Preserves Unix cache benefits while working by default on Windows. |
+| Skills on Windows | Try relative symlink from agent skill path to `.agh-cache/packs/...`; on failure or Windows without privilege, copy file and record `mode="copy"` in lock. | Preserves Unix cache benefits while working by default on Windows. |
 | Pull ordering | Apply project assignments by `position ASC`, then `domain/name ASC`; artifacts apply instructions before skills. | Deterministic and admin-controllable. |
 
 ## Data Flow
@@ -46,7 +46,7 @@ Pull-manifest shape: `{project:{id,name,repo_url_normalized}, packs:[{id:"domain
 
 ### Local formats
 
-`~/.config/agh/config.toml`: `instance_url`, `email`, `token` (0600). `.agh/project.toml`: `instance_url`, `project_id`, `repo_url_normalized`, `synced_at`. `.agh/lock.toml`: `version=1`, `packs[]`, `artifacts[] {target_path, checksum, mode, source}`. `.agh/packs/<domain>/<name>/<version>/...` mirrors pack source layout: `agh.pack.toml`, `instructions/`, `skills/<skill>/SKILL.md`.
+`~/.config/agh/config.toml`: `instance_url`, `email`, `token` (0600). `.agh/project.toml`: `instance_url`, `project_id`, `repo_url_normalized`, `synced_at`. `.agh/lock.toml`: `version=1`, `packs[]`, `artifacts[] {target_path, checksum, mode, source}`. `.agh-cache/packs/<domain>/<name>/<version>/...` mirrors pack source layout: `agh.pack.toml`, `instructions/`, `skills/<skill>/SKILL.md`.
 
 ### CLI mapping
 

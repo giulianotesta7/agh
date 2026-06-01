@@ -94,7 +94,7 @@ def test_populate_cache_downloads_artifacts_and_writes_lock(tmp_path: Path) -> N
 
     cached = (
         tmp_path
-        / ".agh"
+        / ".agh-cache"
         / "packs"
         / "acme"
         / "onboarding"
@@ -103,11 +103,11 @@ def test_populate_cache_downloads_artifacts_and_writes_lock(tmp_path: Path) -> N
         / "AGENTS.md"
     )
     lock_path = tmp_path / ".agh" / "lock.toml"
-    assert result.cache_dir == tmp_path / ".agh" / "packs"
+    assert result.cache_dir == tmp_path / ".agh-cache" / "packs"
     assert result.lock_path == lock_path
     assert cached.read_text(encoding="utf-8") == content
     assert result.artifacts[0].cache_path == Path(
-        ".agh/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+        ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
     assert handler.requests == [
         {
@@ -123,7 +123,10 @@ def test_populate_cache_downloads_artifacts_and_writes_lock(tmp_path: Path) -> N
     assert 'target_path = "AGENTS.md"' in lock
     assert f'checksum = "{managed_payload_checksum(content)}"' in lock
     assert 'mode = "cache"' in lock
-    assert 'source = ".agh/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"' in lock
+    assert (
+        'source = ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"'
+        in lock
+    )
     assert str(tmp_path) not in lock
 
 
@@ -229,12 +232,23 @@ def test_populate_cache_rejects_non_object_manifest(tmp_path: Path) -> None:
     assert exc_info.value.code == 2
 
 
-def test_populate_cache_rejects_symlinked_packs_dir(tmp_path: Path) -> None:
+def test_populate_cache_rejects_symlinked_cache_root(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
-    agh_dir = tmp_path / ".agh"
-    agh_dir.mkdir()
-    (agh_dir / "packs").symlink_to(outside, target_is_directory=True)
+    (tmp_path / ".agh-cache").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(WorkspacePullError, match="symlinked AGH cache"):
+        populate_cache_and_write_lock(
+            tmp_path, config=_config("http://127.0.0.1:9"), manifest=_manifest()
+        )
+
+
+def test_populate_cache_rejects_symlinked_cache_dir(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    cache_dir = tmp_path / ".agh-cache"
+    cache_dir.mkdir()
+    (cache_dir / "packs").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(WorkspacePullError, match="symlinked"):
         populate_cache_and_write_lock(
@@ -247,7 +261,7 @@ def test_populate_cache_rejects_symlinked_intermediate_cache_dir(
 ) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
-    cache_root = tmp_path / ".agh" / "packs" / "acme"
+    cache_root = tmp_path / ".agh-cache" / "packs" / "acme"
     cache_root.parent.mkdir(parents=True)
     cache_root.symlink_to(outside, target_is_directory=True)
 
@@ -308,8 +322,11 @@ def test_lock_source_is_workspace_relative_even_under_dot_agh_parent(
         server.shutdown()
 
     lock = (workspace / ".agh" / "lock.toml").read_text(encoding="utf-8")
-    assert 'source = ".agh/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"' in lock
-    assert ".agh/nested-workspace/.agh/packs" not in lock
+    assert (
+        'source = ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"'
+        in lock
+    )
+    assert ".agh/nested-workspace/.agh-cache/packs" not in lock
 
 
 def test_lockfile_rejects_project_id_control_characters(tmp_path: Path) -> None:

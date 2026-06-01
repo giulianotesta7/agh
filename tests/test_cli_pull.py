@@ -178,7 +178,7 @@ def test_pull_dry_run_downloads_for_planning_without_writes(
     assert "No files were written." in result.stdout
     assert '"dry_run"' not in result.stdout
     assert not (repo / "AGENTS.md").exists()
-    assert not (repo / ".agh" / "packs").exists()
+    assert not (repo / ".agh-cache").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
     assert handler.requests == [
         {
@@ -211,7 +211,7 @@ def test_pull_writes_target_cache_and_lock(tmp_path: Path, monkeypatch) -> None:
     assert "<!-- AGH-BEGIN" in target.read_text(encoding="utf-8")
     cached = (
         repo
-        / ".agh"
+        / ".agh-cache"
         / "packs"
         / "acme"
         / "onboarding"
@@ -224,7 +224,7 @@ def test_pull_writes_target_cache_and_lock(tmp_path: Path, monkeypatch) -> None:
     assert lock["project"]["id"] == "prj_1"
     assert (
         lock["artifacts"][0]["source"]
-        == ".agh/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+        == ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
 
 
@@ -242,7 +242,7 @@ def test_pull_success_in_git_repo_prints_vcs_hint_when_cache_not_ignored(
         server.shutdown()
 
     assert result.exit_code == 0, result.stdout
-    assert "Hint: add .agh/packs/ to .gitignore" in result.stdout
+    assert "Hint: add .agh-cache/ to .gitignore" in result.stdout
     assert "Commit .agh/project.toml and .agh/lock.toml" in result.stdout
 
 
@@ -251,7 +251,7 @@ def test_pull_success_in_git_repo_suppresses_vcs_hint_when_cache_ignored(
 ) -> None:
     repo = _repo(tmp_path)
     _init_git(repo)
-    (repo / ".gitignore").write_text(".agh/packs/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(".agh-cache/\n", encoding="utf-8")
     _write_link(repo)
     server, _handler, url = _serve_pull(content="Use AGH.\n")
     monkeypatch.chdir(repo)
@@ -261,7 +261,7 @@ def test_pull_success_in_git_repo_suppresses_vcs_hint_when_cache_ignored(
         server.shutdown()
 
     assert result.exit_code == 0, result.stdout
-    assert "Hint: add .agh/packs/ to .gitignore" not in result.stdout
+    assert "Hint: add .agh-cache/ to .gitignore" not in result.stdout
 
 
 def test_pull_suppresses_vcs_hint_for_empty_manifest_when_cache_ignored(
@@ -269,7 +269,7 @@ def test_pull_suppresses_vcs_hint_for_empty_manifest_when_cache_ignored(
 ) -> None:
     repo = _repo(tmp_path)
     _init_git(repo)
-    (repo / ".gitignore").write_text(".agh/packs/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(".agh-cache/\n", encoding="utf-8")
     _write_link(repo)
     manifest = _manifest()
     manifest["packs"][0]["artifacts"] = []
@@ -283,8 +283,8 @@ def test_pull_suppresses_vcs_hint_for_empty_manifest_when_cache_ignored(
     assert result.exit_code == 0, result.stdout
     assert "Pull complete: no changes." in result.stdout
     assert "Lockfile: .agh/lock.toml" in result.stdout
-    assert "Hint: add .agh/packs/ to .gitignore" not in result.stdout
-    assert not (repo / ".agh" / "packs").exists()
+    assert "Hint: add .agh-cache/ to .gitignore" not in result.stdout
+    assert not (repo / ".agh-cache").exists()
 
 
 def test_pull_dry_run_in_git_repo_does_not_print_vcs_hint(
@@ -303,8 +303,8 @@ def test_pull_dry_run_in_git_repo_does_not_print_vcs_hint(
         server.shutdown()
 
     assert result.exit_code == 0, result.stdout
-    assert "Hint: add .agh/packs/ to .gitignore" not in result.stdout
-    assert not (repo / ".agh" / "packs").exists()
+    assert "Hint: add .agh-cache/ to .gitignore" not in result.stdout
+    assert not (repo / ".agh-cache").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -329,7 +329,7 @@ def test_pull_conflict_exits_3_without_writes(tmp_path: Path, monkeypatch) -> No
     assert "Conflicts:\n  AGENTS.md" in result.stdout
     assert "Run with --force to replace AGH-managed blocks." in result.stdout
     assert (repo / "AGENTS.md").read_text(encoding="utf-8") == before
-    assert not (repo / ".agh" / "packs").exists()
+    assert not (repo / ".agh-cache").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -406,7 +406,7 @@ def test_pull_invalid_manifest_path_exits_2_without_writes(
     assert result.exit_code == 2
     assert "invalid artifact path" in result.stdout
     assert not (repo / "AGENTS.md").exists()
-    assert not (repo / ".agh" / "packs").exists()
+    assert not (repo / ".agh-cache").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -436,7 +436,90 @@ def test_pull_places_skill_as_relative_symlink_and_records_lock_mode(
     assert artifact["mode"] == "symlink"
     assert (
         artifact["source"]
-        == ".agh/packs/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
+        == ".agh-cache/packs/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
+    )
+
+
+def test_pull_rejects_file_at_cache_root_before_target_writes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _write_link(repo)
+    (repo / ".agh-cache").write_text("not a directory\n", encoding="utf-8")
+    server, _handler, url = _serve_pull(content="Use AGH.\n")
+    monkeypatch.chdir(repo)
+    try:
+        result = CliRunner().invoke(cli_app, ["pull"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 2, result.stdout
+    assert "non-directory AGH cache path" in result.stdout
+    assert not (repo / "AGENTS.md").exists()
+    assert not (repo / ".agh" / "lock.toml").exists()
+
+
+def test_pull_rejects_file_at_cache_packs_before_target_writes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _write_link(repo)
+    (repo / ".agh-cache").mkdir()
+    (repo / ".agh-cache" / "packs").write_text("not a directory\n", encoding="utf-8")
+    server, _handler, url = _serve_pull(content="Use AGH.\n")
+    monkeypatch.chdir(repo)
+    try:
+        result = CliRunner().invoke(cli_app, ["pull"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 2, result.stdout
+    assert "non-directory AGH cache path" in result.stdout
+    assert not (repo / "AGENTS.md").exists()
+    assert not (repo / ".agh" / "lock.toml").exists()
+
+
+def test_pull_replaces_old_pre_release_skill_cache_symlink(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _write_link(repo)
+    old_source = (
+        repo
+        / ".agh"
+        / "packs"
+        / "acme"
+        / "onboarding"
+        / "1.0.0"
+        / "skills"
+        / "reviewer"
+        / "SKILL.md"
+    )
+    old_source.parent.mkdir(parents=True)
+    old_source.write_text("Old cache.\n", encoding="utf-8")
+    target = repo / ".claude" / "skills" / "reviewer" / "SKILL.md"
+    target.parent.mkdir(parents=True)
+    target.symlink_to(
+        Path("../../../.agh/packs/acme/onboarding/1.0.0/skills/reviewer/SKILL.md")
+    )
+    server, _handler, url = _serve_pull(
+        content="Review carefully.\n", manifest=_skill_manifest()
+    )
+    monkeypatch.chdir(repo)
+    try:
+        result = CliRunner().invoke(cli_app, ["pull"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    assert "Pull complete: 1 changed, 0 conflicts." in result.stdout
+    assert target.is_symlink()
+    assert ".agh-cache" in target.readlink().as_posix()
+    assert target.read_text(encoding="utf-8") == "Review carefully.\n"
+    lock = tomllib.loads((repo / ".agh" / "lock.toml").read_text(encoding="utf-8"))
+    assert (
+        lock["artifacts"][0]["source"]
+        == ".agh-cache/packs/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
     )
 
 
@@ -491,7 +574,7 @@ def test_pull_skill_conflict_exits_3_without_writes(
     assert "Conflicts:\n  .claude/skills/reviewer/SKILL.md" in result.stdout
     assert "Run with --force to replace AGH-managed blocks." in result.stdout
     assert target.read_text(encoding="utf-8") == before
-    assert not (repo / ".agh" / "packs").exists()
+    assert not (repo / ".agh-cache").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -538,7 +621,7 @@ def test_pull_skill_dry_run_has_no_writes(tmp_path: Path, monkeypatch) -> None:
     assert "Planned:\n  .claude/skills/reviewer/SKILL.md" in result.stdout
     assert "No files were written." in result.stdout
     assert not (repo / ".claude").exists()
-    assert not (repo / ".agh" / "packs").exists()
+    assert not (repo / ".agh-cache").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -561,7 +644,7 @@ def test_pull_skill_rejects_unapproved_target_path_without_writes(
     assert result.exit_code == 2, result.stdout
     assert "invalid claude skill target path" in result.stdout
     assert not (repo / ".git" / "hooks" / "pre-commit").exists()
-    assert not (repo / ".agh" / "packs").exists()
+    assert not (repo / ".agh-cache").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -584,7 +667,7 @@ def test_pull_skill_rejects_target_agent_path_mismatch_without_writes(
     assert result.exit_code == 2, result.stdout
     assert "invalid opencode skill target path" in result.stdout
     assert not (repo / ".claude").exists()
-    assert not (repo / ".agh" / "packs").exists()
+    assert not (repo / ".agh-cache").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -608,7 +691,7 @@ def test_pull_skill_rejects_cursor_target_agent_without_writes(
     assert result.exit_code == 2, result.stdout
     assert "unsupported pull manifest target_agent" in result.stdout
     assert not (repo / ".cursor").exists()
-    assert not (repo / ".agh" / "packs").exists()
+    assert not (repo / ".agh-cache").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -633,5 +716,5 @@ def test_pull_skill_rejects_symlinked_target_parent_without_writes(
 
     assert result.exit_code == 2, result.stdout
     assert "symlinked directory" in result.stdout
-    assert not (repo / ".agh" / "packs").exists()
+    assert not (repo / ".agh-cache").exists()
     assert not (repo / ".agh" / "lock.toml").exists()

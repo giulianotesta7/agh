@@ -35,7 +35,7 @@ After successful `agh sync`, the repository MUST contain `.agh/project.toml` rec
 
 ### Requirement: Pull applies assigned packs with managed blocks
 
-`agh pull` MUST fetch the pull-manifest for the linked project, download pack artifacts into `.agh/packs/` cache, and apply instruction content using managed block markers with per-block checksums. The CLI MUST NOT replace entire target files outside managed regions.
+`agh pull` MUST fetch the pull-manifest for the linked project, download pack artifacts into `.agh-cache/packs/` cache, and apply instruction content using managed block markers with per-block checksums. The CLI MUST NOT replace entire target files outside managed regions.
 
 #### Scenario: Managed block inserted
 
@@ -80,13 +80,13 @@ After successful `agh sync`, the repository MUST contain `.agh/project.toml` rec
 
 ### Requirement: Packs cache directory
 
-Downloaded pack trees MUST be stored under `.agh/packs/` as a local cache. This directory is machine-local cache, not source of truth for teams.
+Downloaded pack trees MUST be stored under `.agh-cache/packs/` as a local cache. This directory is machine-local cache, not source of truth for teams.
 
 #### Scenario: Cache populated on pull
 
 - GIVEN pull downloads pack content
 - WHEN pull completes
-- THEN artifacts exist under `.agh/packs/`
+- THEN artifacts exist under `.agh-cache/packs/`
 
 ### Requirement: Claude agent integration paths
 
@@ -126,13 +126,13 @@ For OpenCode integration, pull MUST apply `instructions/AGENTS.md` to repository
 
 ### Requirement: Version control guidance
 
-Documentation and CLI hints MUST state: commit `.agh/project.toml` and `.agh/lock.toml`; do not commit `.agh/packs/`. A recommended `.gitignore` entry for `.agh/packs/` SHOULD be suggested on first pull.
+Documentation and CLI hints MUST state: commit `.agh/project.toml` and `.agh/lock.toml`; do not commit `.agh-cache/`. A recommended `.gitignore` entry for `.agh-cache/` SHOULD be suggested on first pull.
 
 #### Scenario: Gitignore recommendation
 
 - GIVEN first successful pull in a git repo without ignore rule
 - WHEN pull completes
-- THEN the user is advised to ignore `.agh/packs/`
+- THEN the user is advised to ignore `.agh-cache/`
 
 #### Scenario: Project and lock are committable artifacts
 

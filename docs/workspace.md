@@ -8,7 +8,7 @@ A workspace is a git repo linked to one AGH project. The repo gets the packs ass
 |---------|--------------|---------------|
 | `agh sync` | Matches the git remote to an AGH project and writes `.agh/project.toml`. | Yes |
 | `agh pull --dry-run` | Fetches the server plan and downloads files in memory. | No |
-| `agh pull` | Applies instructions and skills, refreshes `.agh/packs/`, and writes `.agh/lock.toml`. | Yes |
+| `agh pull` | Applies instructions and skills, refreshes `.agh-cache/packs/`, and writes `.agh/lock.toml`. | Yes |
 | `agh pull --force` | Replaces conflicted AGH blocks or skill targets. | Yes |
 | `agh agent` | Shows whether Claude Code/OpenCode paths look available. | No |
 
@@ -46,11 +46,11 @@ Skills do not use AGH markers. AGH writes or links them at the paths agents alre
 .opencode/skills/<skill>/SKILL.md
 ```
 
-AGH tries a relative symlink to `.agh/packs/...`. If the OS rejects symlinks, AGH copies the file. The lockfile records which one happened:
+AGH tries a relative symlink to `.agh-cache/packs/...`. If the OS rejects symlinks, AGH copies the file. The lockfile records which one happened:
 
 ```toml
 mode = "symlink" # or mode = "copy"
-source = ".agh/packs/<domain>/<name>/<version>/skills/<skill>/SKILL.md"
+source = ".agh-cache/packs/<domain>/<name>/<version>/skills/<skill>/SKILL.md"
 ```
 
 AGH only writes these MVP skill targets:
@@ -66,18 +66,20 @@ It does not write Cursor, Codex, Pi, or global agent paths.
 |------|---------|---------|
 | `.agh/project.toml` | Links the repo to an AGH project. | Yes |
 | `.agh/lock.toml` | Records versions, checksums, source paths, and placement modes. | Yes |
-| `.agh/packs/` | Downloaded pack files. AGH can rebuild it. | No |
+| `.agh-cache/packs/` | Downloaded pack files. AGH can rebuild it. | No |
 | `.claude/skills/`, `.opencode/skills/` | Generated skill targets. Commit only if your team wants them reviewed in Git. | Team choice |
 
 Add this to `.gitignore`:
 
 ```gitignore
-.agh/packs/
+.agh-cache/
 ```
 
-After a successful non-dry-run pull, AGH prints a hint if the repo does not ignore `.agh/packs/`.
+After a successful non-dry-run pull, AGH prints a hint if the repo does not ignore `.agh-cache/`.
 
-If skill targets are symlinks, a fresh clone needs `agh pull` to rebuild `.agh/packs/` before those links resolve.
+If skill targets are symlinks, a fresh clone needs `agh pull` to rebuild `.agh-cache/packs/` before those links resolve.
+
+If this repo has an old pre-release `.agh/packs/` cache, you can delete it after running a current `agh pull`.
 
 ## Exit codes
 
