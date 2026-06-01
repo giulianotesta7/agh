@@ -226,7 +226,13 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
 
         dry_run = runner.invoke(cli_app, ["pull", "--dry-run"], env=env)
         assert dry_run.exit_code == 0, dry_run.stdout
-        assert '"dry_run": true' in dry_run.stdout
+        assert "Dry run complete: 4 changes planned, 0 conflicts." in dry_run.stdout
+        assert "Planned:\n  AGENTS.md" in dry_run.stdout
+        assert "  CLAUDE.md" in dry_run.stdout
+        assert "  .claude/skills/reviewer/SKILL.md" in dry_run.stdout
+        assert "  .opencode/skills/reviewer/SKILL.md" in dry_run.stdout
+        assert "No files were written." in dry_run.stdout
+        assert '"dry_run"' not in dry_run.stdout
         assert not (repo / "AGENTS.md").exists()
         assert not (repo / "CLAUDE.md").exists()
         assert not (repo / ".agh" / "packs").exists()
@@ -234,7 +240,13 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
 
         pull = runner.invoke(cli_app, ["pull"], env=env)
         assert pull.exit_code == 0, pull.stdout
-        assert '"dry_run": false' in pull.stdout
+        assert "Pull complete: 4 changed, 0 conflicts." in pull.stdout
+        assert "Updated:\n  AGENTS.md" in pull.stdout
+        assert "  CLAUDE.md" in pull.stdout
+        assert "  .claude/skills/reviewer/SKILL.md" in pull.stdout
+        assert "  .opencode/skills/reviewer/SKILL.md" in pull.stdout
+        assert "Lockfile: .agh/lock.toml" in pull.stdout
+        assert '"dry_run"' not in pull.stdout
         assert "Hint: add .agh/packs/ to .gitignore" in pull.stdout
 
         agents = (repo / "AGENTS.md").read_text(encoding="utf-8")
