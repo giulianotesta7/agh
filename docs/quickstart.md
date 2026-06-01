@@ -44,7 +44,7 @@ docker run --rm -v agh-data:/data busybox \
 From the AGH checkout:
 
 ```bash
-./scripts/install-cli.sh
+./scripts/install.sh
 ```
 
 Verify it:

@@ -13,7 +13,7 @@ def test_readme_is_docker_first_landing_page_with_doc_links() -> None:
         "docker build -t agh .",
         "docker run --rm -p 8912:8912 -v agh-data:/data \\",
         "AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com",
-        "./scripts/install-cli.sh",
+        "./scripts/install.sh",
         "agh login",
         "agh sync",
         "agh pull --dry-run",
@@ -34,7 +34,7 @@ def test_installation_docs_cover_cli_install_and_uninstall() -> None:
     installation = _read("docs/installation.md")
 
     for expected in [
-        "./scripts/install-cli.sh",
+        "./scripts/install.sh",
         "uv tool install --force .",
         "agh --help",
         "uv tool update-shell",
@@ -47,8 +47,8 @@ def test_installation_docs_cover_cli_install_and_uninstall() -> None:
 
 
 def test_install_cli_script_is_safe_and_uses_uv_tool_install() -> None:
-    script = _read("scripts/install-cli.sh")
-    mode = Path("scripts/install-cli.sh").stat().st_mode
+    script = _read("scripts/install.sh")
+    mode = Path("scripts/install.sh").stat().st_mode
 
     assert mode & 0o111
     for expected in [
@@ -73,7 +73,7 @@ def test_quickstart_documents_first_run_and_first_pull() -> None:
         "docker build -t agh .",
         "docker run --rm -p 8912:8912 -v agh-data:/data \\",
         "/data/secrets/initial_owner_token",
-        "./scripts/install-cli.sh",
+        "./scripts/install.sh",
         "agh --help",
         "agh login",
         "agh project create",

@@ -14,7 +14,7 @@ Clone the repo and run the installer:
 ```bash
 git clone https://github.com/giulianotesta7/AgentGuidanceHub.git
 cd AgentGuidanceHub
-./scripts/install-cli.sh
+./scripts/install.sh
 ```
 
 The script uses `uv tool install --force .` from the repo root. It does not edit shell startup files, Docker state, AGH config, or login credentials.

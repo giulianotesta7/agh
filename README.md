@@ -42,7 +42,7 @@ docker run --rm -p 8912:8912 -v agh-data:/data \
 Install the local CLI, then log in with the first owner token:
 
 ```bash
-./scripts/install-cli.sh
+./scripts/install.sh
 
 agh login \
   --url http://127.0.0.1:8912 \
