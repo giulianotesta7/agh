@@ -1,0 +1,31 @@
+# Git and repository workflow state
+.git
+.gitignore
+.github
+
+# Python environments and caches
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+agh.egg-info
+
+# Local AGH runtime/dev data and CLI configs
+.agh-data
+.agh-data-*
+agh-data
+.agh-cli*.toml
+
+# Local agent runtime state and SDD working artifacts
+.atl
+.pi
+.pi-lens
+sdd
+openspec
+
+# Test/editor/local noise
+.coverage
+htmlcov
+.DS_Store

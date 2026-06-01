@@ -207,6 +207,23 @@
 | `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 6.1 complete only. |
 | `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records PR6B validation evidence. |
 
+## Files Changed (PR6C)
+
+| File | Action | Notes |
+|------|--------|-------|
+| `README.md` | Modified | Acts as Docker-first landing page with core concepts and links to focused docs. |
+| `docs/quickstart.md` | Created | Documents Docker-first first run, bootstrap token, login, project creation, sync, and first pull. |
+| `docs/workspace.md` | Created | Documents repo workflow, pull model, markers, skills, cache, lockfile, Git guidance, and exit codes. |
+| `docs/operations.md` | Created | Documents Docker runtime layout, `/data`, logs, healthcheck, backup, upgrade, and local dev notes. |
+| `.dockerignore` | Created | Keeps local runtime/tool state and caches out of Docker build context while preserving package inputs. |
+| `Dockerfile` | Modified | Adds comments documenting persistent `/data`, log, bootstrap token, and healthcheck behavior. |
+| `agh/cli/main.py` | Modified | Prints VCS guidance hint after successful non-dry-run pull when `.agh/packs/` is not ignored. |
+| `agh/cli/workspace_pull.py` | Modified | Adds git worktree and `.agh/packs` ignore detection for pull result hints. |
+| `tests/test_cli_pull.py` | Modified | Covers VCS hint shown, suppressed when ignored, and omitted for dry-run. |
+| `tests/test_docs_guidance.py` | Created | Checks README doc links, focused docs, Dockerfile, and `.dockerignore` guidance. |
+| `openspec/changes/bootstrap-agent-guidance-hub/tasks.md` | Modified | Marks task 6.3 complete and notes PR6C partial VCS hint coverage for 6.4. |
+| `openspec/changes/bootstrap-agent-guidance-hub/apply-progress.md` | Modified | Records PR6C validation evidence. |
+
 ## Validation
 
 ```text
@@ -731,6 +748,39 @@ uv run --with pyright pyright agh/cli/agent_integrations.py agh/cli/main.py agh/
 
 git diff --check
 # passed
+
+uv run pytest tests/test_cli_pull.py tests/test_docs_guidance.py -q
+# 21 passed in 9.50s
+
+uv run pytest -q
+# 191 passed, 1 warning in 26.21s
+
+uv run --with pyright pyright agh/cli/main.py agh/cli/workspace_pull.py tests/test_cli_pull.py tests/test_docs_guidance.py
+# 0 errors, 0 warnings, 0 informations
+
+git diff --check
+# passed
+
+uv run pytest tests/test_cli_pull.py tests/test_docs_guidance.py -q
+# 22 passed in 10.00s (after PR6C first review fix)
+
+uv run pytest -q
+# 192 passed, 1 warning in 26.80s (after PR6C first review fix)
+
+uv run --with pyright pyright agh/cli/main.py agh/cli/workspace_pull.py tests/test_cli_pull.py tests/test_docs_guidance.py
+# 0 errors, 0 warnings, 0 informations
+
+git diff --check
+# passed
+
+uv run pytest tests/test_docs_guidance.py tests/test_cli_pull.py -q
+# 26 passed in 9.94s (after PR6C docs structure expansion)
+
+uv run pytest -q
+# 196 passed, 1 warning in 26.37s (after PR6C docs structure expansion)
+
+git diff --check
+# passed
 ```
 
 ## TDD Evidence
@@ -789,6 +839,11 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - PR5C sixth security review found fully percent-encoded `/api/v1` prefixes (`%2fapi%2fv1/...`) could pass decoded validation but be concatenated raw into an invalid URL, raising uncaught `InvalidURL`. Fixed download URL validation to require the raw parsed path to start with `/api/v1/` before decoded validation; added regression.
 - PR5D implementation split pull downloads into a no-write `download_manifest_artifacts()` path so `agh pull --dry-run` can fetch/verify artifact content for planning without creating `.agh/packs`, `.agh/lock.toml`, or target files. `populate_cache_and_write_lock()` now preflights cache symlink boundaries before network downloads to preserve PR5C safety behavior.
 - PR6B routes `kind="skill"` artifacts away from managed marker planning. Skill files are placed as real files via relative symlink to `.agh/packs/...` with copy fallback, existing unmanaged targets conflict with exit 3 unless `--force`, and lock entries record `mode="symlink"` or `mode="copy"` while preserving cache `source` provenance.
+- PR6C first review found `git check-ignore` checked `.agh/packs` without a trailing slash, which can miss a `.gitignore` rule `.agh/packs/` before the directory exists for empty manifests. Fixed the ignore check to query `.agh/packs/` and added an empty-manifest regression.
+- Future follow-up: first `agh pull` should show an interactive persisted agent-selection wizard (multi-select agents such as claude-code, opencode, codex, cursor, pi, etc.) and save the choice in TOML so subsequent pulls do not ask again. This should make pull filtering explicit rather than relying only on advisory auto-detection.
+- Future docs follow-up: add focused docs for all core flows: `docs/packs.md`, `docs/projects.md`, `docs/admin.md`, plus later `docs/tutorial.md`, `docs/troubleshooting.md`, and `docs/architecture.md`. README should stay a landing page and link to these guides instead of becoming a full manual.
+- Pre-0.1.0 release blocker: add a CLI installation script or documented install flow that puts the `agh` command on PATH. Docker covers the server, but users still need a local CLI install path before AGH can ship as 0.1.0.
+- Future CLI polish: successful commands should print concise human-readable messages instead of feeling like raw API calls. Keep the sober/plain style; add machine-readable output later as an explicit option if needed.
 - PR6B first security review found skill targets were only generic safe relative paths, allowing adversarial manifests to write `.cursor`, `.git/hooks`, or other in-workspace paths. Fixed skill artifact validation to allow only Claude/OpenCode `target_agent` values and require matching `.claude/skills/<name>/SKILL.md` or `.opencode/skills/<name>/SKILL.md` target layouts; added regressions for unapproved target paths, target-agent/path mismatch, and Cursor target rejection.
 - PR5D first security review found portable backslash traversal risk in manifest paths and non-string manifest values being coerced with `str(...)` into real target/cache paths. Fixed relative path validation to reject backslashes and re-check `Path.parts`, added defensive directory-boundary lexical checks, and replaced coercion with required-string manifest field validation; added regressions for backslash traversal and `None` values.
 - PR5D second security review found raw and percent-decoded backslashes in `download_url` could pass URL validation and send Bearer requests through proxy/Windows normalization edge cases. Fixed URL path validation to reject backslashes before and after percent-decoding; added regressions.
