@@ -473,6 +473,9 @@ def _format_table_row(values: list[str], widths: list[int]) -> str:
     return "  ".join(cells).rstrip()
 
 
+ONE_TIME_TOKEN_WARNING = "Store this token now. AGH will not show it again."
+
+
 def _echo_user_list(payload: dict[str, Any]) -> None:
     users = payload.get("users", [])
     if not users:
@@ -490,6 +493,42 @@ def _echo_user_list(payload: dict[str, Any]) -> None:
             for user in users
         ],
     )
+
+
+def _echo_user_created(payload: dict[str, Any]) -> None:
+    user = payload.get("user", {})
+    if not isinstance(user, dict):
+        user = {}
+    token = _required_plaintext_token(payload)
+    typer.echo(f"Created user {user.get('email', '')} ({user.get('id', '')}).")
+    typer.echo(f"Role: {user.get('role', '')}")
+    typer.echo(f"Status: {_status_label(user)}")
+    typer.echo(f"Token: {token}")
+    typer.echo(ONE_TIME_TOKEN_WARNING)
+
+
+def _echo_user_updated(user: dict[str, Any]) -> None:
+    typer.echo(f"Updated user {user.get('email', '')} ({user.get('id', '')}).")
+    typer.echo(f"Role: {user.get('role', '')}")
+    typer.echo(f"Status: {_status_label(user)}")
+
+
+def _echo_user_deactivated(user: dict[str, Any]) -> None:
+    typer.echo(f"Deactivated user {user.get('email', '')} ({user.get('id', '')}).")
+
+
+def _echo_token_issued(verb: str, payload: dict[str, Any], *, user_id: str) -> None:
+    token = _required_plaintext_token(payload)
+    typer.echo(f"{verb} token for user {user_id}.")
+    typer.echo(f"Token: {token}")
+    typer.echo(ONE_TIME_TOKEN_WARNING)
+
+
+def _required_plaintext_token(payload: dict[str, Any]) -> str:
+    token = payload.get("token")
+    if not isinstance(token, str) or not token:
+        _fail("server response did not include the one-time plaintext token")
+    return token
 
 
 def _echo_project_list(payload: dict[str, Any]) -> None:
@@ -637,7 +676,7 @@ def user_create(
     ] = "member",
 ) -> None:
     payload = _api_request("POST", "/users", body={"email": email, "role": role})
-    _echo_payload(payload, allow_plain_token=True)
+    _echo_user_created(payload)
 
 
 @user_app.command("update", help="Update user email, role, or active flag.")
@@ -653,7 +692,7 @@ def user_update(
         typer.Option("--active/--inactive", help="Set whether the user is active."),
     ] = None,
 ) -> None:
-    _echo_payload(
+    _echo_user_updated(
         _api_request(
             "PATCH",
             user_path(user_id),
@@ -666,7 +705,7 @@ def user_update(
 def user_delete(
     user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
 ) -> None:
-    _echo_payload(_api_request("DELETE", user_path(user_id)))
+    _echo_user_deactivated(_api_request("DELETE", user_path(user_id)))
 
 
 def user_path(user_id: str) -> str:
@@ -685,9 +724,10 @@ def token_main(ctx: typer.Context) -> None:
 def token_rotate(
     user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
 ) -> None:
-    _echo_payload(
+    _echo_token_issued(
+        "Rotated",
         _api_request("POST", f"/users/{user_id}/token:rotate"),
-        allow_plain_token=True,
+        user_id=user_id,
     )
 
 
@@ -695,9 +735,10 @@ def token_rotate(
 def token_reset(
     user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
 ) -> None:
-    _echo_payload(
+    _echo_token_issued(
+        "Reset",
         _api_request("POST", f"/users/{user_id}/token:reset"),
-        allow_plain_token=True,
+        user_id=user_id,
     )
 
 

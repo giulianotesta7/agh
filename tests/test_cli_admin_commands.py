@@ -54,6 +54,10 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
 
 def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
+    if (method, path) == ("POST", "/api/v1/users/missing-token"):
+        return 200, {"user": {"id": "usr_missing", "email": "missing@example.com"}}
+    if (method, path) == ("POST", "/api/v1/users/usr_2/token:missing"):
+        return 200, {}
     if (method, path) == ("GET", "/api/v1/users"):
         return 200, {
             "users": [
@@ -75,6 +79,7 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
                 "active": True,
             },
             "token": "issued-user-token",
+            "token_hash": "issued-hash-secret",
         }
     if (method, path) == ("PATCH", "/api/v1/users/usr_2"):
         return 200, {
@@ -91,9 +96,9 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
             "active": False,
         }
     if (method, path) == ("POST", "/api/v1/users/usr_2/token:rotate"):
-        return 200, {"token": "rotated-token"}
+        return 200, {"token": "rotated-token", "token_hash": "rotated-hash-secret"}
     if (method, path) == ("POST", "/api/v1/users/usr_2/token:reset"):
-        return 200, {"token": "reset-token"}
+        return 200, {"token": "reset-token", "token_hash": "reset-hash-secret"}
     if (method, path) == ("GET", "/api/v1/projects"):
         return 200, {
             "projects": [
@@ -250,6 +255,107 @@ def test_cli_user_token_project_commands_map_to_api_and_mask_stored_token(
         "repo_url": "git@github.com:org/api2.git",
         "active": False,
     }
+
+
+def test_cli_user_token_mutations_use_human_output_and_preserve_one_time_tokens(
+    tmp_path: Path,
+) -> None:
+    server, _handler, url = _serve_api()
+    env = _write_config(tmp_path, url)
+    runner = CliRunner()
+    try:
+        created = runner.invoke(
+            cli_app,
+            ["user", "create", "new@example.com", "--role", "member"],
+            env=env,
+        )
+        updated = runner.invoke(
+            cli_app,
+            ["user", "update", "usr_2", "--email", "renamed@example.com", "--inactive"],
+            env=env,
+        )
+        deactivated = runner.invoke(cli_app, ["user", "delete", "usr_2"], env=env)
+        rotated = runner.invoke(cli_app, ["token", "rotate", "usr_2"], env=env)
+        reset = runner.invoke(cli_app, ["token", "reset", "usr_2"], env=env)
+    finally:
+        server.shutdown()
+
+    assert created.exit_code == 0, created.stdout
+    assert created.stdout == (
+        "Created user new@example.com (usr_2).\n"
+        "Role: member\n"
+        "Status: active\n"
+        "Token: issued-user-token\n"
+        "Store this token now. AGH will not show it again.\n"
+    )
+    assert "issued-user-token" in created.stdout
+
+    assert updated.exit_code == 0, updated.stdout
+    assert updated.stdout == (
+        "Updated user renamed@example.com (usr_2).\nRole: member\nStatus: inactive\n"
+    )
+
+    assert deactivated.exit_code == 0, deactivated.stdout
+    assert deactivated.stdout == "Deactivated user renamed@example.com (usr_2).\n"
+
+    assert rotated.exit_code == 0, rotated.stdout
+    assert rotated.stdout == (
+        "Rotated token for user usr_2.\n"
+        "Token: rotated-token\n"
+        "Store this token now. AGH will not show it again.\n"
+    )
+
+    assert reset.exit_code == 0, reset.stdout
+    assert reset.stdout == (
+        "Reset token for user usr_2.\n"
+        "Token: reset-token\n"
+        "Store this token now. AGH will not show it again.\n"
+    )
+
+    combined = "".join(
+        [
+            created.stdout,
+            updated.stdout,
+            deactivated.stdout,
+            rotated.stdout,
+            reset.stdout,
+        ]
+    )
+    assert "stored-secret-token" not in combined
+    assert "token_hash" not in combined
+    assert "issued-hash-secret" not in combined
+    assert "rotated-hash-secret" not in combined
+    assert "reset-hash-secret" not in combined
+    for json_field in ['"user"', '"token"', '"email"', '"role"', '"active"']:
+        assert json_field not in combined
+
+
+def test_cli_token_flows_fail_if_plaintext_token_is_missing(monkeypatch) -> None:
+    from agh.cli import main as cli_main
+
+    responses = {
+        "/users": {"user": {"id": "usr_missing", "email": "missing@example.com"}},
+        "/users/usr_2/token:rotate": {},
+        "/users/usr_2/token:reset": {"token": ""},
+    }
+    monkeypatch.setattr(
+        cli_main,
+        "_api_request",
+        lambda _method, path, **_kwargs: responses[path],
+    )
+    runner = CliRunner()
+
+    created = runner.invoke(cli_app, ["user", "create", "missing@example.com"])
+    rotated = runner.invoke(cli_app, ["token", "rotate", "usr_2"])
+    reset = runner.invoke(cli_app, ["token", "reset", "usr_2"])
+
+    for result in [created, rotated, reset]:
+        assert result.exit_code == 1, result.stdout
+        assert (
+            "server response did not include the one-time plaintext token"
+            in result.stdout
+        )
+        assert "Store this token now" not in result.stdout
 
 
 def test_cli_read_commands_use_human_output(tmp_path: Path) -> None:
