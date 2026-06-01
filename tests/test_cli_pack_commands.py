@@ -81,18 +81,23 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
     if (method, path) == ("POST", "/api/v1/projects/prj_1/packs"):
         return 201, {
             "id": "asn_1",
+            "project_id": "prj_1",
             "pack_ref": "acme/onboarding@latest",
+            "resolved_ref": "acme/onboarding@1.0.0",
             "position": 5,
+            "active": True,
         }
     if (method, path) == ("PATCH", "/api/v1/projects/prj_1/packs/asn_1"):
         return 200, {
             "id": "asn_1",
+            "project_id": "prj_1",
             "pack_ref": "acme/onboarding@1.0.0",
+            "resolved_ref": "acme/onboarding@1.0.0",
             "position": 7,
             "active": False,
         }
     if (method, path) == ("DELETE", "/api/v1/projects/prj_1/packs/asn_1"):
-        return 200, {"id": "asn_1", "active": False}
+        return 200, {"id": "asn_1", "project_id": "prj_1", "active": False}
     return 404, {"detail": f"unexpected {method} {path}"}
 
 
@@ -152,7 +157,7 @@ def test_cli_pack_publish_list_and_project_pack_commands_map_to_api(
                 "--position",
                 "5",
             ],
-            "position",
+            "Assigned acme/onboarding@latest",
         ),
         (
             [
@@ -167,9 +172,9 @@ def test_cli_pack_publish_list_and_project_pack_commands_map_to_api(
                 "7",
                 "--inactive",
             ],
-            "false",
+            "Status: inactive",
         ),
-        (["project", "pack", "remove", "prj_1", "asn_1"], "asn_1"),
+        (["project", "pack", "remove", "prj_1", "asn_1"], "Removed assignment asn_1"),
     ]
     try:
         for args, expected in commands:
@@ -248,6 +253,67 @@ def test_cli_pack_read_commands_use_human_output(tmp_path: Path) -> None:
         "active",
     ]
     assert '"project_packs"' not in assignments.stdout
+
+
+def test_cli_project_pack_mutation_commands_use_human_output(tmp_path: Path) -> None:
+    server, _handler, url = _serve_api()
+    env = _write_config(tmp_path, url)
+    runner = CliRunner()
+    try:
+        added = runner.invoke(
+            cli_app,
+            [
+                "project",
+                "pack",
+                "add",
+                "prj_1",
+                "acme/onboarding@latest",
+                "--position",
+                "5",
+            ],
+            env=env,
+        )
+        updated = runner.invoke(
+            cli_app,
+            [
+                "project",
+                "pack",
+                "update",
+                "prj_1",
+                "asn_1",
+                "--pack-ref",
+                "acme/onboarding@1.0.0",
+                "--position",
+                "7",
+                "--inactive",
+            ],
+            env=env,
+        )
+        removed = runner.invoke(
+            cli_app, ["project", "pack", "remove", "prj_1", "asn_1"], env=env
+        )
+    finally:
+        server.shutdown()
+
+    assert added.exit_code == 0, added.stdout
+    assert added.stdout == (
+        "Assigned acme/onboarding@latest to project prj_1.\n"
+        "Resolved: acme/onboarding@1.0.0\n"
+        "Assignment: asn_1\n"
+    )
+    assert '"project_id"' not in added.stdout
+
+    assert updated.exit_code == 0, updated.stdout
+    assert updated.stdout == (
+        "Updated assignment asn_1 on project prj_1.\n"
+        "Pack: acme/onboarding@1.0.0\n"
+        "Resolved: acme/onboarding@1.0.0\n"
+        "Position: 7\n"
+        "Status: inactive\n"
+    )
+
+    assert removed.exit_code == 0, removed.stdout
+    assert removed.stdout == "Removed assignment asn_1 from project prj_1.\n"
 
 
 def test_cli_pack_read_commands_show_empty_messages(monkeypatch) -> None:

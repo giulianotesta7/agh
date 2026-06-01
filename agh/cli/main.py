@@ -548,6 +548,56 @@ def _echo_project_pack_list(payload: dict[str, Any]) -> None:
     )
 
 
+def _echo_project_success(verb: str, project: dict[str, Any]) -> None:
+    typer.echo(f"{verb} project {project.get('name', '')} ({project.get('id', '')}).")
+    typer.echo(f"Repo: {project.get('repo_url_normalized', '')}")
+    typer.echo(f"Status: {_status_label(project)}")
+
+
+def _echo_project_deactivated(project: dict[str, Any]) -> None:
+    typer.echo(
+        f"Deactivated project {project.get('name', '')} ({project.get('id', '')})."
+    )
+
+
+def _echo_project_member_success(
+    verb: str, payload: dict[str, Any], *, project_id: str, user_id: str
+) -> None:
+    returned_project_id = str(payload.get("project_id") or project_id)
+    returned_user_id = str(payload.get("user_id") or user_id)
+    typer.echo(
+        f"{verb} user {returned_user_id} {'to' if verb == 'Added' else 'from'} project {returned_project_id}."
+    )
+
+
+def _echo_project_pack_assigned(payload: dict[str, Any], *, project_id: str) -> None:
+    pack_ref = str(payload.get("pack_ref", ""))
+    typer.echo(f"Assigned {pack_ref} to project {project_id}.")
+    typer.echo(f"Resolved: {payload.get('resolved_ref') or pack_ref}")
+    typer.echo(f"Assignment: {payload.get('id', '')}")
+
+
+def _echo_project_pack_updated(
+    payload: dict[str, Any], *, project_id: str, assignment_id: str
+) -> None:
+    returned_assignment_id = str(payload.get("id") or assignment_id)
+    pack_ref = str(payload.get("pack_ref", ""))
+    typer.echo(f"Updated assignment {returned_assignment_id} on project {project_id}.")
+    typer.echo(f"Pack: {pack_ref}")
+    typer.echo(f"Resolved: {payload.get('resolved_ref') or pack_ref}")
+    typer.echo(f"Position: {payload.get('position', 0)}")
+    typer.echo(f"Status: {_status_label(payload)}")
+
+
+def _echo_project_pack_removed(
+    payload: dict[str, Any], *, project_id: str, assignment_id: str
+) -> None:
+    returned_assignment_id = str(payload.get("id") or assignment_id)
+    typer.echo(
+        f"Removed assignment {returned_assignment_id} from project {project_id}."
+    )
+
+
 @user_app.callback(invoke_without_command=True)
 def user_main(ctx: typer.Context) -> None:
     """User administration commands."""
@@ -655,8 +705,9 @@ def project_create(
         typer.Option("--repo-url", help="Git repository URL linked to the project."),
     ],
 ) -> None:
-    _echo_payload(
-        _api_request("POST", "/projects", body={"name": name, "repo_url": repo_url})
+    _echo_project_success(
+        "Created",
+        _api_request("POST", "/projects", body={"name": name, "repo_url": repo_url}),
     )
 
 
@@ -682,12 +733,13 @@ def project_update(
         typer.Option("--active/--inactive", help="Set whether the project is active."),
     ] = None,
 ) -> None:
-    _echo_payload(
+    _echo_project_success(
+        "Updated",
         _api_request(
             "PATCH",
             project_path(project_id),
             body=_body_without_none(name=name, repo_url=repo_url, active=active),
-        )
+        ),
     )
 
 
@@ -695,7 +747,7 @@ def project_update(
 def project_delete(
     project_id: Annotated[str, typer.Argument(help="Project id, e.g. prj_...")],
 ) -> None:
-    _echo_payload(_api_request("DELETE", project_path(project_id)))
+    _echo_project_deactivated(_api_request("DELETE", project_path(project_id)))
 
 
 def project_path(project_id: str) -> str:
@@ -739,7 +791,12 @@ def project_member_add(
     project_id: Annotated[str, typer.Argument(help="Project id, e.g. prj_...")],
     user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
 ) -> None:
-    _echo_payload(_api_request("PUT", f"/projects/{project_id}/members/{user_id}"))
+    _echo_project_member_success(
+        "Added",
+        _api_request("PUT", f"/projects/{project_id}/members/{user_id}"),
+        project_id=project_id,
+        user_id=user_id,
+    )
 
 
 @project_member_app.command("remove", help="Remove a project developer membership.")
@@ -747,7 +804,12 @@ def project_member_remove(
     project_id: Annotated[str, typer.Argument(help="Project id, e.g. prj_...")],
     user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
 ) -> None:
-    _echo_payload(_api_request("DELETE", f"/projects/{project_id}/members/{user_id}"))
+    _echo_project_member_success(
+        "Removed",
+        _api_request("DELETE", f"/projects/{project_id}/members/{user_id}"),
+        project_id=project_id,
+        user_id=user_id,
+    )
 
 
 @project_pack_app.callback(invoke_without_command=True)
@@ -771,12 +833,13 @@ def project_pack_add(
     pack_ref: Annotated[str, typer.Argument(help="Pack ref, e.g. acme/name@1.0.0.")],
     position: Annotated[int, typer.Option("--position", help="Assignment order.")] = 0,
 ) -> None:
-    _echo_payload(
+    _echo_project_pack_assigned(
         _api_request(
             "POST",
             f"/projects/{project_id}/packs",
             body={"pack_ref": pack_ref, "position": position},
-        )
+        ),
+        project_id=project_id,
     )
 
 
@@ -795,14 +858,16 @@ def project_pack_update(
         typer.Option("--active/--inactive", help="Set whether assignment is active."),
     ] = None,
 ) -> None:
-    _echo_payload(
+    _echo_project_pack_updated(
         _api_request(
             "PATCH",
             f"/projects/{project_id}/packs/{assignment_id}",
             body=_body_without_none(
                 pack_ref=pack_ref, position=position, active=active
             ),
-        )
+        ),
+        project_id=project_id,
+        assignment_id=assignment_id,
     )
 
 
@@ -811,8 +876,10 @@ def project_pack_remove(
     project_id: Annotated[str, typer.Argument(help="Project id, e.g. prj_...")],
     assignment_id: Annotated[str, typer.Argument(help="Assignment id, e.g. asn_...")],
 ) -> None:
-    _echo_payload(
-        _api_request("DELETE", f"/projects/{project_id}/packs/{assignment_id}")
+    _echo_project_pack_removed(
+        _api_request("DELETE", f"/projects/{project_id}/packs/{assignment_id}"),
+        project_id=project_id,
+        assignment_id=assignment_id,
     )
 
 

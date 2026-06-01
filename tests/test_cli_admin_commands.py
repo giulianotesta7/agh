@@ -222,8 +222,8 @@ def test_cli_user_token_project_commands_map_to_api_and_mask_stored_token(
             ],
             "github.com/org/api2",
         ),
-        (["project", "member", "add", "prj_2", "usr_2"], "usr_2"),
-        (["project", "member", "remove", "prj_2", "usr_2"], "removed"),
+        (["project", "member", "add", "prj_2", "usr_2"], "Added user usr_2"),
+        (["project", "member", "remove", "prj_2", "usr_2"], "Removed user usr_2"),
         (["project", "delete", "prj_2"], "prj_2"),
     ]
     try:
@@ -279,6 +279,71 @@ def test_cli_read_commands_use_human_output(tmp_path: Path) -> None:
         "active",
     ]
     assert '"projects"' not in projects.stdout
+
+
+def test_cli_project_mutation_commands_use_human_output(tmp_path: Path) -> None:
+    server, _handler, url = _serve_api()
+    env = _write_config(tmp_path, url)
+    runner = CliRunner()
+    try:
+        created = runner.invoke(
+            cli_app,
+            [
+                "project",
+                "create",
+                "API",
+                "--repo-url",
+                "https://github.com/org/api.git",
+            ],
+            env=env,
+        )
+        updated = runner.invoke(
+            cli_app,
+            [
+                "project",
+                "update",
+                "prj_2",
+                "--name",
+                "API2",
+                "--repo-url",
+                "git@github.com:org/api2.git",
+                "--inactive",
+            ],
+            env=env,
+        )
+        deactivated = runner.invoke(cli_app, ["project", "delete", "prj_2"], env=env)
+        member_added = runner.invoke(
+            cli_app, ["project", "member", "add", "prj_2", "usr_2"], env=env
+        )
+        member_removed = runner.invoke(
+            cli_app, ["project", "member", "remove", "prj_2", "usr_2"], env=env
+        )
+        project_get = runner.invoke(cli_app, ["project", "get", "prj_2"], env=env)
+    finally:
+        server.shutdown()
+
+    assert created.exit_code == 0, created.stdout
+    assert created.stdout == (
+        "Created project API (prj_2).\nRepo: github.com/org/api\nStatus: active\n"
+    )
+    assert '"repo_url_normalized"' not in created.stdout
+
+    assert updated.exit_code == 0, updated.stdout
+    assert updated.stdout == (
+        "Updated project API2 (prj_2).\nRepo: github.com/org/api2\nStatus: inactive\n"
+    )
+
+    assert deactivated.exit_code == 0, deactivated.stdout
+    assert deactivated.stdout == "Deactivated project API2 (prj_2).\n"
+
+    assert member_added.exit_code == 0, member_added.stdout
+    assert member_added.stdout == "Added user usr_2 to project prj_2.\n"
+
+    assert member_removed.exit_code == 0, member_removed.stdout
+    assert member_removed.stdout == "Removed user usr_2 from project prj_2.\n"
+
+    assert project_get.exit_code == 0, project_get.stdout
+    assert '"repo_url_normalized"' in project_get.stdout
 
 
 def test_cli_read_commands_show_empty_messages(monkeypatch) -> None:
