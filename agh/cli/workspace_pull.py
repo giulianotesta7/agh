@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
-from dataclasses import dataclass, replace
-from pathlib import Path
 import json
 import os
 import re
+import subprocess
 import tempfile
 import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import suppress
+from dataclasses import dataclass, replace
+from pathlib import Path
 
 from agh.cli.agent_integrations import relative_symlink_target, symlink_points_to
 from agh.cli.config import AghConfig, ConfigError, load_config
@@ -94,6 +95,7 @@ class WorkspacePullResult:
     dry_run: bool
     plan: PullPlan
     cache_result: WorkspacePullCacheResult | None = None
+    vcs_hint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -159,6 +161,7 @@ def pull_workspace(
         cache_result = write_lock_for_cached_artifacts(
             workspace, manifest=manifest, artifacts=cached_artifacts
         )
+        vcs_hint = _vcs_guidance_hint(workspace)
     except OSError as exc:
         raise WorkspacePullError(
             f"failed to write pull results: {exc}", code=1
@@ -169,7 +172,47 @@ def pull_workspace(
         dry_run=dry_run,
         plan=plan,
         cache_result=cache_result,
+        vcs_hint=vcs_hint,
     )
+
+
+def _vcs_guidance_hint(workspace: Path) -> str | None:
+    if not _is_git_worktree(workspace):
+        return None
+    if _is_git_ignored(workspace, ".agh/packs/"):
+        return None
+    return (
+        "Hint: add .agh/packs/ to .gitignore. Commit .agh/project.toml "
+        "and .agh/lock.toml with your guidance targets."
+    )
+
+
+def _is_git_worktree(workspace: Path) -> bool:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=workspace,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, OSError):
+        return False
+    return completed.returncode == 0 and completed.stdout.strip() == "true"
+
+
+def _is_git_ignored(workspace: Path, path: str) -> bool:
+    try:
+        completed = subprocess.run(
+            ["git", "check-ignore", "-q", path],
+            cwd=workspace,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except (FileNotFoundError, OSError):
+        return False
+    return completed.returncode == 0
 
 
 def populate_cache_and_write_lock(

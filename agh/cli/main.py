@@ -289,6 +289,8 @@ def pull(
             else None,
         }
     )
+    if result.vcs_hint:
+        typer.echo(result.vcs_hint)
     raise typer.Exit(result.exit_code)
 
 

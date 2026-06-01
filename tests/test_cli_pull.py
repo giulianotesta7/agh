@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import tomllib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -151,6 +152,12 @@ def _repo(tmp_path: Path) -> Path:
     return repo
 
 
+def _init_git(repo: Path) -> None:
+    subprocess.run(
+        ["git", "init"], cwd=repo, check=True, capture_output=True, text=True
+    )
+
+
 def test_pull_dry_run_downloads_for_planning_without_writes(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -213,6 +220,84 @@ def test_pull_writes_target_cache_and_lock(tmp_path: Path, monkeypatch) -> None:
         lock["artifacts"][0]["source"]
         == ".agh/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
+
+
+def test_pull_success_in_git_repo_prints_vcs_hint_when_cache_not_ignored(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _init_git(repo)
+    _write_link(repo)
+    server, _handler, url = _serve_pull(content="Use AGH.\n")
+    monkeypatch.chdir(repo)
+    try:
+        result = CliRunner().invoke(cli_app, ["pull"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    assert "Hint: add .agh/packs/ to .gitignore" in result.stdout
+    assert "Commit .agh/project.toml and .agh/lock.toml" in result.stdout
+
+
+def test_pull_success_in_git_repo_suppresses_vcs_hint_when_cache_ignored(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _init_git(repo)
+    (repo / ".gitignore").write_text(".agh/packs/\n", encoding="utf-8")
+    _write_link(repo)
+    server, _handler, url = _serve_pull(content="Use AGH.\n")
+    monkeypatch.chdir(repo)
+    try:
+        result = CliRunner().invoke(cli_app, ["pull"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    assert "Hint: add .agh/packs/ to .gitignore" not in result.stdout
+
+
+def test_pull_suppresses_vcs_hint_for_empty_manifest_when_cache_ignored(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _init_git(repo)
+    (repo / ".gitignore").write_text(".agh/packs/\n", encoding="utf-8")
+    _write_link(repo)
+    manifest = _manifest()
+    manifest["packs"][0]["artifacts"] = []
+    server, _handler, url = _serve_pull(manifest=manifest)
+    monkeypatch.chdir(repo)
+    try:
+        result = CliRunner().invoke(cli_app, ["pull"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    assert "Hint: add .agh/packs/ to .gitignore" not in result.stdout
+    assert not (repo / ".agh" / "packs").exists()
+
+
+def test_pull_dry_run_in_git_repo_does_not_print_vcs_hint(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _init_git(repo)
+    _write_link(repo)
+    server, _handler, url = _serve_pull(content="Use AGH.\n")
+    monkeypatch.chdir(repo)
+    try:
+        result = CliRunner().invoke(
+            cli_app, ["pull", "--dry-run"], env=_write_config(tmp_path, url)
+        )
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    assert "Hint: add .agh/packs/ to .gitignore" not in result.stdout
+    assert not (repo / ".agh" / "packs").exists()
+    assert not (repo / ".agh" / "lock.toml").exists()
 
 
 def test_pull_conflict_exits_3_without_writes(tmp_path: Path, monkeypatch) -> None:
