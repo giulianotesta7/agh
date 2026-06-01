@@ -855,6 +855,8 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - Future follow-up: first `agh pull` should show an interactive persisted agent-selection wizard (multi-select agents such as claude-code, opencode, codex, cursor, pi, etc.) and save the choice in TOML so subsequent pulls do not ask again. This should make pull filtering explicit rather than relying only on advisory auto-detection.
 - Future docs follow-up: add focused docs for all core flows: `docs/packs.md`, `docs/projects.md`, `docs/admin.md`, plus later `docs/tutorial.md`, `docs/troubleshooting.md`, and `docs/architecture.md`. README should stay a landing page and link to these guides instead of becoming a full manual.
 - PR7A adds the pre-0.1.0 CLI install path: `scripts/install.sh` installs `agh` with `uv tool install --force <repo-root>`, verifies `agh --help` when available on PATH, and prints `uv tool update-shell` guidance without editing shell rc files. `docs/installation.md`, README, and quickstart now document the Docker server + local CLI split.
+- PR6D adds bounded integration/API contract coverage for task 6.4: a live-server smoke test covers owner auth, project create, pack publish, assignment, pull manifest, `agh sync`, `agh pull --dry-run`, `agh pull`, VCS hint output, `.agh/project.toml`, `.agh/lock.toml`, `.agh/packs/`, instruction targets, and skill placement. API error tests document the current FastAPI-style JSON `detail` behavior for unauthenticated, forbidden, missing, validation, duplicate, and conflict cases.
+- Future API polish follow-up: decide whether to keep FastAPI's mixed `detail` strings/lists or introduce an AGH-specific error envelope. Current behavior is now tested rather than redesigned in PR6D.
 - Future CLI polish: successful commands should print concise human-readable messages instead of feeling like raw API calls. Keep the sober/plain style; add machine-readable output later as an explicit option if needed.
 - PR6B first security review found skill targets were only generic safe relative paths, allowing adversarial manifests to write `.cursor`, `.git/hooks`, or other in-workspace paths. Fixed skill artifact validation to allow only Claude/OpenCode `target_agent` values and require matching `.claude/skills/<name>/SKILL.md` or `.opencode/skills/<name>/SKILL.md` target layouts; added regressions for unapproved target paths, target-agent/path mismatch, and Cursor target rejection.
 - PR5D first security review found portable backslash traversal risk in manifest paths and non-string manifest values being coerced with `str(...)` into real target/cache paths. Fixed relative path validation to reject backslashes and re-check `Path.parts`, added defensive directory-boundary lexical checks, and replaced coercion with required-string manifest field validation; added regressions for backslash traversal and `None` values.
@@ -873,7 +875,7 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - [x] 5.2 Add `agh/cli/pull_plan.py` for dry-run/conflict planning and exit codes `0/1/2/3/4/5`; test dry-run writes nothing and conflicts return `3`.
 - [x] 5.3 Add `.agh/packs/` cache downloads and `.agh/lock.toml` atomic writes in `agh/cli/workspace_pull.py`; test cache population and lock contents.
 - [x] 5.4 Wire `agh pull --dry-run/--force` to pull-manifest, marker planning, cache, and lock updates; test force overwrites checksum conflicts only in managed blocks.
-- [ ] 6.1–6.4 unchanged.
+- [x] 6.1–6.4 covered.
 
 ## Workload / PR Boundary
 
