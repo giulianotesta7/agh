@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import json
 import urllib.error
 import urllib.request
@@ -27,7 +28,11 @@ from agh.cli.config import (
     validate_login,
 )
 from agh.cli.pack_publish import PackPublishBuildError, build_pack_publish_payload
-from agh.cli.workspace_pull import WorkspacePullError, pull_workspace
+from agh.cli.workspace_pull import (
+    WorkspacePullError,
+    WorkspacePullResult,
+    pull_workspace,
+)
 from agh.cli.workspace_sync import SyncResult, WorkspaceSyncError, sync_workspace
 
 APP_HELP = """Agent Guidance Hub — manage and distribute agent guidance packs.
@@ -264,34 +269,74 @@ def pull(
     except WorkspacePullError as exc:
         _fail(str(exc), code=exc.code)
 
-    _echo_payload(
-        {
-            "status": result.status,
-            "dry_run": result.dry_run,
-            "changes": [
-                {
-                    "target_path": change.target_path,
-                    "status": change.status,
-                    "conflicts": [
-                        {
-                            "pack_ref": conflict.pack_ref,
-                            "artifact_path": conflict.artifact_path,
-                            "expected_checksum": conflict.expected_checksum,
-                            "actual_checksum": conflict.actual_checksum,
-                        }
-                        for conflict in change.conflicts
-                    ],
-                }
-                for change in result.plan.changes
-            ],
-            "lock_path": str(result.cache_result.lock_path)
-            if result.cache_result is not None
-            else None,
-        }
-    )
+    _echo_pull_result(result)
     if result.vcs_hint:
         typer.echo(result.vcs_hint)
     raise typer.Exit(result.exit_code)
+
+
+def _echo_pull_result(result: WorkspacePullResult) -> None:
+    changed_paths = _sort_pull_paths(
+        change.target_path
+        for change in result.plan.changes
+        if change.status in {"insert", "update"}
+    )
+    conflict_paths = _sort_pull_paths(
+        change.target_path for change in result.plan.changes if change.conflicts
+    )
+    conflict_count = len(conflict_paths)
+
+    if conflict_count:
+        typer.echo(
+            f"Pull blocked: {conflict_count} {_plural(conflict_count, 'conflict')}."
+        )
+        typer.echo("Conflicts:")
+        for path in conflict_paths:
+            typer.echo(f"  {path}")
+        typer.echo()
+        typer.echo("Run with --force to replace AGH-managed blocks.")
+        return
+
+    if result.dry_run:
+        change_count = len(changed_paths)
+        typer.echo(
+            f"Dry run complete: {change_count} {_plural(change_count, 'change')} "
+            f"planned, 0 conflicts."
+        )
+        if changed_paths:
+            typer.echo("Planned:")
+            for path in changed_paths:
+                typer.echo(f"  {path}")
+            typer.echo()
+        typer.echo("No files were written.")
+        return
+
+    change_count = len(changed_paths)
+    if change_count:
+        typer.echo(
+            f"Pull complete: {change_count} {_plural(change_count, 'changed')}, 0 conflicts."
+        )
+        typer.echo("Updated:")
+        for path in changed_paths:
+            typer.echo(f"  {path}")
+        typer.echo()
+    else:
+        typer.echo("Pull complete: no changes.")
+
+    if result.cache_result is not None:
+        typer.echo(f"Lockfile: {_format_cli_path(result.cache_result.lock_path)}")
+
+
+def _sort_pull_paths(paths: Iterable[str]) -> list[str]:
+    return sorted(paths, key=lambda path: (path.startswith("."), path))
+
+
+def _plural(count: int, singular: str) -> str:
+    if count == 1:
+        return singular
+    if singular == "changed":
+        return "changed"
+    return f"{singular}s"
 
 
 @app.command("agent", help="Show advisory local agent integration availability.")

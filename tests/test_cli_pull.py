@@ -173,8 +173,10 @@ def test_pull_dry_run_downloads_for_planning_without_writes(
         server.shutdown()
 
     assert result.exit_code == 0, result.stdout
-    assert '"status": "changed"' in result.stdout
-    assert '"dry_run": true' in result.stdout
+    assert "Dry run complete: 1 change planned, 0 conflicts." in result.stdout
+    assert "Planned:\n  AGENTS.md" in result.stdout
+    assert "No files were written." in result.stdout
+    assert '"dry_run"' not in result.stdout
     assert not (repo / "AGENTS.md").exists()
     assert not (repo / ".agh" / "packs").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
@@ -201,6 +203,10 @@ def test_pull_writes_target_cache_and_lock(tmp_path: Path, monkeypatch) -> None:
         server.shutdown()
 
     assert result.exit_code == 0, result.stdout
+    assert "Pull complete: 1 changed, 0 conflicts." in result.stdout
+    assert "Updated:\n  AGENTS.md" in result.stdout
+    assert "Lockfile: .agh/lock.toml" in result.stdout
+    assert '"status"' not in result.stdout
     target = repo / "AGENTS.md"
     assert "<!-- AGH-BEGIN" in target.read_text(encoding="utf-8")
     cached = (
@@ -275,6 +281,8 @@ def test_pull_suppresses_vcs_hint_for_empty_manifest_when_cache_ignored(
         server.shutdown()
 
     assert result.exit_code == 0, result.stdout
+    assert "Pull complete: no changes." in result.stdout
+    assert "Lockfile: .agh/lock.toml" in result.stdout
     assert "Hint: add .agh/packs/ to .gitignore" not in result.stdout
     assert not (repo / ".agh" / "packs").exists()
 
@@ -317,7 +325,9 @@ def test_pull_conflict_exits_3_without_writes(tmp_path: Path, monkeypatch) -> No
         server.shutdown()
 
     assert result.exit_code == 3, result.stdout
-    assert '"status": "conflict"' in result.stdout
+    assert "Pull blocked: 1 conflict." in result.stdout
+    assert "Conflicts:\n  AGENTS.md" in result.stdout
+    assert "Run with --force to replace AGH-managed blocks." in result.stdout
     assert (repo / "AGENTS.md").read_text(encoding="utf-8") == before
     assert not (repo / ".agh" / "packs").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
@@ -477,7 +487,9 @@ def test_pull_skill_conflict_exits_3_without_writes(
         server.shutdown()
 
     assert result.exit_code == 3, result.stdout
-    assert '"status": "conflict"' in result.stdout
+    assert "Pull blocked: 1 conflict." in result.stdout
+    assert "Conflicts:\n  .claude/skills/reviewer/SKILL.md" in result.stdout
+    assert "Run with --force to replace AGH-managed blocks." in result.stdout
     assert target.read_text(encoding="utf-8") == before
     assert not (repo / ".agh" / "packs").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
@@ -522,7 +534,9 @@ def test_pull_skill_dry_run_has_no_writes(tmp_path: Path, monkeypatch) -> None:
         server.shutdown()
 
     assert result.exit_code == 0, result.stdout
-    assert '"target_path": ".claude/skills/reviewer/SKILL.md"' in result.stdout
+    assert "Dry run complete: 1 change planned, 0 conflicts." in result.stdout
+    assert "Planned:\n  .claude/skills/reviewer/SKILL.md" in result.stdout
+    assert "No files were written." in result.stdout
     assert not (repo / ".claude").exists()
     assert not (repo / ".agh" / "packs").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
