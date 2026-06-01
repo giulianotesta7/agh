@@ -21,6 +21,9 @@ def test_readme_is_docker_first_landing_page_with_doc_links() -> None:
         "agh agent",
         "[Installation](docs/installation.md)",
         "[Quickstart](docs/quickstart.md)",
+        "[Packs](docs/packs.md)",
+        "[Projects](docs/projects.md)",
+        "[Admin](docs/admin.md)",
         "[Workspace guide](docs/workspace.md)",
         "[Operations](docs/operations.md)",
         ".agh/project.toml",
@@ -129,6 +132,75 @@ def test_operations_docs_cover_docker_runtime_layout_and_maintenance() -> None:
         "uv run pytest",
     ]:
         assert expected in operations
+
+
+def test_pack_docs_cover_pack_authoring_and_publish() -> None:
+    packs = _read("docs/packs.md")
+
+    for expected in [
+        "agh.pack.toml",
+        "description = \"Shared onboarding instructions and review skills.\"",
+        "instructions/AGENTS.md",
+        "instructions/CLAUDE.md",
+        "skills/<name>/SKILL.md",
+        "agh pack publish",
+        "agh pack list",
+        "SemVer",
+        "Published versions are immutable",
+        "Do not publish `latest`",
+        "Use UTF-8 text files",
+        "Do not include symlinks",
+        "Published acme/onboarding@1.0.0.",
+    ]:
+        assert expected in packs
+
+
+def test_project_docs_cover_projects_assignments_and_pull_resolution() -> None:
+    projects = _read("docs/projects.md")
+
+    for expected in [
+        "A project is an AGH record linked to one git repository",
+        "agh project create",
+        "agh project list",
+        "agh project get",
+        "agh project update",
+        "agh project delete",
+        "agh project pack add",
+        "agh project pack list",
+        "agh project pack update",
+        "agh project pack remove",
+        "asn_...",
+        "assignment id",
+        "latest",
+        "Resolved: acme/onboarding@1.0.0",
+        ".agh/lock.toml",
+        "Workspace guide",
+    ]:
+        assert expected in projects
+
+
+def test_admin_docs_cover_bootstrap_users_roles_tokens_and_config() -> None:
+    admin = _read("docs/admin.md")
+
+    for expected in [
+        "AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com",
+        "/data/secrets/initial_owner_token",
+        "agh login",
+        "agh config show",
+        "agh user list",
+        "agh user create",
+        "agh user update",
+        "agh user delete",
+        "agh token rotate",
+        "agh token reset",
+        "owner",
+        "admin",
+        "member",
+        "Store this token now. AGH will not show it again.",
+        "masks the stored token",
+        "token hashes",
+    ]:
+        assert expected in admin
 
 
 def test_dockerfile_documents_data_dirs_and_healthcheck() -> None:

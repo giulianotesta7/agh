@@ -65,6 +65,9 @@ agh agent
 |-------|------------|
 | [Installation](docs/installation.md) | Install the local `agh` CLI and run the Docker server. |
 | [Quickstart](docs/quickstart.md) | First Docker run, login, project link, and first pull. |
+| [Packs](docs/packs.md) | Create, publish, and list instruction/skill packs. |
+| [Projects](docs/projects.md) | Create projects and assign packs to repos. |
+| [Admin](docs/admin.md) | Bootstrap owner, users, roles, tokens, and local config. |
 | [Workspace guide](docs/workspace.md) | Repo setup, pull behavior, markers, skills, lockfile, and Git rules. |
 | [Operations](docs/operations.md) | Docker runtime layout, `/data`, logs, healthcheck, backup, and upgrades. |
 
