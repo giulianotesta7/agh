@@ -60,6 +60,7 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
                     "domain": "acme",
                     "name": "onboarding",
                     "version": "1.0.0",
+                    "description": "Demo onboarding instructions.",
                 }
             ]
         }
@@ -67,7 +68,15 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
         return 201, {"id": "acme/onboarding@1.0.0", "token_hash": "server-secret"}
     if (method, path) == ("GET", "/api/v1/projects/prj_1/packs"):
         return 200, {
-            "project_packs": [{"id": "asn_1", "pack_ref": "acme/onboarding@latest"}]
+            "project_packs": [
+                {
+                    "id": "asn_1",
+                    "pack_ref": "acme/onboarding@latest",
+                    "resolved_ref": "acme/onboarding@1.0.0",
+                    "position": 0,
+                    "active": True,
+                }
+            ]
         }
     if (method, path) == ("POST", "/api/v1/projects/prj_1/packs"):
         return 201, {
@@ -199,6 +208,70 @@ def test_cli_pack_publish_list_and_project_pack_commands_map_to_api(
         "position": 7,
         "active": False,
     }
+
+
+def test_cli_pack_read_commands_use_human_output(tmp_path: Path) -> None:
+    server, _handler, url = _serve_api()
+    env = _write_config(tmp_path, url)
+    runner = CliRunner()
+    try:
+        packs = runner.invoke(cli_app, ["pack", "list"], env=env)
+        assignments = runner.invoke(
+            cli_app, ["project", "pack", "list", "prj_1"], env=env
+        )
+    finally:
+        server.shutdown()
+
+    assert packs.exit_code == 0, packs.stdout
+    pack_lines = packs.stdout.splitlines()
+    assert pack_lines[0].split() == ["PACK_REF", "DESCRIPTION"]
+    assert pack_lines[1].split(maxsplit=1) == [
+        "acme/onboarding@1.0.0",
+        "Demo onboarding instructions.",
+    ]
+    assert '"packs"' not in packs.stdout
+
+    assert assignments.exit_code == 0, assignments.stdout
+    assignment_lines = assignments.stdout.splitlines()
+    assert assignment_lines[0].split() == [
+        "ASSIGNMENT_ID",
+        "PACK_REF",
+        "RESOLVED",
+        "POSITION",
+        "STATUS",
+    ]
+    assert assignment_lines[1].split() == [
+        "asn_1",
+        "acme/onboarding@latest",
+        "acme/onboarding@1.0.0",
+        "0",
+        "active",
+    ]
+    assert '"project_packs"' not in assignments.stdout
+
+
+def test_cli_pack_read_commands_show_empty_messages(monkeypatch) -> None:
+    from agh.cli import main as cli_main
+
+    responses = {
+        "/packs": {"packs": []},
+        "/projects/prj_1/packs": {"project_packs": []},
+    }
+
+    monkeypatch.setattr(
+        cli_main,
+        "_api_request",
+        lambda _method, path, **_kwargs: responses[path],
+    )
+    runner = CliRunner()
+
+    packs = runner.invoke(cli_app, ["pack", "list"])
+    assignments = runner.invoke(cli_app, ["project", "pack", "list", "prj_1"])
+
+    assert packs.exit_code == 0, packs.stdout
+    assert packs.stdout == "No packs found.\n"
+    assert assignments.exit_code == 0, assignments.stdout
+    assert assignments.stdout == "No assigned packs found.\n"
 
 
 def test_cli_pack_publish_local_validation_errors_exit_2_without_api_call(

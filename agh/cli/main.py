@@ -452,6 +452,102 @@ def config_show() -> None:
     typer.echo(f"token = {mask_token(config.token)}")
 
 
+def _status_label(payload: dict[str, Any]) -> str:
+    return "active" if payload.get("active", True) else "inactive"
+
+
+def _echo_table(headers: list[str], rows: list[list[str]]) -> None:
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+
+    typer.echo(_format_table_row(headers, widths))
+    for row in rows:
+        typer.echo(_format_table_row(row, widths))
+
+
+def _format_table_row(values: list[str], widths: list[int]) -> str:
+    cells = [value.ljust(widths[index]) for index, value in enumerate(values[:-1])]
+    cells.append(values[-1])
+    return "  ".join(cells).rstrip()
+
+
+def _echo_user_list(payload: dict[str, Any]) -> None:
+    users = payload.get("users", [])
+    if not users:
+        typer.echo("No users found.")
+        return
+    _echo_table(
+        ["USER_ID", "EMAIL", "ROLE", "STATUS"],
+        [
+            [
+                str(user.get("id", "")),
+                str(user.get("email", "")),
+                str(user.get("role", "")),
+                _status_label(user),
+            ]
+            for user in users
+        ],
+    )
+
+
+def _echo_project_list(payload: dict[str, Any]) -> None:
+    projects = payload.get("projects", [])
+    if not projects:
+        typer.echo("No projects found.")
+        return
+    _echo_table(
+        ["PROJECT_ID", "NAME", "REPO", "STATUS"],
+        [
+            [
+                str(project.get("id", "")),
+                str(project.get("name", "")),
+                str(project.get("repo_url_normalized", "")),
+                _status_label(project),
+            ]
+            for project in projects
+        ],
+    )
+
+
+def _echo_pack_list(payload: dict[str, Any]) -> None:
+    packs = payload.get("packs", [])
+    if not packs:
+        typer.echo("No packs found.")
+        return
+    _echo_table(
+        ["PACK_REF", "DESCRIPTION"],
+        [[_pack_ref(pack), str(pack.get("description", ""))] for pack in packs],
+    )
+
+
+def _pack_ref(pack: dict[str, Any]) -> str:
+    if pack.get("id"):
+        return str(pack["id"])
+    return f"{pack.get('domain', '')}/{pack.get('name', '')}@{pack.get('version', '')}"
+
+
+def _echo_project_pack_list(payload: dict[str, Any]) -> None:
+    assignments = payload.get("project_packs", [])
+    if not assignments:
+        typer.echo("No assigned packs found.")
+        return
+    _echo_table(
+        ["ASSIGNMENT_ID", "PACK_REF", "RESOLVED", "POSITION", "STATUS"],
+        [
+            [
+                str(assignment.get("id", "")),
+                str(assignment.get("pack_ref", "")),
+                str(assignment.get("resolved_ref") or assignment.get("pack_ref", "")),
+                str(assignment.get("position", 0)),
+                _status_label(assignment),
+            ]
+            for assignment in assignments
+        ],
+    )
+
+
 @user_app.callback(invoke_without_command=True)
 def user_main(ctx: typer.Context) -> None:
     """User administration commands."""
@@ -462,7 +558,7 @@ def user_main(ctx: typer.Context) -> None:
 
 @user_app.command("list", help="List users visible to the authenticated admin.")
 def user_list() -> None:
-    _echo_payload(_api_request("GET", "/users"))
+    _echo_user_list(_api_request("GET", "/users"))
 
 
 @user_app.command("create", help="Create a user and print the issued token once.")
@@ -548,7 +644,7 @@ def project_main(ctx: typer.Context) -> None:
 
 @project_app.command("list", help="List projects visible to the authenticated user.")
 def project_list() -> None:
-    _echo_payload(_api_request("GET", "/projects"))
+    _echo_project_list(_api_request("GET", "/projects"))
 
 
 @project_app.command("create", help="Create a project.")
@@ -616,7 +712,7 @@ def pack_main(ctx: typer.Context) -> None:
 
 @pack_app.command("list", help="List published pack versions.")
 def pack_list() -> None:
-    _echo_payload(_api_request("GET", "/packs"))
+    _echo_pack_list(_api_request("GET", "/packs"))
 
 
 @pack_app.command("publish", help="Publish a local pack directory.")
@@ -666,7 +762,7 @@ def project_pack_main(ctx: typer.Context) -> None:
 def project_pack_list(
     project_id: Annotated[str, typer.Argument(help="Project id, e.g. prj_...")],
 ) -> None:
-    _echo_payload(_api_request("GET", f"/projects/{project_id}/packs"))
+    _echo_project_pack_list(_api_request("GET", f"/projects/{project_id}/packs"))
 
 
 @project_pack_app.command("add", help="Assign a pack to a project.")

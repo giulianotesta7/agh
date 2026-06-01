@@ -252,6 +252,59 @@ def test_cli_user_token_project_commands_map_to_api_and_mask_stored_token(
     }
 
 
+def test_cli_read_commands_use_human_output(tmp_path: Path) -> None:
+    server, _handler, url = _serve_api()
+    env = _write_config(tmp_path, url)
+    runner = CliRunner()
+    try:
+        users = runner.invoke(cli_app, ["user", "list"], env=env)
+        projects = runner.invoke(cli_app, ["project", "list"], env=env)
+    finally:
+        server.shutdown()
+
+    assert users.exit_code == 0, users.stdout
+    user_lines = users.stdout.splitlines()
+    assert user_lines[0].split() == ["USER_ID", "EMAIL", "ROLE", "STATUS"]
+    assert user_lines[1].split() == ["usr_1", "dev@example.com", "member", "active"]
+    assert '"users"' not in users.stdout
+    assert "token_hash" not in users.stdout
+
+    assert projects.exit_code == 0, projects.stdout
+    project_lines = projects.stdout.splitlines()
+    assert project_lines[0].split() == ["PROJECT_ID", "NAME", "REPO", "STATUS"]
+    assert project_lines[1].split() == [
+        "prj_1",
+        "App",
+        "github.com/org/app",
+        "active",
+    ]
+    assert '"projects"' not in projects.stdout
+
+
+def test_cli_read_commands_show_empty_messages(monkeypatch) -> None:
+    from agh.cli import main as cli_main
+
+    responses = {
+        "/users": {"users": []},
+        "/projects": {"projects": []},
+    }
+
+    monkeypatch.setattr(
+        cli_main,
+        "_api_request",
+        lambda _method, path, **_kwargs: responses[path],
+    )
+    runner = CliRunner()
+
+    users = runner.invoke(cli_app, ["user", "list"])
+    projects = runner.invoke(cli_app, ["project", "list"])
+
+    assert users.exit_code == 0, users.stdout
+    assert users.stdout == "No users found.\n"
+    assert projects.exit_code == 0, projects.stdout
+    assert projects.stdout == "No projects found.\n"
+
+
 def test_cli_admin_commands_convert_auth_failures_to_exit_code_4(
     tmp_path: Path, monkeypatch
 ) -> None:
