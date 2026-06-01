@@ -28,7 +28,7 @@ from agh.cli.config import (
 )
 from agh.cli.pack_publish import PackPublishBuildError, build_pack_publish_payload
 from agh.cli.workspace_pull import WorkspacePullError, pull_workspace
-from agh.cli.workspace_sync import WorkspaceSyncError, sync_workspace
+from agh.cli.workspace_sync import SyncResult, WorkspaceSyncError, sync_workspace
 
 APP_HELP = """Agent Guidance Hub — manage and distribute agent guidance packs.
 
@@ -300,6 +300,21 @@ def agent() -> None:
     typer.echo(format_agent_availability(detect_agent_availability()))
 
 
+def _format_cli_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
+def _echo_sync_success(result: SyncResult) -> None:
+    action = "Updated repo link to" if result.replaced else "Linked this repo to"
+    typer.echo(f"{action} {result.project_name} ({result.project_id}).")
+    typer.echo(f"Project file: {_format_cli_path(result.link_path)}")
+    typer.echo(f"Remote: {result.repo_url_normalized}")
+    typer.echo(f"Server: {result.instance_url}")
+
+
 @app.command("sync", help="Link this git repository to its matching AGH project.")
 def sync(
     remote: Annotated[
@@ -317,16 +332,7 @@ def sync(
     except WorkspaceSyncError as exc:
         _fail(str(exc), code=exc.code)
 
-    _echo_payload(
-        {
-            "project_id": result.project_id,
-            "project_name": result.project_name,
-            "instance_url": result.instance_url,
-            "repo_url_normalized": result.repo_url_normalized,
-            "project_file": str(result.link_path),
-            "replaced": result.replaced,
-        }
-    )
+    _echo_sync_success(result)
 
 
 @app.callback(invoke_without_command=True)

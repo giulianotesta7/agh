@@ -97,7 +97,12 @@ def test_sync_links_default_remote_and_uses_saved_config_auth(
         server.shutdown()
 
     assert result.exit_code == 0, result.stdout
-    assert "prj_match" in result.stdout
+    assert "Linked this repo to App (prj_match)." in result.stdout
+    assert "Project file: .agh/project.toml" in result.stdout
+    assert "Remote: github.com/org/app" in result.stdout
+    assert f"Server: {url}" in result.stdout
+    assert '"project_id"' not in result.stdout
+    assert '"replaced"' not in result.stdout
     assert "sync-secret-token" not in result.stdout
     assert handler.requests == [
         {"path": "/api/v1/projects", "authorization": "Bearer sync-secret-token"}
@@ -200,6 +205,9 @@ def test_sync_refuses_existing_link_without_force_and_force_replaces_link_only(
     assert first.exit_code == 5
     assert "already exists" in first.stdout
     assert forced.exit_code == 0, forced.stdout
+    assert "Updated repo link to App (prj_new)." in forced.stdout
+    assert '"project_id"' not in forced.stdout
+    assert '"replaced"' not in forced.stdout
     assert _linked_project_toml(repo)["project_id"] == "prj_new"
     assert (agh_dir / "lock.toml").read_text(encoding="utf-8") == "version = 1\n"
 
