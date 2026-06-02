@@ -82,16 +82,28 @@ In another shell:
 curl http://127.0.0.1:8912/api/v1/health
 ```
 
-## 6. Check local CLI install
+## 6. Check CLI install
 
-From a checkout:
+Before using the package install path for a release, confirm package ownership and the published version:
 
 ```bash
-./scripts/install.sh
+uv tool install --force agh
 agh --help
 ```
 
-Current limitation: the installer expects a local checkout. Do not tag `0.1.0` until public install without cloning is implemented and validated.
+Then check the installer path without cloning the repo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/giulianotesta7/AgentGuidanceHub/main/scripts/install.sh | sh
+agh --help
+```
+
+Also check the development install path from a checkout:
+
+```bash
+uv tool install --force .
+agh --help
+```
 
 ## 7. Run a workspace smoke test
 
@@ -132,7 +144,6 @@ Check both language entry points:
 
 Resolve these items before tagging `0.1.0`:
 
-- Public installer without cloning the repo.
 - Skill-only packs.
 - `agh pack init` for manifest/template generation.
 

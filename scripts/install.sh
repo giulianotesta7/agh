@@ -1,14 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "${script_dir}/.." && pwd)"
-
-if [[ ! -f "${repo_root}/pyproject.toml" || ! -d "${repo_root}/agh" ]]; then
-	echo "Error: could not find the AGH repo root." >&2
-	echo "Run this script from an AGH checkout." >&2
-	exit 1
-fi
+#!/bin/sh
+set -eu
 
 if ! command -v uv >/dev/null 2>&1; then
 	echo "Error: uv is required to install the agh CLI." >&2
@@ -16,8 +7,10 @@ if ! command -v uv >/dev/null 2>&1; then
 	exit 1
 fi
 
-echo "Installing agh CLI from ${repo_root}..."
-uv tool install --force "${repo_root}"
+install_package=${AGH_INSTALL_PACKAGE:-agh}
+
+echo "Installing agh CLI package: ${install_package}"
+uv tool install --force "${install_package}"
 
 if command -v agh >/dev/null 2>&1; then
 	if agh --help >/dev/null 2>&1; then
@@ -37,7 +30,7 @@ echo
 echo "Then restart your shell and verify:"
 echo "  agh --help"
 
-if tool_dir="$(uv tool dir 2>/dev/null)"; then
+if tool_dir=$(uv tool dir 2>/dev/null); then
 	echo
 	echo "uv tool directory: ${tool_dir}"
 fi

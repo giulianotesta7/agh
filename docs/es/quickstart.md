@@ -44,7 +44,7 @@ docker run --rm -v agh-data:/data busybox \
 Desde el checkout de AGH:
 
 ```bash
-./scripts/install.sh
+uv tool install --force .
 ```
 
 Verificalo:

@@ -7,17 +7,23 @@ AGH tiene dos partes:
 
 Instalá el CLI primero. Después usalo para login, administración de packs/proyectos y operaciones de workspace.
 
-## Instalar el CLI
+## Instalar el CLI desde el paquete
 
-Cloná el repo y corré el instalador:
+Después de publicar el paquete `agh` para release, instalalo sin clonar el repo:
 
 ```bash
-git clone https://github.com/giulianotesta7/AgentGuidanceHub.git
-cd AgentGuidanceHub
-./scripts/install.sh
+curl -fsSL https://raw.githubusercontent.com/giulianotesta7/AgentGuidanceHub/main/scripts/install.sh | sh
 ```
 
-El script usa `uv tool install --force .` desde la raíz del repo. No edita archivos de arranque del shell, estado de Docker, config de AGH ni credenciales de login.
+El instalador ejecuta:
+
+```bash
+uv tool install --force agh
+```
+
+No uses el camino de instalación desde paquete para un release hasta validar ownership del paquete y la versión publicada.
+
+El instalador no edita archivos de arranque del shell, estado de Docker, config de AGH ni credenciales de login.
 
 Verificá el comando:
 
@@ -26,6 +32,16 @@ agh --help
 ```
 
 El instalador deja el binario `agh` disponible en el `PATH` del usuario. Los comandos de workspace resuelven el repo desde el directorio de trabajo actual.
+
+## Instalar el CLI desde un checkout
+
+Para desarrollo antes de publicar el paquete, cloná el repo e instalá desde el checkout directamente:
+
+```bash
+git clone https://github.com/giulianotesta7/AgentGuidanceHub.git
+cd AgentGuidanceHub
+uv tool install --force .
+```
 
 ## PATH troubleshooting
 
