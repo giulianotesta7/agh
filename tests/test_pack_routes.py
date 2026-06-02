@@ -174,10 +174,9 @@ def test_pack_publish_validation_and_immutability(tmp_path: Path, monkeypatch) -
     assert _publish(client, owner_token, missing_description).status_code == 400
 
     default_only = _pack_files(agents=None)
-    default_only["instructions/default.md"] = "No fallback.\n"
-    no_instruction = _publish(client, owner_token, default_only)
-    assert no_instruction.status_code == 400
-    assert "instruction source AGENTS.md or CLAUDE.md required" in no_instruction.text
+    empty_pack = _publish(client, owner_token, default_only)
+    assert empty_pack.status_code == 400
+    assert "pack must include at least one instruction file or skill" in empty_pack.text
 
     latest = _publish(client, owner_token, _pack_files(version="latest"))
     assert latest.status_code == 400
@@ -207,15 +206,69 @@ def test_pack_publish_validation_and_immutability(tmp_path: Path, monkeypatch) -
     assert stored == "Use AGENTS.\n"
 
 
+def test_owner_publishes_skill_only_pack(tmp_path: Path, monkeypatch) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+
+    response = _publish(client, owner_token, _pack_files(agents=None, skill=True))
+
+    assert response.status_code == 201, response.text
+    stored_skill = (
+        tmp_path
+        / "packs"
+        / "acme"
+        / "onboarding"
+        / "1.0.0"
+        / "skills"
+        / "lint"
+        / "SKILL.md"
+    )
+    assert stored_skill.read_text(encoding="utf-8") == "# Lint skill\n"
+    assert not (
+        tmp_path
+        / "packs"
+        / "acme"
+        / "onboarding"
+        / "1.0.0"
+        / "instructions"
+        / "AGENTS.md"
+    ).exists()
+
+
 def test_pack_skill_directory_requires_skill_md(tmp_path: Path, monkeypatch) -> None:
     client, owner_token = _client_with_owner(tmp_path, monkeypatch)
-    files = _pack_files()
+    files = _pack_files(agents=None)
     files["skills/lint/README.md"] = "missing SKILL\n"
 
     response = _publish(client, owner_token, files)
 
     assert response.status_code == 400
-    assert "skills/lint/SKILL.md" in response.text
+    assert "unexpected pack file path: skills/lint/README.md" in response.text
+
+
+def test_pack_publish_rejects_unexpected_server_payload_paths(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+
+    extra_root = _pack_files(skill=True)
+    extra_root["extra.txt"] = "unexpected\n"
+    root_response = _publish(client, owner_token, extra_root)
+    assert root_response.status_code == 400
+    assert "unexpected pack file path: extra.txt" in root_response.text
+
+    extra_instruction = _pack_files(agents=None, skill=True)
+    extra_instruction["instructions/EXTRA.md"] = "unexpected\n"
+    instruction_response = _publish(client, owner_token, extra_instruction)
+    assert instruction_response.status_code == 400
+    assert (
+        "unexpected pack file path: instructions/EXTRA.md" in instruction_response.text
+    )
+
+    skills_file = _pack_files(agents=None)
+    skills_file["skills"] = "not a directory\n"
+    skills_response = _publish(client, owner_token, skills_file)
+    assert skills_response.status_code == 400
+    assert "skills must be a directory" in skills_response.text
 
 
 def test_pack_routes_require_auth_and_publish_requires_admin(

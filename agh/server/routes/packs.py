@@ -326,13 +326,54 @@ def _write_payload_to_staging(staging_dir: Path, files: dict[str, str]) -> None:
 def _validate_staged_pack(staging_dir: Path) -> PackManifest:
     manifest = load_pack_manifest(staging_dir / "agh.pack.toml")
     _assert_publish_version(manifest.version)
-    if (
-        not (staging_dir / "instructions" / "AGENTS.md").is_file()
-        and not (staging_dir / "instructions" / "CLAUDE.md").is_file()
-    ):
-        raise PackManifestError("instruction source AGENTS.md or CLAUDE.md required")
+    _validate_allowed_pack_files(staging_dir)
     _validate_skills(staging_dir)
+    _validate_publishable_artifacts(staging_dir)
     return manifest
+
+
+def _validate_allowed_pack_files(staging_dir: Path) -> None:
+    allowed_root_names = {"agh.pack.toml", "instructions", "skills"}
+    for entry in staging_dir.iterdir():
+        if entry.name not in allowed_root_names:
+            raise PackManifestError(f"unexpected pack file path: {entry.name}")
+        if entry.name == "agh.pack.toml" and not entry.is_file():
+            raise PackManifestError("agh.pack.toml must be a file")
+        if entry.name == "instructions":
+            _validate_instruction_files(staging_dir, entry)
+        if entry.name == "skills" and not entry.is_dir():
+            raise PackManifestError("skills must be a directory")
+
+
+def _validate_instruction_files(staging_dir: Path, instructions_dir: Path) -> None:
+    if not instructions_dir.is_dir():
+        raise PackManifestError("instructions must be a directory")
+    allowed_names = {"AGENTS.md", "CLAUDE.md"}
+    for entry in instructions_dir.iterdir():
+        if entry.name not in allowed_names or not entry.is_file():
+            relative = entry.relative_to(staging_dir).as_posix()
+            raise PackManifestError(f"unexpected pack file path: {relative}")
+
+
+def _validate_publishable_artifacts(staging_dir: Path) -> None:
+    if (
+        (staging_dir / "instructions" / "AGENTS.md").is_file()
+        or (staging_dir / "instructions" / "CLAUDE.md").is_file()
+        or _has_skill_artifact(staging_dir)
+    ):
+        return
+    raise PackManifestError("pack must include at least one instruction file or skill")
+
+
+def _has_skill_artifact(staging_dir: Path) -> bool:
+    skills_dir = staging_dir / "skills"
+    if not skills_dir.exists() or not skills_dir.is_dir():
+        return False
+    return any(
+        (child / "SKILL.md").is_file()
+        for child in skills_dir.iterdir()
+        if child.is_dir()
+    )
 
 
 def _assert_publish_version(version: str) -> None:
@@ -346,11 +387,17 @@ def _validate_skills(staging_dir: Path) -> None:
     skills_dir = staging_dir / "skills"
     if not skills_dir.exists():
         return
+    if not skills_dir.is_dir():
+        raise PackManifestError("skills must be a directory")
     for child in skills_dir.iterdir():
         if not child.is_dir():
             raise PackManifestError(f"invalid skill entry: {child.name}")
         if not is_valid_slug(child.name):
             raise PackManifestError(f"invalid skill name: {child.name}")
+        for entry in child.iterdir():
+            if entry.name != "SKILL.md" or not entry.is_file():
+                relative = entry.relative_to(staging_dir).as_posix()
+                raise PackManifestError(f"unexpected pack file path: {relative}")
         if not (child / "SKILL.md").is_file():
             raise PackManifestError(f"skills/{child.name}/SKILL.md is required")
 

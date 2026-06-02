@@ -221,6 +221,32 @@ def test_cli_pack_publish_list_and_project_pack_commands_map_to_api(
     }
 
 
+def test_cli_pack_publish_accepts_skill_only_pack(tmp_path: Path) -> None:
+    server, handler, url = _serve_api()
+    env = _write_config(tmp_path, url)
+    pack_dir = _pack_dir(tmp_path)
+    for path in (pack_dir / "instructions").iterdir():
+        path.unlink()
+    try:
+        result = CliRunner().invoke(
+            cli_app, ["pack", "publish", str(pack_dir)], env=env
+        )
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    publish_body = handler.requests[0]["body"]
+    assert publish_body == {
+        "files": {
+            "agh.pack.toml": (
+                'domain = "acme"\nname = "onboarding"\nversion = "1.0.0"\n'
+                'description = "desc"\n'
+            ),
+            "skills/lint/SKILL.md": "# Skill\n",
+        }
+    }
+
+
 def test_cli_pack_publish_uses_human_output_without_secret_fields(
     tmp_path: Path,
 ) -> None:
@@ -389,7 +415,7 @@ def test_cli_pack_publish_local_validation_errors_exit_2_without_api_call(
         server.shutdown()
 
     assert result.exit_code == 2
-    assert "instruction source" in result.stdout
+    assert "at least one instruction file or skill" in result.stdout
     assert handler.requests == []
 
 

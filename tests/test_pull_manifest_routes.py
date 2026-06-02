@@ -194,6 +194,33 @@ def test_pull_manifest_resolves_latest_orders_assignments_and_builds_artifacts(
     assert baseline_artifact["checksum"] == managed_payload_checksum(baseline_agents)
 
 
+def test_pull_manifest_includes_skill_only_pack_artifacts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    project = _create_project(client, owner_token)
+    skill_content = "# Lint\nUse lint skill.\n"
+    _publish_pack(client, owner_token, "acme/skills@1.0.0", skill=skill_content)
+    _assign_pack(client, owner_token, project["id"], "acme/skills@1.0.0")
+
+    response = client.get(
+        f"/api/v1/projects/{project['id']}/pull-manifest", headers=_auth(owner_token)
+    )
+
+    assert response.status_code == 200, response.text
+    artifacts = response.json()["packs"][0]["artifacts"]
+    assert {artifact["kind"] for artifact in artifacts} == {"skill"}
+    assert {artifact["target_path"] for artifact in artifacts} == {
+        ".opencode/skills/lint/SKILL.md",
+        ".claude/skills/lint/SKILL.md",
+    }
+    assert all(artifact["path"] == "skills/lint/SKILL.md" for artifact in artifacts)
+    assert all(
+        artifact["checksum"] == managed_payload_checksum(skill_content)
+        for artifact in artifacts
+    )
+
+
 def test_pull_manifest_developer_access_and_non_member_denial(
     tmp_path: Path, monkeypatch
 ) -> None:

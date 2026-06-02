@@ -145,6 +145,8 @@ def test_pack_docs_cover_pack_authoring_and_publish() -> None:
         "instructions/AGENTS.md",
         "instructions/CLAUDE.md",
         "skills/<name>/SKILL.md",
+        "A pack can contain instructions, skills, or both",
+        "at least one instruction file or skill",
         "agh pack publish",
         "agh pack list",
         "SemVer",
@@ -251,6 +253,7 @@ def test_spanish_readme_and_docs_mirror_core_flows() -> None:
         "docs/es/packs.md": [
             "agh.pack.toml",
             'description = "Shared onboarding instructions and review skills."',
+            "Un pack puede contener instrucciones, skills o ambas",
             "agh pack publish",
             "SemVer",
         ],

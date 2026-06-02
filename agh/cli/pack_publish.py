@@ -25,8 +25,8 @@ def build_pack_publish_payload(path: Path) -> dict[str, dict[str, str]]:
     try:
         files = _read_text_files(root)
         load_pack_manifest(root / "agh.pack.toml")
-        _validate_instruction_sources(root)
         _validate_skills(root)
+        _validate_publishable_artifacts(root)
     except (PackManifestError, UnicodeDecodeError) as exc:
         raise PackPublishBuildError(str(exc)) from exc
     return {"files": files}
@@ -45,11 +45,26 @@ def _resolve_real_pack_root(path: Path) -> Path:
     return probe.resolve(strict=True)
 
 
-def _validate_instruction_sources(root: Path) -> None:
+def _validate_publishable_artifacts(root: Path) -> None:
     agents = root / "instructions" / "AGENTS.md"
     claude = root / "instructions" / "CLAUDE.md"
-    if not _is_real_file(agents) and not _is_real_file(claude):
-        raise PackManifestError("instruction source AGENTS.md or CLAUDE.md required")
+    if _is_real_file(agents) or _is_real_file(claude) or _has_real_skill(root):
+        return
+    raise PackManifestError("pack must include at least one instruction file or skill")
+
+
+def _has_real_skill(root: Path) -> bool:
+    skills_dir = root / "skills"
+    if not skills_dir.exists() or not skills_dir.is_dir() or skills_dir.is_symlink():
+        return False
+    for child in skills_dir.iterdir():
+        if (
+            child.is_dir()
+            and not child.is_symlink()
+            and _is_real_file(child / "SKILL.md")
+        ):
+            return True
+    return False
 
 
 def _validate_skills(root: Path) -> None:

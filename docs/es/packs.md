@@ -17,7 +17,7 @@ my-pack/
         └── SKILL.md
 ```
 
-`AGENTS.md` y `CLAUDE.md` son opcionales según el agent, pero el publisher actual requiere al menos un archivo de instrucciones. Las skills usan un directorio por nombre de skill.
+Un pack puede contener instrucciones, skills o ambas. Debe incluir al menos un archivo de instrucciones o una skill. Las skills usan un directorio por nombre de skill.
 
 ## Manifest
 
