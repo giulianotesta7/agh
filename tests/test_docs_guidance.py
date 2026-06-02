@@ -27,7 +27,6 @@ def test_readme_is_docker_first_landing_page_with_doc_links() -> None:
         "[Admin](docs/admin.md)",
         "[Workspace guide](docs/workspace.md)",
         "[Operations](docs/operations.md)",
-        "[Release checklist](docs/release-checklist.md)",
         ".agh/project.toml",
         ".agh/lock.toml",
         ".agh-cache/packs/",
@@ -338,36 +337,33 @@ def test_pypi_cd_workflow_is_manual_and_uses_trusted_publishing() -> None:
     assert "secrets." not in publish
 
 
-def test_release_checklist_covers_pre_tag_validation() -> None:
-    checklist = _read("docs/release-checklist.md")
+def test_ghcr_cd_workflow_is_manual_and_publishes_to_ghcr() -> None:
+    workflow = _read(".github/workflows/cd-ghcr.yml")
 
     for expected in [
-        "uv lock --locked",
-        "CI runs these checks on pull requests and pushes to `main`",
-        "uv run pytest -q",
-        "uv run --with ruff ruff check .",
-        "uv run --with ruff ruff format --check .",
-        "uv run --with pyright pyright agh tests",
+        "name: CD GHCR",
+        "workflow_dispatch:",
+        "version:",
+        "confirm:",
+        "permissions:",
+        "packages: write",
+        "environment: ghcr",
+        "if: github.event.inputs.confirm == 'publish'",
+        "IMAGE_NAME: ghcr.io/giulianotesta7/agent-guidance-hub",
+        "VERSION: ${{ github.event.inputs.version }}",
+        "docker/setup-buildx-action@v3",
         "docker build --check .",
-        "uv build",
-        "uv tool install --force dist/*.whl",
-        "agh --help",
-        "curl -fsSL https://raw.githubusercontent.com/giulianotesta7/AgentGuidanceHub/main/scripts/install.sh | sh",
-        "uv tool install --force .",
-        "login -> project create -> pack publish -> project pack add -> repo sync -> pull dry-run -> pull",
-        "uv tool install --force agh",
-        "requires the GitHub repository to be public",
-        "Trusted Publishing configured for `.github/workflows/cd-pypi.yml`",
-        "Workflow dispatch input `confirm` must be `publish`",
-        "manual only",
-        "## 10. Explicit release decisions",
-        "Agent selection wizard and persisted pull target choice",
-        "AGH-specific API error envelope",
-        "These items are deliberately deferred after `0.1.0`",
-        "Do not tag or publish without explicit release approval",
+        "docker/login-action@v3",
+        "registry: ghcr.io",
+        "password: ${{ github.token }}",
+        "docker/build-push-action@v6",
+        "push: true",
+        "${{ env.IMAGE_NAME }}:${{ env.VERSION }}",
+        "${{ env.IMAGE_NAME }}:latest",
     ]:
-        assert expected in checklist
-    assert "local-checkout-only" not in checklist
+        assert expected in workflow
+
+    assert "secrets." not in workflow
 
 
 def test_dockerfile_documents_data_dirs_and_healthcheck() -> None:

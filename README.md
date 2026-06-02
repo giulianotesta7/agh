@@ -72,7 +72,6 @@ agh agent
 | [Admin](docs/admin.md) | Bootstrap owner, users, roles, tokens, and local config. |
 | [Workspace guide](docs/workspace.md) | Repo setup, workspace apply behavior, markers, skills, lockfile, and Git rules. |
 | [Operations](docs/operations.md) | Docker runtime layout, `/data`, logs, healthcheck, backup, and upgrades. |
-| [Release checklist](docs/release-checklist.md) | Pre-tag validation for package, Docker, CLI install, docs, and smoke tests. |
 
 ## Core Concepts
 
