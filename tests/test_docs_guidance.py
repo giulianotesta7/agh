@@ -27,6 +27,7 @@ def test_readme_is_docker_first_landing_page_with_doc_links() -> None:
         "[Admin](docs/admin.md)",
         "[Workspace guide](docs/workspace.md)",
         "[Operations](docs/operations.md)",
+        "[Release checklist](docs/release-checklist.md)",
         ".agh/project.toml",
         ".agh/lock.toml",
         ".agh-cache/packs/",
@@ -268,6 +269,31 @@ def test_spanish_readme_and_docs_mirror_core_flows() -> None:
         content = _read(path)
         for expected in expected_values:
             assert expected in content
+
+
+def test_release_checklist_covers_pre_tag_validation() -> None:
+    checklist = _read("docs/release-checklist.md")
+
+    for expected in [
+        "uv lock --locked",
+        "uv run pytest -q",
+        "uv run ruff check .",
+        "uv run --with pyright pyright agh tests",
+        "docker build --check .",
+        "./scripts/install.sh",
+        "login -> project create -> pack publish -> project pack add -> repo sync -> pull dry-run -> pull",
+        "Do not tag `0.1.0` until public install without cloning is implemented and validated",
+        "## 9. Pre-tag blockers",
+        "Public installer without cloning the repo",
+        "Skill-only packs",
+        "agh pack init",
+        "## 10. Explicit release decisions",
+        "Agent selection wizard and persisted pull target choice",
+        "AGH-specific API error envelope",
+        "Do not tag or publish without explicit release approval",
+    ]:
+        assert expected in checklist
+    assert "local-checkout-only" not in checklist
 
 
 def test_dockerfile_documents_data_dirs_and_healthcheck() -> None:
