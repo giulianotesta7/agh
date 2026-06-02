@@ -19,20 +19,50 @@ my-pack/
 
 A pack can contain instructions, skills, or both. It must include at least one instruction file or skill. Skills use one directory per skill name.
 
-## Manifest
+## Create a pack template
 
-Create `agh.pack.toml` from this template:
+Use `agh pack init` to create the manifest and empty pack directories:
+
+```bash
+agh pack init ./my-pack --domain acme --name onboarding --version 1.0.0
+```
+
+This creates:
+
+```text
+my-pack/
+├── agh.pack.toml
+├── instructions/
+└── skills/
+```
+
+The default manifest starts as:
 
 ```toml
 domain = "acme"
 name = "onboarding"
 version = "1.0.0"
-description = "Shared onboarding instructions and review skills."
+description = "TODO"
 ```
 
-There is no generator command for this file yet. Copy the template, then edit the values for your team and pack.
+Customize metadata and optional starter files with flags:
 
-Rules:
+```bash
+agh pack init ./review-pack \
+  --domain acme \
+  --name review \
+  --version 1.0.0 \
+  --description "Shared review skills" \
+  --with-skill reviewer
+```
+
+Available starter flags:
+
+- `--with-agents` creates `instructions/AGENTS.md`.
+- `--with-claude` creates `instructions/CLAUDE.md`.
+- `--with-skill NAME` creates `skills/NAME/SKILL.md`; repeat it for multiple skills.
+
+## Manifest rules
 
 - `version` must be an exact SemVer version such as `1.0.0`.
 - Published versions are immutable. Publish `1.0.1` for changes.

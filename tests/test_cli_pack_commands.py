@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 
 from agh.cli.main import app as cli_app
 from agh.cli.pack_publish import MAX_PACK_FILE_BYTES, MAX_PACK_FILES
+from agh.common.pack_manifest import load_pack_manifest
 
 
 class _ApiHandler(BaseHTTPRequestHandler):
@@ -140,6 +141,201 @@ def _pack_dir(tmp_path: Path) -> Path:
     (root / "instructions" / "AGENTS.md").write_text("# Agents\n", encoding="utf-8")
     (root / "skills" / "lint" / "SKILL.md").write_text("# Skill\n", encoding="utf-8")
     return root
+
+
+def test_cli_pack_init_creates_minimal_template(tmp_path: Path) -> None:
+    pack_dir = tmp_path / "my-pack"
+
+    result = CliRunner().invoke(
+        cli_app,
+        [
+            "pack",
+            "init",
+            str(pack_dir),
+            "--domain",
+            "acme",
+            "--name",
+            "onboarding",
+            "--version",
+            "1.0.0",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Initialized pack template" in result.stdout
+    assert (pack_dir / "agh.pack.toml").read_text(encoding="utf-8") == (
+        'domain = "acme"\n'
+        'name = "onboarding"\n'
+        'version = "1.0.0"\n'
+        'description = "TODO"\n'
+    )
+    assert (pack_dir / "instructions").is_dir()
+    assert (pack_dir / "skills").is_dir()
+    assert not (pack_dir / "instructions" / "AGENTS.md").exists()
+    assert not (pack_dir / "instructions" / "CLAUDE.md").exists()
+
+
+def test_cli_pack_init_creates_custom_optional_templates(tmp_path: Path) -> None:
+    pack_dir = tmp_path / "review-pack"
+
+    result = CliRunner().invoke(
+        cli_app,
+        [
+            "pack",
+            "init",
+            str(pack_dir),
+            "--domain",
+            "acme",
+            "--name",
+            "review",
+            "--version",
+            "1.2.3",
+            "--description",
+            "Shared review skills",
+            "--with-agents",
+            "--with-claude",
+            "--with-skill",
+            "reviewer",
+            "--with-skill",
+            "lint",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert 'version = "1.2.3"' in (pack_dir / "agh.pack.toml").read_text(
+        encoding="utf-8"
+    )
+    assert 'description = "Shared review skills"' in (
+        pack_dir / "agh.pack.toml"
+    ).read_text(encoding="utf-8")
+    assert (pack_dir / "instructions" / "AGENTS.md").read_text(encoding="utf-8")
+    assert (pack_dir / "instructions" / "CLAUDE.md").read_text(encoding="utf-8")
+    assert (pack_dir / "skills" / "reviewer" / "SKILL.md").read_text(encoding="utf-8")
+    assert (pack_dir / "skills" / "lint" / "SKILL.md").read_text(encoding="utf-8")
+
+
+def test_cli_pack_init_escapes_description_as_valid_toml(tmp_path: Path) -> None:
+    pack_dir = tmp_path / "escaped-pack"
+
+    result = CliRunner().invoke(
+        cli_app,
+        [
+            "pack",
+            "init",
+            str(pack_dir),
+            "--domain",
+            "acme",
+            "--name",
+            "escaped",
+            "--version",
+            "1.0.0",
+            "--description",
+            'Quote " slash \\ newline \n backspace \b',
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    manifest = (pack_dir / "agh.pack.toml").read_text(encoding="utf-8")
+    assert load_pack_manifest(pack_dir / "agh.pack.toml").description == (
+        'Quote " slash \\ newline \n backspace \b'
+    )
+    assert "\\b" in manifest
+
+
+def test_cli_pack_init_rejects_existing_path_and_invalid_values(tmp_path: Path) -> None:
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    runner = CliRunner()
+
+    existing_result = runner.invoke(
+        cli_app,
+        [
+            "pack",
+            "init",
+            str(existing),
+            "--domain",
+            "acme",
+            "--name",
+            "pack",
+            "--version",
+            "1.0.0",
+        ],
+    )
+    invalid_domain = runner.invoke(
+        cli_app,
+        [
+            "pack",
+            "init",
+            str(tmp_path / "a"),
+            "--domain",
+            "Bad",
+            "--name",
+            "pack",
+            "--version",
+            "1.0.0",
+        ],
+    )
+    invalid_version = runner.invoke(
+        cli_app,
+        [
+            "pack",
+            "init",
+            str(tmp_path / "b"),
+            "--domain",
+            "acme",
+            "--name",
+            "pack",
+            "--version",
+            "latest",
+        ],
+    )
+    invalid_skill = runner.invoke(
+        cli_app,
+        [
+            "pack",
+            "init",
+            str(tmp_path / "c"),
+            "--domain",
+            "acme",
+            "--name",
+            "pack",
+            "--version",
+            "1.0.0",
+            "--with-skill",
+            "Bad",
+        ],
+    )
+    duplicate_skill_path = tmp_path / "duplicate"
+    duplicate_skill = runner.invoke(
+        cli_app,
+        [
+            "pack",
+            "init",
+            str(duplicate_skill_path),
+            "--domain",
+            "acme",
+            "--name",
+            "pack",
+            "--version",
+            "1.0.0",
+            "--with-skill",
+            "dup",
+            "--with-skill",
+            "dup",
+        ],
+    )
+
+    assert existing_result.exit_code == 2
+    assert "already exists" in existing_result.stdout
+    assert invalid_domain.exit_code == 2
+    assert "invalid domain" in invalid_domain.stdout
+    assert invalid_version.exit_code == 2
+    assert "invalid version" in invalid_version.stdout
+    assert invalid_skill.exit_code == 2
+    assert "invalid skill name" in invalid_skill.stdout
+    assert duplicate_skill.exit_code == 2
+    assert "duplicate skill name" in duplicate_skill.stdout
+    assert not duplicate_skill_path.exists()
 
 
 def test_cli_pack_publish_list_and_project_pack_commands_map_to_api(
@@ -605,8 +801,10 @@ def test_cli_pack_help_is_discoverable() -> None:
     pack_help = runner.invoke(cli_app, ["pack", "--help"])
     project_pack_help = runner.invoke(cli_app, ["project", "pack", "--help"])
     publish_help = runner.invoke(cli_app, ["pack", "publish", "--help"])
+    init_help = runner.invoke(cli_app, ["pack", "init", "--help"])
 
     assert pack_help.exit_code == 0
+    assert "init" in pack_help.stdout
     assert "publish" in pack_help.stdout
     assert "list" in pack_help.stdout
     assert project_pack_help.exit_code == 0
@@ -614,3 +812,6 @@ def test_cli_pack_help_is_discoverable() -> None:
     assert "remove" in project_pack_help.stdout
     assert publish_help.exit_code == 0
     assert "PATH" in publish_help.stdout or "path" in publish_help.stdout
+    assert init_help.exit_code == 0
+    assert "--domain" in init_help.stdout
+    assert "--with-skill" in init_help.stdout

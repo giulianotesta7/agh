@@ -27,6 +27,7 @@ from agh.cli.config import (
     save_config,
     validate_login,
 )
+from agh.cli.pack_init import PackInitError, init_pack_template
 from agh.cli.pack_publish import PackPublishBuildError, build_pack_publish_payload
 from agh.cli.workspace_pull import (
     WorkspacePullError,
@@ -46,7 +47,7 @@ Commands:
   user         Manage users.
   token        Rotate or reset user API tokens.
   project      Manage projects and developer memberships.
-  pack         Publish and list guidance packs.
+  pack         Create, publish, and list guidance packs.
   sync         Link this git repository to its matching AGH project.
   pull         Pull assigned guidance packs into this repository.
   agent        Show advisory local agent integration availability.
@@ -142,7 +143,7 @@ project_pack_app = typer.Typer(
 )
 pack_app = typer.Typer(
     cls=AghSubcommandGroup,
-    help="Publish and list AGH packs.",
+    help="Create, publish, and list AGH packs.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
@@ -814,7 +815,7 @@ def project_path(project_id: str) -> str:
 
 @pack_app.callback(invoke_without_command=True)
 def pack_main(ctx: typer.Context) -> None:
-    """Pack publish/list commands."""
+    """Pack init/publish/list commands."""
     if ctx.invoked_subcommand is None:
         typer.echo(APP_HELP)
         raise typer.Exit(0)
@@ -823,6 +824,46 @@ def pack_main(ctx: typer.Context) -> None:
 @pack_app.command("list", help="List published pack versions.")
 def pack_list() -> None:
     _echo_pack_list(_api_request("GET", "/packs"))
+
+
+@pack_app.command("init", help="Create a local pack template.")
+def pack_init(
+    path: Annotated[Path, typer.Argument(help="Directory to create for the pack.")],
+    domain: Annotated[str, typer.Option("--domain", help="Pack domain slug.")],
+    name: Annotated[str, typer.Option("--name", help="Pack name slug.")],
+    version: Annotated[str, typer.Option("--version", help="Initial SemVer version.")],
+    description: Annotated[
+        str, typer.Option("--description", help="Manifest description.")
+    ] = "TODO",
+    with_agents: Annotated[
+        bool, typer.Option("--with-agents", help="Create instructions/AGENTS.md.")
+    ] = False,
+    with_claude: Annotated[
+        bool, typer.Option("--with-claude", help="Create instructions/CLAUDE.md.")
+    ] = False,
+    with_skill: Annotated[
+        list[str] | None,
+        typer.Option("--with-skill", help="Create skills/NAME/SKILL.md."),
+    ] = None,
+) -> None:
+    try:
+        result = init_pack_template(
+            path,
+            domain=domain,
+            name=name,
+            version=version,
+            description=description,
+            with_agents=with_agents,
+            with_claude=with_claude,
+            skills=with_skill,
+        )
+    except PackInitError as exc:
+        _fail(str(exc), code=2)
+    typer.echo(f"Initialized pack template at {result.root}")
+    typer.echo(f"Manifest: {result.manifest}")
+    typer.echo(
+        f"Next: add instructions or skills, then run agh pack publish {result.root}"
+    )
 
 
 @pack_app.command("publish", help="Publish a local pack directory.")
