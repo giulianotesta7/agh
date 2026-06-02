@@ -10,6 +10,8 @@ __pycache__
 .pytest_cache
 .ruff_cache
 .mypy_cache
+build
+dist
 agh.egg-info
 
 # Local AGH runtime/dev data and CLI configs

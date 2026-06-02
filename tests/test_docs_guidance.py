@@ -273,15 +273,44 @@ def test_spanish_readme_and_docs_mirror_core_flows() -> None:
             assert expected in content
 
 
+def test_ci_workflow_runs_release_validation_commands() -> None:
+    ci = _read(".github/workflows/ci.yml")
+
+    for expected in [
+        "pull_request:",
+        "branches:",
+        "- main",
+        "astral-sh/setup-uv@v5",
+        'python-version: "3.11"',
+        "uv lock --locked",
+        "uv run pytest -q",
+        "uv run --with ruff ruff check .",
+        "uv run --with ruff ruff format --check .",
+        "uv run --with pyright pyright agh tests",
+        "docker build --check .",
+        "uv build",
+        "uv tool install --force dist/*.whl",
+        "agh --help",
+    ]:
+        assert expected in ci
+
+    assert "publish" not in ci.lower()
+
+
 def test_release_checklist_covers_pre_tag_validation() -> None:
     checklist = _read("docs/release-checklist.md")
 
     for expected in [
         "uv lock --locked",
+        "CI runs these checks on pull requests and pushes to `main`",
         "uv run pytest -q",
-        "uv run ruff check .",
+        "uv run --with ruff ruff check .",
+        "uv run --with ruff ruff format --check .",
         "uv run --with pyright pyright agh tests",
         "docker build --check .",
+        "uv build",
+        "uv tool install --force dist/*.whl",
+        "agh --help",
         "curl -fsSL https://raw.githubusercontent.com/giulianotesta7/AgentGuidanceHub/main/scripts/install.sh | sh",
         "uv tool install --force .",
         "login -> project create -> pack publish -> project pack add -> repo sync -> pull dry-run -> pull",
@@ -318,6 +347,8 @@ def test_dockerignore_keeps_runtime_state_out_but_keeps_package_inputs() -> None
         ".venv",
         ".pytest_cache",
         ".ruff_cache",
+        "build",
+        "dist",
         ".agh-data",
         ".agh-data-*",
         ".agh-cli*.toml",

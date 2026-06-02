@@ -28,17 +28,24 @@ For `0.1.0`, each should report `0.1.0`.
 
 ## 3. Run validation
 
+CI runs these checks on pull requests and pushes to `main`. Run them locally before opening a release PR:
+
 ```bash
+uv lock --locked
 uv run pytest -q
-uv run ruff check .
-uv run ruff format --check .
+uv run --with ruff ruff check .
+uv run --with ruff ruff format --check .
 uv run --with pyright pyright agh tests
+docker build --check .
+uv build
+uv tool install --force dist/*.whl
+agh --help
 ```
 
 Notes:
 
 - The current warning about Starlette/httpx testclient is known.
-- Use `uv run --with pyright` unless Pyright is added to dev dependencies later.
+- Use `uv run --with ruff` and `uv run --with pyright` unless those tools are added to dev dependencies later.
 
 ## 4. Check the CLI package
 

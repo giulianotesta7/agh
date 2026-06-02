@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check lockfile
+        run: uv lock --locked
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Run Ruff lint
+        run: uv run --with ruff ruff check .
+
+      - name: Check Ruff formatting
+        run: uv run --with ruff ruff format --check .
+
+      - name: Run Pyright
+        run: uv run --with pyright pyright agh tests
+
+      - name: Check Dockerfile
+        run: docker build --check .
+
+      - name: Build package
+        run: uv build
+
+      - name: Install built CLI
+        run: uv tool install --force dist/*.whl
+
+      - name: Check installed CLI
+        run: agh --help
