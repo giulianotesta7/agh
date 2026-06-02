@@ -1,6 +1,6 @@
 # Release Checklist
 
-Use this checklist before tagging an AGH release. It verifies the Python package, Docker server, local CLI install path, docs, and workspace smoke flow.
+Use this checklist before tagging an AGH release. It verifies the Python package, Docker server, CLI install path, docs, workspace smoke flow, and manual PyPI publish gate.
 
 ## 1. Start clean
 
@@ -89,16 +89,28 @@ In another shell:
 curl http://127.0.0.1:8912/api/v1/health
 ```
 
-## 6. Check CLI install
+## 6. Prepare PyPI publishing
 
-Before using the package install path for a release, confirm package ownership and the published version:
+Confirm PyPI project ownership before publishing:
+
+- PyPI project name: `agh`.
+- GitHub Environment: `pypi`.
+- Trusted Publishing configured for `.github/workflows/cd-pypi.yml`.
+- Workflow dispatch input `pypi-project-name` must be `agh`.
+- Workflow dispatch input `confirm` must be `publish`.
+
+The publish workflow is manual only. It builds the package, installs the built wheel, checks `agh --help`, and publishes via PyPI Trusted Publishing. It does not run on push.
+
+## 7. Check CLI install
+
+After publishing the release package, confirm the package install path:
 
 ```bash
 uv tool install --force agh
 agh --help
 ```
 
-Then check the installer path without cloning the repo:
+Then check the installer path without cloning the repo. This requires the GitHub repository to be public, or the raw GitHub URL will not work for unauthenticated users:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/giulianotesta7/AgentGuidanceHub/main/scripts/install.sh | sh
@@ -112,7 +124,7 @@ uv tool install --force .
 agh --help
 ```
 
-## 7. Run a workspace smoke test
+## 8. Run a workspace smoke test
 
 Use temporary data and config. Verify this flow works:
 
@@ -136,7 +148,7 @@ Also confirm `.gitignore` guidance recommends:
 .agh-cache/
 ```
 
-## 8. Review docs
+## 9. Review docs
 
 ```bash
 uv run pytest tests/test_docs_guidance.py -q
@@ -147,20 +159,13 @@ Check both language entry points:
 - `README.md`
 - `README.es.md`
 
-## 9. Pre-tag blockers
-
-Resolve these items before tagging `0.1.0`:
-
-- Skill-only packs.
-- `agh pack init` for manifest/template generation.
-
 ## 10. Explicit release decisions
 
-Decide and document these items before tagging. They may be included in `0.1.0` or deliberately deferred:
+These items are deliberately deferred after `0.1.0`:
 
 - Agent selection wizard and persisted pull target choice.
 - AGH-specific API error envelope.
 
-## 11. Tag only after approval
+## 11. Tag and publish only after approval
 
 Do not tag or publish without explicit release approval.

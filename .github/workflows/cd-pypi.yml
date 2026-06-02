@@ -1,0 +1,82 @@
+name: CD PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      pypi-project-name:
+        description: "PyPI project name to publish"
+        required: true
+        default: "agh"
+      confirm:
+        description: "Type publish to confirm PyPI publication"
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    environment: pypi
+    if: github.event.inputs.confirm == 'publish'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify package name
+        env:
+          PYPI_PROJECT_NAME: ${{ github.event.inputs.pypi-project-name }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          expected = os.environ["PYPI_PROJECT_NAME"]
+          actual = tomllib.loads(Path("pyproject.toml").read_text())["project"]["name"]
+          if actual != expected:
+              print(f"pyproject package name {actual!r} does not match workflow input {expected!r}")
+              sys.exit(1)
+          print(f"Publishing package: {actual}")
+          PY
+
+      - name: Check lockfile
+        run: uv lock --locked
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Run Ruff lint
+        run: uv run --with ruff ruff check .
+
+      - name: Check Ruff formatting
+        run: uv run --with ruff ruff format --check .
+
+      - name: Run Pyright
+        run: uv run --with pyright pyright agh tests
+
+      - name: Build package
+        run: uv build
+
+      - name: Install built CLI
+        run: uv tool install --force dist/*.whl
+
+      - name: Check installed CLI
+        run: agh --help
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

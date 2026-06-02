@@ -306,6 +306,38 @@ def test_ci_workflow_runs_release_validation_commands() -> None:
     assert "publish" not in ci.lower()
 
 
+def test_pypi_cd_workflow_is_manual_and_uses_trusted_publishing() -> None:
+    publish = _read(".github/workflows/cd-pypi.yml")
+
+    for expected in [
+        "name: CD PyPI",
+        "workflow_dispatch:",
+        "pypi-project-name:",
+        "confirm:",
+        "permissions:",
+        "id-token: write",
+        "environment: pypi",
+        "if: github.event.inputs.confirm == 'publish'",
+        "uv lock --locked",
+        "uv run pytest -q",
+        "uv run --with ruff ruff check .",
+        "uv run --with ruff ruff format --check .",
+        "uv run --with pyright pyright agh tests",
+        "uv build",
+        "uv tool install --force dist/*.whl",
+        "agh --help",
+        "PYPI_PROJECT_NAME: ${{ github.event.inputs.pypi-project-name }}",
+        'expected = os.environ["PYPI_PROJECT_NAME"]',
+        "pypa/gh-action-pypi-publish@release/v1",
+    ]:
+        assert expected in publish
+
+    assert 'expected = "${{ github.event.inputs.pypi-project-name }}"' not in publish
+    assert "push:" not in publish
+    assert "password" not in publish.lower()
+    assert "secrets." not in publish
+
+
 def test_release_checklist_covers_pre_tag_validation() -> None:
     checklist = _read("docs/release-checklist.md")
 
@@ -324,12 +356,14 @@ def test_release_checklist_covers_pre_tag_validation() -> None:
         "uv tool install --force .",
         "login -> project create -> pack publish -> project pack add -> repo sync -> pull dry-run -> pull",
         "uv tool install --force agh",
-        "## 9. Pre-tag blockers",
-        "Skill-only packs",
-        "agh pack init",
+        "requires the GitHub repository to be public",
+        "Trusted Publishing configured for `.github/workflows/cd-pypi.yml`",
+        "Workflow dispatch input `confirm` must be `publish`",
+        "manual only",
         "## 10. Explicit release decisions",
         "Agent selection wizard and persisted pull target choice",
         "AGH-specific API error envelope",
+        "These items are deliberately deferred after `0.1.0`",
         "Do not tag or publish without explicit release approval",
     ]:
         assert expected in checklist
