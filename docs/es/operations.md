@@ -79,7 +79,7 @@ Guardá o rotá `/data/logs/` según tu política de retención.
 
 1. Parar el container de AGH.
 2. Hacer backup de `/data`.
-3. Pullear la nueva imagen o actualizar `compose.yaml` al nuevo version tag.
+3. Pullear la nueva imagen o actualizar `docker-compose.yml` al nuevo version tag.
 4. Levantar el nuevo container con el mismo volumen `/data`.
 5. Chequear `/api/v1/health`.
 6. Correr `agh config show` y `agh project list`.

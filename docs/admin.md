@@ -4,7 +4,7 @@ AGH administration covers the first owner token, users, roles, and token lifecyc
 
 ## Bootstrap owner
 
-Start the Docker service with an owner email from `compose.yaml`:
+Start the Docker service with an owner email from `docker-compose.yml`:
 
 ```bash
 docker compose up -d

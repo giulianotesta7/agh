@@ -52,7 +52,7 @@ def test_installation_docs_cover_cli_install_and_uninstall() -> None:
 
 
 def test_compose_uses_published_ghcr_image_and_data_volume() -> None:
-    compose = _read("compose.yaml")
+    compose = _read("docker-compose.yml")
 
     for expected in [
         "services:",

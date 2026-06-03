@@ -4,7 +4,7 @@ La administración de AGH cubre el primer owner token, usuarios, roles y ciclo d
 
 ## Bootstrap owner
 
-Levantá el servicio Docker con el email owner definido en `compose.yaml`:
+Levantá el servicio Docker con el email owner definido en `docker-compose.yml`:
 
 ```bash
 docker compose up -d
