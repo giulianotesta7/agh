@@ -82,6 +82,8 @@ agh agent
 | [Admin](docs/es/admin.md) | Bootstrap owner, usuarios, roles, tokens y config local. |
 | [Workspace](docs/es/workspace.md) | Setup de repo, aplicación del workspace, markers, skills, lockfile y reglas de Git. |
 | [Operaciones](docs/es/operations.md) | Runtime Docker, `/data`, logs, healthcheck, backup y upgrades. |
+| [Contribuir](CONTRIBUTING.md) | Flujo issue-first, reglas de PR y comandos de validación. |
+| [Seguridad](SECURITY.md) | Reporte de vulnerabilidades y alcance de seguridad soportado. |
 
 ## Conceptos
 

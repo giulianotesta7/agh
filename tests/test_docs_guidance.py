@@ -28,6 +28,8 @@ def test_readme_is_docker_first_landing_page_with_doc_links() -> None:
         "[Admin](docs/admin.md)",
         "[Workspace guide](docs/workspace.md)",
         "[Operations](docs/operations.md)",
+        "[Contributing](CONTRIBUTING.md)",
+        "[Security](SECURITY.md)",
         ".agh/project.toml",
         ".agh/lock.toml",
         ".agh-cache/packs/",
@@ -256,6 +258,8 @@ def test_spanish_readme_and_docs_mirror_core_flows() -> None:
         "[Packs](docs/es/packs.md)",
         "[Proyectos](docs/es/projects.md)",
         "[Admin](docs/es/admin.md)",
+        "[Contribuir](CONTRIBUTING.md)",
+        "[Seguridad](SECURITY.md)",
         ".agh-cache/",
     ]:
         assert expected in spanish_readme
@@ -336,6 +340,7 @@ def test_package_version_is_dynamic_from_git_metadata() -> None:
     for expected in [
         'requires = ["setuptools>=68", "setuptools-scm>=8", "wheel"]',
         'dynamic = ["version"]',
+        'license = "MIT"',
         "[tool.setuptools_scm]",
     ]:
         assert expected in pyproject
@@ -369,6 +374,53 @@ def test_ci_workflow_runs_release_validation_commands() -> None:
         assert expected in ci
 
     assert "publish" not in ci.lower()
+
+
+def test_pr_validation_workflow_requires_issue_and_type_label() -> None:
+    workflow = _read(".github/workflows/pr-validation.yml")
+    pr_template = _read(".github/pull_request_template.md")
+    feature_template = _read(".github/ISSUE_TEMPLATE/feature_request.yml")
+    bug_template = _read(".github/ISSUE_TEMPLATE/bug_report.yml")
+    contributing = _read("CONTRIBUTING.md")
+    security = _read("SECURITY.md")
+
+    for expected in [
+        "pull_request_target:",
+        "exactly one type:* label",
+        "status:approved",
+        "Closes #N",
+        "Fixes #N",
+        "Resolves #N",
+    ]:
+        assert expected in workflow
+
+    for expected in ["Closes #", "type:feature", "uv run pytest"]:
+        assert expected in pr_template
+
+    for template in [feature_template, bug_template]:
+        assert "status:needs-review" in template
+        assert "status:approved" in template
+        assert "required: true" in template
+
+    for expected in [
+        "issue-first workflow",
+        "status:approved",
+        "exactly one `type:*` label",
+        "uv run --with pyright pyright agh tests",
+    ]:
+        assert expected in contributing
+
+    for expected in [
+        "Do not open a public issue for vulnerabilities",
+        "giulianotesta15@gmail.com",
+        "token handling and storage",
+        "path traversal",
+    ]:
+        assert expected in security
+
+    license_text = _read("LICENSE")
+    assert "MIT License" in license_text
+    assert "Copyright (c) 2026 Giuliano Testa" in license_text
 
 
 def test_tag_release_workflow_publishes_package_image_and_release() -> None:

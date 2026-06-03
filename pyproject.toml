@@ -7,6 +7,7 @@ name = "agh"
 dynamic = ["version"]
 description = "Agent Guidance Hub"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = ["fastapi>=0.110", "typer>=0.12", "uvicorn[standard]>=0.27"]
 
