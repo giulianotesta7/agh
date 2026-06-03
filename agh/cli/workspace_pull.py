@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import tomllib
 import urllib.error
@@ -15,7 +17,13 @@ from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from agh.cli.agent_integrations import relative_symlink_target, symlink_points_to
+from agh.cli.agent_integrations import (
+    AgentPreferenceError,
+    read_agent_preference,
+    relative_symlink_target,
+    symlink_points_to,
+    write_agent_preference,
+)
 from agh.cli.config import AghConfig, ConfigError, load_config
 from agh.cli.pull_markers import MarkerConflict
 from agh.cli.pull_plan import (
@@ -60,6 +68,7 @@ class DownloadedArtifact:
     checksum: str
     content: str
     kind: str
+    target_agent: str
     domain: str
     name: str
     version: str
@@ -105,15 +114,75 @@ class ProjectLink:
     project_id: str
 
 
+_AGENT_SELECTION_INSTRUCTIONS = (
+    "Select an agent before pulling:\n"
+    "  agh agent select claude\n"
+    "  agh agent select opencode"
+)
+
+
+def _resolve_agent_target(workspace: Path, *, persist_prompt: bool = True) -> str:
+    try:
+        preference = read_agent_preference(workspace)
+    except AgentPreferenceError as exc:
+        raise WorkspacePullError(str(exc), code=exc.code) from exc
+    if preference is not None:
+        return preference.target
+    if not sys.stdin.isatty():
+        raise WorkspacePullError(
+            "no local agent selected for this workspace.\n"
+            f"{_AGENT_SELECTION_INSTRUCTIONS}",
+            code=2,
+        )
+    target = _prompt_agent_target()
+    if target is None:
+        raise WorkspacePullError(
+            "agent selection skipped; pull did not apply guidance.\n"
+            f"{_AGENT_SELECTION_INSTRUCTIONS}",
+            code=2,
+        )
+    if persist_prompt:
+        try:
+            write_agent_preference(target, workspace=workspace)
+        except AgentPreferenceError as exc:
+            raise WorkspacePullError(str(exc), code=exc.code) from exc
+    return target
+
+
+def _prompt_agent_target() -> str | None:
+    print("Which agent do you use for this workspace?")
+    print("1. Claude Code")
+    print("2. OpenCode")
+    print("3. Skip for now")
+    while True:
+        try:
+            choice = input("Choice [1-3]: ").strip()
+        except EOFError as exc:
+            raise WorkspacePullError(
+                f"agent selection requires input.\n{_AGENT_SELECTION_INSTRUCTIONS}",
+                code=2,
+            ) from exc
+        if choice in {"1", "claude", "Claude", "Claude Code"}:
+            return "claude"
+        if choice in {"2", "opencode", "OpenCode"}:
+            return "opencode"
+        if choice in {"3", "skip", "Skip", ""}:
+            return None
+        print("Choose 1, 2, or 3.")
+
+
 def pull_workspace(
     *, cwd: Path | None = None, dry_run: bool = False, force: bool = False
 ) -> WorkspacePullResult:
     """Fetch a manifest, plan/apply target updates, and update cache/lock."""
     workspace = (cwd or Path.cwd()).resolve()
     link = _read_project_link(workspace)
+    target_agent = _resolve_agent_target(workspace, persist_prompt=not dry_run)
     config = _load_config_or_error()
     manifest = fetch_pull_manifest(config=config, project_id=link.project_id)
-    downloaded = download_manifest_artifacts(config=config, manifest=manifest)
+    downloaded = download_manifest_artifacts(
+        config=config, manifest=manifest, target_agent=target_agent
+    )
     instruction_artifacts = [
         artifact for artifact in downloaded if artifact.kind == "instruction"
     ]
@@ -141,6 +210,7 @@ def pull_workspace(
         )
     _preflight_workspace_cache_boundaries(workspace, manifest)
     try:
+        _clear_manifest_cache_dirs(workspace, manifest=manifest)
         _apply_pull_plan(workspace, instruction_plan)
         cache_result = write_cache_artifacts(workspace, artifacts=downloaded)
         mode_overrides = _place_skill_artifacts(
@@ -333,7 +403,7 @@ def fetch_pull_manifest(*, config: AghConfig, project_id: str) -> dict:
 
 
 def download_manifest_artifacts(
-    *, config: AghConfig, manifest: object
+    *, config: AghConfig, manifest: object, target_agent: str | None = None
 ) -> list[DownloadedArtifact]:
     manifest = _validate_manifest(manifest)
     _validate_manifest_metadata(manifest)
@@ -346,10 +416,12 @@ def download_manifest_artifacts(
             target_path = _target_path(artifact)
             checksum = _artifact_checksum(artifact)
             kind = _artifact_kind(artifact)
-            target_agent = _target_agent(artifact)
+            artifact_target_agent = _target_agent(artifact)
             _validate_artifact_target(
-                kind=kind, target_agent=target_agent, target_path=target_path
+                kind=kind, target_agent=artifact_target_agent, target_path=target_path
             )
+            if target_agent is not None and target_agent != artifact_target_agent:
+                continue
             download_url = _download_url(artifact)
             content = _download_text(config=config, url=download_url)
             actual_checksum = managed_payload_checksum(content)
@@ -365,6 +437,7 @@ def download_manifest_artifacts(
                     checksum=checksum,
                     content=content,
                     kind=kind,
+                    target_agent=artifact_target_agent,
                     domain=domain,
                     name=name,
                     version=version,
@@ -417,6 +490,30 @@ def write_cache_artifacts(
     return WorkspacePullCacheResult(
         cache_dir=cache_dir, lock_path=agh_dir / "lock.toml", artifacts=cached
     )
+
+
+def _clear_manifest_cache_dirs(workspace: Path, *, manifest: object) -> None:
+    root = workspace.resolve()
+    cache_dir = _workspace_cache_dir(root)
+    _ensure_cache_root_safe(root)
+    manifest = _validate_manifest(manifest)
+    for pack in _manifest_packs(manifest):
+        domain, name, version = _parse_resolved_pack_ref(_pack_id(pack))
+        pack_cache_dir = cache_dir / domain / name / version
+        _ensure_safe_directory_boundary(cache_dir, pack_cache_dir)
+        if not pack_cache_dir.exists():
+            continue
+        if pack_cache_dir.is_symlink():
+            raise WorkspacePullError(
+                f"refusing to remove symlinked AGH cache path: {pack_cache_dir}",
+                code=2,
+            )
+        if not pack_cache_dir.is_dir():
+            raise WorkspacePullError(
+                f"refusing to remove non-directory AGH cache path: {pack_cache_dir}",
+                code=2,
+            )
+        shutil.rmtree(pack_cache_dir)
 
 
 def write_lock_for_cached_artifacts(

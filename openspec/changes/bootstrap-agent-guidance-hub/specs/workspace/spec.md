@@ -88,6 +88,40 @@ Downloaded pack trees MUST be stored under `.agh-cache/packs/` as a local cache.
 - WHEN pull completes
 - THEN artifacts exist under `.agh-cache/packs/`
 
+### Requirement: Local agent preference
+
+Each developer MUST be able to select exactly one local agent target per workspace. The selection MUST be stored in `.agh-cache/preferences.toml` under `[agents] target = "claude"|"opencode"`, MUST NOT be committed as shared project state, and MUST be used by `agh pull` to filter manifest artifacts before applying, caching, or locking them.
+
+#### Scenario: Explicit local selection
+
+- GIVEN a linked workspace
+- WHEN `agh agent select claude` or `agh agent select opencode` runs
+- THEN `.agh-cache/preferences.toml` records the selected target
+
+#### Scenario: Missing selection in interactive pull
+
+- GIVEN no local agent preference exists
+- AND stdin is an interactive TTY
+- WHEN `agh pull` runs
+- THEN the CLI prompts for Claude Code, OpenCode, or Skip for now
+- AND selected Claude Code/OpenCode is saved and used for that pull
+- AND Skip exits with code `2` without applying both targets
+
+#### Scenario: Missing selection in non-interactive pull
+
+- GIVEN no local agent preference exists
+- AND stdin is not an interactive TTY
+- WHEN `agh pull` runs
+- THEN the CLI exits with code `2`
+- AND output instructs the user to run `agh agent select claude` or `agh agent select opencode`
+
+#### Scenario: Pull filters by selected target
+
+- GIVEN the pull manifest contains Claude and OpenCode artifacts
+- AND the workspace selected OpenCode
+- WHEN `agh pull` succeeds
+- THEN only OpenCode artifacts are applied, cached, and recorded in `.agh/lock.toml`
+
 ### Requirement: Claude agent integration paths
 
 For Claude Code integration, pull MUST apply `instructions/CLAUDE.md` content to repository `CLAUDE.md` (via managed blocks) and MUST place skills under `.claude/skills/<skill-name>/SKILL.md` (symlink when supported, otherwise copy per platform policy in design).

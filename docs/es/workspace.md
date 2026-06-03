@@ -7,20 +7,52 @@ Un workspace es un repo git linkeado a un proyecto AGH. El repo recibe los packs
 | Comando | Qué hace | Escribe archivos? |
 |---------|----------|-------------------|
 | `agh sync` | Matchea el git remote con un proyecto AGH y escribe `.agh/project.toml`. | Sí |
-| `agh pull --dry-run` | Pide el plan al server y descarga archivos en memoria. | No |
-| `agh pull` | Aplica instrucciones y skills, refresca `.agh-cache/packs/` y escribe `.agh/lock.toml`. | Sí |
-| `agh pull --force` | Reemplaza bloques AGH o skill targets en conflicto. | Sí |
-| `agh agent` | Muestra si los paths de Claude Code/OpenCode parecen disponibles. | No |
+| `agh agent` / `agh agent show` | Muestra disponibilidad de Claude Code/OpenCode y la selección local actual. | No |
+| `agh agent select claude` | Selecciona Claude Code para este workspace en `.agh-cache/preferences.toml`. | Sí |
+| `agh agent select opencode` | Selecciona OpenCode para este workspace en `.agh-cache/preferences.toml`. | Sí |
+| `agh agent clear` | Borra la selección local de agent del workspace. | Sí |
+| `agh pull --dry-run` | Pide el plan al server y descarga en memoria solo archivos del agent seleccionado. | No |
+| `agh pull` | Aplica instrucciones y skills del agent seleccionado, refresca `.agh-cache/packs/` y escribe `.agh/lock.toml`. | Sí |
+| `agh pull --force` | Reemplaza bloques AGH o skill targets en conflicto para el agent seleccionado. | Sí |
+
+## Selección local de agent
+
+Cada dev elige un target local por workspace. AGH guarda esa preferencia como estado local de cache:
+
+```toml
+# .agh-cache/preferences.toml
+[agents]
+target = "opencode" # o "claude"
+```
+
+Usá uno de estos comandos:
+
+```bash
+agh agent select claude
+agh agent select opencode
+```
+
+`agh pull` lee este archivo antes de aplicar cambios. Si falta y stdin es una TTY interactiva, AGH pregunta:
+
+```text
+Which agent do you use for this workspace?
+1. Claude Code
+2. OpenCode
+3. Skip for now
+```
+
+No hay opción `both`. Si elegís Skip, AGH sale con código `2` y no aplica guidance. En shells no interactivas, AGH sale con código `2` y te indica correr `agh agent select claude` o `agh agent select opencode`.
 
 ## Flujo de pull
 
 ```text
 1. Read .agh/project.toml
-2. Ask the server what this project should use
-3. Download pack files through relative /api/v1/... URLs
-4. Check each checksum
-5. Apply instructions and skills
-6. Write .agh/lock.toml
+2. Read or prompt for .agh-cache/preferences.toml
+3. Ask the server what this project should use
+4. Download only artifacts for the selected agent through relative /api/v1/... URLs
+5. Check each checksum
+6. Apply instructions and skills for the selected agent
+7. Write .agh/lock.toml for the applied artifacts
 ```
 
 AGH escribe el lockfile solo después de actualizar los archivos del repo.
@@ -39,10 +71,13 @@ Si editás dentro del bloque, el próximo `agh pull` sale con código de conflic
 
 ## Las skills quedan limpias
 
-Las skills no usan markers AGH. AGH las escribe o linkea en los paths que los agents ya esperan:
+Las skills no usan markers AGH. AGH las escribe o linkea en los paths que los agents ya esperan. Solo escribe paths para el agent local seleccionado:
 
 ```text
+# claude
 .claude/skills/<skill>/SKILL.md
+
+# opencode
 .opencode/skills/<skill>/SKILL.md
 ```
 
@@ -65,9 +100,10 @@ No escribe paths de Cursor, Codex, Pi ni paths globales de agents.
 | Path | Propósito | Commit? |
 |------|-----------|---------|
 | `.agh/project.toml` | Linkea el repo a un proyecto AGH. | Sí |
-| `.agh/lock.toml` | Registra versiones, checksums, source paths y placement modes. | Sí |
+| `.agh/lock.toml` | Registra versiones, checksums, source paths y placement modes de artifacts aplicados. | Sí |
+| `.agh-cache/preferences.toml` | Guarda la selección local de agent de este dev. | No |
 | `.agh-cache/packs/` | Archivos de pack descargados. AGH puede reconstruirlo. | No |
-| `.claude/skills/`, `.opencode/skills/` | Skill targets generados. Commitelos solo si tu equipo quiere revisarlos en Git. | Decisión del equipo |
+| `.claude/skills/`, `.opencode/skills/` | Skill targets generados para el agent seleccionado. Commitelos solo si tu equipo quiere revisarlos en Git. | Decisión del equipo |
 
 Agregá esto a `.gitignore`:
 
@@ -87,7 +123,7 @@ Si este repo tiene un cache viejo pre-release en `.agh/packs/`, se puede borrar 
 |--------|-------------|
 | `0` | Éxito o sin cambios. |
 | `1` | Falla runtime/API/download. |
-| `2` | Validación local o manifest mal formado. |
+| `2` | Validación local, manifest mal formado o selección de agent faltante/salteada. |
 | `3` | Conflicto. |
 | `4` | Falla de autenticación/autorización. |
 | `5` | Workspace no linkeado; corré `agh sync`. |
