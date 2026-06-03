@@ -78,7 +78,7 @@ def create_app() -> FastAPI:
 
     bootstrap_initial_owner(data_dir=data_dir, db_path=db_path)
 
-    application = FastAPI(title="Agent Guidance Hub", version="0.1.0")
+    application = FastAPI(title="Agent Guidance Hub", version="0.1.1")
     application.state.db_path = db_path
 
     @application.middleware("http")
