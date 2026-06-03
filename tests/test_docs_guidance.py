@@ -11,10 +11,9 @@ def test_readme_is_docker_first_landing_page_with_doc_links() -> None:
     for expected in [
         "Self-hosted agent instructions and skills",
         "[Español](README.es.md)",
-        "docker build -t agh .",
-        "docker run --rm -p 8912:8912 -v agh-data:/data \\",
-        "AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com",
-        "uv tool install --force .",
+        "docker compose up -d",
+        "ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0",
+        "uv tool install --force agh",
         "agh login",
         "agh sync",
         "agh pull --dry-run",
@@ -46,10 +45,27 @@ def test_installation_docs_cover_cli_install_and_uninstall() -> None:
         "uv tool update-shell",
         "uv tool dir",
         "uv tool uninstall agh",
-        "docker build -t agh .",
-        "docker run --rm -p 8912:8912 -v agh-data:/data \\",
+        "docker compose up -d",
+        "ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0",
     ]:
         assert expected in installation
+
+
+def test_compose_uses_published_ghcr_image_and_data_volume() -> None:
+    compose = _read("compose.yaml")
+
+    for expected in [
+        "services:",
+        "agh:",
+        "image: ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0",
+        '"8912:8912"',
+        "agh-data:/data",
+        "AGH_BOOTSTRAP_OWNER_EMAIL: owner@example.com",
+        "volumes:",
+        "agh-data:",
+        "name: agh-data",
+    ]:
+        assert expected in compose
 
 
 def test_install_cli_script_is_safe_and_uses_uv_tool_install() -> None:
@@ -75,10 +91,10 @@ def test_quickstart_documents_first_run_and_first_pull() -> None:
     quickstart = _read("docs/quickstart.md")
 
     for expected in [
-        "docker build -t agh .",
-        "docker run --rm -p 8912:8912 -v agh-data:/data \\",
+        "docker compose up -d",
+        "ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0",
         "/data/secrets/initial_owner_token",
-        "uv tool install --force .",
+        "uv tool install --force agh",
         "agh --help",
         "agh login",
         "agh project create",
@@ -122,6 +138,8 @@ def test_operations_docs_cover_docker_runtime_layout_and_maintenance() -> None:
 
     for expected in [
         "AGH_DATA_DIR=/data",
+        "docker compose up -d",
+        "ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0",
         "docker run --rm -p 8912:8912 -v agh-data:/data \\",
         "/data/agh.sqlite3",
         "/data/packs/",
@@ -131,6 +149,7 @@ def test_operations_docs_cover_docker_runtime_layout_and_maintenance() -> None:
         "Backup",
         "Upgrade",
         "uv run pytest",
+        "Direct run command",
     ]:
         assert expected in operations
 
@@ -189,7 +208,7 @@ def test_admin_docs_cover_bootstrap_users_roles_tokens_and_config() -> None:
     admin = _read("docs/admin.md")
 
     for expected in [
-        "AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com",
+        "docker compose up -d",
         "/data/secrets/initial_owner_token",
         "agh login",
         "agh config show",
@@ -215,7 +234,9 @@ def test_spanish_readme_and_docs_mirror_core_flows() -> None:
     for expected in [
         "Instrucciones y skills",
         "[English](README.md)",
-        "uv tool install --force .",
+        "docker compose up -d",
+        "ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0",
+        "uv tool install --force agh",
         "agh sync",
         "agh pull --dry-run",
         "[Instalación](docs/es/installation.md)",
@@ -231,10 +252,15 @@ def test_spanish_readme_and_docs_mirror_core_flows() -> None:
             "curl -fsSL https://raw.githubusercontent.com/giulianotesta7/AgentGuidanceHub/main/scripts/install.sh | sh",
             "uv tool install --force agh",
             "uv tool install --force .",
+            "docker compose up -d",
+            "ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0",
             "agh --help",
             "uv tool uninstall agh",
         ],
         "docs/es/quickstart.md": [
+            "docker compose up -d",
+            "ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0",
+            "uv tool install --force agh",
             "agh login",
             "agh project create",
             "agh pull --dry-run",
@@ -248,6 +274,8 @@ def test_spanish_readme_and_docs_mirror_core_flows() -> None:
         ],
         "docs/es/operations.md": [
             "AGH_DATA_DIR=/data",
+            "docker compose up -d",
+            "ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0",
             "curl http://127.0.0.1:8912/api/v1/health",
             "Backup",
             "Upgrade",

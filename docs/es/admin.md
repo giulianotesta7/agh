@@ -4,12 +4,10 @@ La administración de AGH cubre el primer owner token, usuarios, roles y ciclo d
 
 ## Bootstrap owner
 
-Levantá el server Docker con un email owner:
+Levantá el servicio Docker con el email owner definido en `compose.yaml`:
 
 ```bash
-docker run --rm -p 8912:8912 -v agh-data:/data \
-  -e AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com \
-  agh
+docker compose up -d
 ```
 
 En el primer startup, AGH crea el owner y escribe el primer token una sola vez:

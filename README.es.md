@@ -32,19 +32,22 @@ repository
 
 ## Quick Start
 
-Levantá el server con Docker:
+Levantá la imagen publicada del server con Docker Compose:
 
 ```bash
-docker build -t agh .
-docker run --rm -p 8912:8912 -v agh-data:/data \
-  -e AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com \
-  agh
+docker compose up -d
+```
+
+El compose file usa por defecto:
+
+```text
+ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0
 ```
 
 Instalá el CLI local y logueate con el primer token owner:
 
 ```bash
-uv tool install --force .
+uv tool install --force agh
 
 agh login \
   --url http://127.0.0.1:8912 \
@@ -106,4 +109,4 @@ uv sync
 uv run pytest
 ```
 
-Para correr el server local sin Docker, mirá [Operaciones](docs/es/operations.md#desarrollo-local).
+Para builds locales del server y desarrollo, mirá [Operaciones](docs/es/operations.md#desarrollo-local).

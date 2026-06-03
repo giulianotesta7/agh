@@ -17,12 +17,24 @@ AGH_DATA_DIR=/data
 | `/data/logs/agh.log` | Log del server. |
 | `/data/secrets/initial_owner_token` | Primer owner token, escrito una vez. |
 
-## Comando para correr
+## Correr con Docker Compose
+
+```bash
+docker compose up -d
+```
+
+El compose file usa la imagen publicada del release y un named volume que sobrevive reemplazos del container:
+
+```text
+ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0
+```
+
+## Comando directo
 
 ```bash
 docker run --rm -p 8912:8912 -v agh-data:/data \
   -e AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com \
-  agh
+  ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0
 ```
 
 Usá un named volume, bind mount o volumen de la plataforma que sobreviva reemplazos del container.
@@ -67,7 +79,7 @@ Guardá o rotá `/data/logs/` según tu política de retención.
 
 1. Parar el container de AGH.
 2. Hacer backup de `/data`.
-3. Buildear o pullear la nueva imagen.
+3. Pullear la nueva imagen o actualizar `compose.yaml` al nuevo version tag.
 4. Levantar el nuevo container con el mismo volumen `/data`.
 5. Chequear `/api/v1/health`.
 6. Correr `agh config show` y `agh project list`.

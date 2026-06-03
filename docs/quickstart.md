@@ -4,18 +4,16 @@ Start AGH with Docker, log in with the first owner token, then apply assigned pa
 
 ## 1. Start the server
 
-Build the image:
+Run AGH with the published image and persistent state under `/data`:
 
 ```bash
-docker build -t agh .
+docker compose up -d
 ```
 
-Run AGH with persistent state under `/data`:
+The compose file uses:
 
-```bash
-docker run --rm -p 8912:8912 -v agh-data:/data \
-  -e AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com \
-  agh
+```text
+ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0
 ```
 
 Check the server:
@@ -41,10 +39,10 @@ docker run --rm -v agh-data:/data busybox \
 
 ## 3. Install the local CLI
 
-From the AGH checkout:
+From the published package:
 
 ```bash
-uv tool install --force .
+uv tool install --force agh
 ```
 
 Verify it:

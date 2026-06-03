@@ -9,7 +9,7 @@ Install the CLI first, then use it for login, pack/project administration, and w
 
 ## Install the CLI from the package
 
-After the `agh` package is published for release, install it without cloning the repo:
+Install it without cloning the repo:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/giulianotesta7/AgentGuidanceHub/main/scripts/install.sh | sh
@@ -20,8 +20,6 @@ The installer runs:
 ```bash
 uv tool install --force agh
 ```
-
-Do not use the package install path for a release until package ownership and the published version have been validated.
 
 The installer does not edit shell startup files, Docker state, AGH config, or login credentials.
 
@@ -71,13 +69,16 @@ uv tool uninstall agh
 
 ## Server install
 
-The server is Docker-first. Build and run it with a persistent `/data` volume:
+The server is Docker-first. Use Docker Compose with the published image and a persistent `/data` volume:
 
 ```bash
-docker build -t agh .
-docker run --rm -p 8912:8912 -v agh-data:/data \
-  -e AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com \
-  agh
+docker compose up -d
 ```
 
-See [Operations](operations.md) for `/data`, logs, healthcheck, backup, and upgrade notes.
+The compose file uses:
+
+```text
+ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0
+```
+
+For a direct `docker run` command, `/data`, logs, healthcheck, backup, and upgrade notes, see [Operations](operations.md).

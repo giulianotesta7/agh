@@ -17,12 +17,24 @@ AGH_DATA_DIR=/data
 | `/data/logs/agh.log` | Server log file. |
 | `/data/secrets/initial_owner_token` | First owner token, written once. |
 
-## Run command
+## Run with Docker Compose
+
+```bash
+docker compose up -d
+```
+
+The compose file uses the published release image and a named volume that survives container replacement:
+
+```text
+ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0
+```
+
+## Direct run command
 
 ```bash
 docker run --rm -p 8912:8912 -v agh-data:/data \
   -e AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com \
-  agh
+  ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0
 ```
 
 Use a named volume, bind mount, or platform volume that survives container replacement.
@@ -67,7 +79,7 @@ Keep or rotate `/data/logs/` according to your retention policy.
 
 1. Stop the AGH container.
 2. Back up `/data`.
-3. Build or pull the new image.
+3. Pull the new image or update `compose.yaml` to the new version tag.
 4. Start the new container with the same `/data` volume.
 5. Check `/api/v1/health`.
 6. Run `agh config show` and `agh project list`.

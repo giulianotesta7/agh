@@ -4,18 +4,16 @@ Levantá AGH con Docker, logueate con el primer token owner y aplicá los packs 
 
 ## 1. Levantar el server
 
-Buildeá la imagen:
+Corré AGH con la imagen publicada y estado persistente bajo `/data`:
 
 ```bash
-docker build -t agh .
+docker compose up -d
 ```
 
-Corré AGH con estado persistente bajo `/data`:
+El compose file usa:
 
-```bash
-docker run --rm -p 8912:8912 -v agh-data:/data \
-  -e AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com \
-  agh
+```text
+ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0
 ```
 
 Chequeá el server:
@@ -41,10 +39,10 @@ docker run --rm -v agh-data:/data busybox \
 
 ## 3. Instalar el CLI
 
-Desde el checkout de AGH:
+Desde el paquete publicado:
 
 ```bash
-uv tool install --force .
+uv tool install --force agh
 ```
 
 Verificalo:

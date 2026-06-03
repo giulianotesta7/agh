@@ -1,0 +1,13 @@
+services:
+  agh:
+    image: ghcr.io/giulianotesta7/agent-guidance-hub:0.1.0
+    ports:
+      - "8912:8912"
+    volumes:
+      - agh-data:/data
+    environment:
+      AGH_BOOTSTRAP_OWNER_EMAIL: owner@example.com
+
+volumes:
+  agh-data:
+    name: agh-data
