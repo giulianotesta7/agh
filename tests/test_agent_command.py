@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import tomllib
 
 from pytest import MonkeyPatch
 from typer.testing import CliRunner
@@ -15,7 +16,7 @@ def test_top_level_help_lists_agent_command() -> None:
 
     assert result.exit_code == 0
     assert "agent" in result.stdout
-    assert "Show advisory local agent integration availability" in result.stdout
+    assert "Show and manage local agent selection" in result.stdout
 
 
 def test_agent_command_absent_agents_exits_zero_without_writes(
@@ -28,9 +29,50 @@ def test_agent_command_absent_agents_exits_zero_without_writes(
     result = runner.invoke(cli_app, ["agent"], env={"PATH": os.devnull})
 
     assert result.exit_code == 0, result.stdout
+    assert "Selection: not set" in result.stdout
     assert "Claude Code: ✗ not found" in result.stdout
     assert "OpenCode: ✗ not found" in result.stdout
     assert set(tmp_path.iterdir()) == before
+
+
+def test_agent_select_show_and_clear_manage_workspace_preference(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+
+    select = runner.invoke(cli_app, ["agent", "select", "claude"])
+
+    assert select.exit_code == 0, select.stdout
+    assert "Selected Claude Code for this workspace." in select.stdout
+    preferences_path = tmp_path / ".agh-cache" / "preferences.toml"
+    preferences = tomllib.loads(preferences_path.read_text(encoding="utf-8"))
+    assert preferences["agents"]["target"] == "claude"
+    assert isinstance(preferences["agents"]["selected_at"], str)
+
+    show = runner.invoke(cli_app, ["agent", "show"], env={"PATH": os.devnull})
+
+    assert show.exit_code == 0, show.stdout
+    assert "Selection: Claude Code (claude)" in show.stdout
+    assert "OpenCode: ✗ not found" in show.stdout
+
+    clear = runner.invoke(cli_app, ["agent", "clear"])
+
+    assert clear.exit_code == 0, clear.stdout
+    assert "Cleared local agent selection." in clear.stdout
+    assert not preferences_path.exists()
+
+
+def test_agent_select_rejects_unsupported_target(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(cli_app, ["agent", "select", "both"])
+
+    assert result.exit_code == 2
+    assert "agent target must be 'claude' or 'opencode'" in result.stdout
+    assert not (tmp_path / ".agh-cache" / "preferences.toml").exists()
 
 
 def test_agent_detection_uses_path_commands(tmp_path: Path) -> None:

@@ -13,8 +13,15 @@ import typer
 from typer.core import TyperGroup
 
 from agh.cli.agent_integrations import (
+    AGENT_LABELS,
+    SUPPORTED_AGENT_TARGETS,
+    AgentPreferenceError,
+    clear_agent_preference,
     detect_agent_availability,
     format_agent_availability,
+    format_agent_preference,
+    read_agent_preference,
+    write_agent_preference,
 )
 from agh.cli.config import (
     AghConfig,
@@ -50,7 +57,7 @@ Commands:
   pack         Create, publish, and list guidance packs.
   sync         Link this git repository to its matching AGH project.
   pull         Pull assigned guidance packs into this repository.
-  agent        Show advisory local agent integration availability.
+  agent        Show and manage local agent selection.
 
 Global options:
   --help       Show this help page.
@@ -147,11 +154,18 @@ pack_app = typer.Typer(
     no_args_is_help=False,
     rich_markup_mode=None,
 )
+agent_app = typer.Typer(
+    cls=AghSubcommandGroup,
+    help="Show and manage local agent selection.",
+    no_args_is_help=False,
+    rich_markup_mode=None,
+)
 app.add_typer(config_app, name="config")
 app.add_typer(user_app, name="user")
 app.add_typer(token_app, name="token")
 app.add_typer(project_app, name="project")
 app.add_typer(pack_app, name="pack")
+app.add_typer(agent_app, name="agent")
 project_app.add_typer(project_member_app, name="member")
 project_app.add_typer(project_pack_app, name="pack")
 
@@ -340,9 +354,58 @@ def _plural(count: int, singular: str) -> str:
     return f"{singular}s"
 
 
-@app.command("agent", help="Show advisory local agent integration availability.")
-def agent() -> None:
-    """Show detected Claude Code and OpenCode local integration availability."""
+@agent_app.callback(invoke_without_command=True)
+def agent(
+    ctx: typer.Context,
+) -> None:
+    """Show detected integrations and the local workspace selection."""
+    if ctx.invoked_subcommand is None:
+        _echo_agent_show()
+
+
+@agent_app.command("show", help="Show local agent availability and selection.")
+def agent_show() -> None:
+    """Show detected integrations and the local workspace selection."""
+    _echo_agent_show()
+
+
+@agent_app.command("select", help="Select this workspace's local agent target.")
+def agent_select(
+    target: Annotated[
+        str,
+        typer.Argument(help="Agent target: claude or opencode."),
+    ],
+) -> None:
+    """Write .agh-cache/preferences.toml for this developer/workspace."""
+    if target not in SUPPORTED_AGENT_TARGETS:
+        _fail("agent target must be 'claude' or 'opencode'", code=2)
+    try:
+        preference = write_agent_preference(target)
+    except AgentPreferenceError as exc:
+        _fail(str(exc), code=exc.code)
+    typer.echo(f"Selected {AGENT_LABELS[target]} for this workspace.")
+    typer.echo(f"Preferences: {_format_cli_path(preference.path)}")
+
+
+@agent_app.command("clear", help="Clear this workspace's local agent selection.")
+def agent_clear() -> None:
+    """Remove .agh-cache/preferences.toml if present."""
+    try:
+        removed = clear_agent_preference()
+    except AgentPreferenceError as exc:
+        _fail(str(exc), code=exc.code)
+    if removed:
+        typer.echo("Cleared local agent selection.")
+    else:
+        typer.echo("No local agent selection was set.")
+
+
+def _echo_agent_show() -> None:
+    try:
+        preference = read_agent_preference()
+    except AgentPreferenceError as exc:
+        _fail(str(exc), code=exc.code)
+    typer.echo(format_agent_preference(preference))
     typer.echo(format_agent_availability(detect_agent_availability()))
 
 

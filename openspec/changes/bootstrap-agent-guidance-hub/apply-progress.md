@@ -899,3 +899,16 @@ None — PR2B-2 keeps auth/bootstrap in stdlib/FastAPI modules, uses SQLite dire
 - **Mode**: stacked PR slice (PR5B) targeting current `main` after PR5A readiness, per prompt boundary
 - **Boundary**: Pull dry-run/conflict planning only. No `agh pull` command wiring, pull-manifest fetching, cache, `.agh/lock.toml` writes, agent integrations, server API changes, web UI, OAuth/SSO, or PR/merge actions.
 - **Review impact**: focused pull-core planning slice with one helper module, one focused test file, and OpenSpec progress/task updates.
+
+## Files Changed (Agent Preferences follow-up)
+
+| File | Action | Notes |
+|------|--------|-------|
+| `agh/cli/agent_integrations.py` | Modified | Adds per-workspace local preference helpers for `.agh-cache/preferences.toml`, supported target constants, atomic writes, clear/read operations, and selection rendering. |
+| `agh/cli/workspace_pull.py` | Modified | Resolves selected agent before server fetch, prompts only on interactive TTY when missing, exits `2` on skip/non-TTY missing preference, and filters manifest artifacts before download/apply/cache/lock. |
+| `agh/cli/main.py` | Modified | Converts `agh agent` into a useful command group with default show behavior plus `show`, `select claude|opencode`, and `clear`. |
+| `tests/test_agent_command.py` | Modified | Covers agent selection write/show/clear and unsupported target rejection. |
+| `tests/test_cli_pull.py` | Modified | Covers non-TTY missing selection, interactive skip/select behavior, and selected-agent manifest filtering. |
+| `tests/test_integration_smoke.py` | Modified | Updates end-to-end pull expectations for a selected single agent. |
+| `docs/quickstart.md`, `docs/workspace.md`, `docs/es/quickstart.md`, `docs/es/workspace.md` | Modified | Documents local agent selection, cache preference storage, no `both`, and pull filtering. |
+| `openspec/changes/bootstrap-agent-guidance-hub/specs/workspace/spec.md` | Modified | Adds local agent preference requirements and scenarios. |

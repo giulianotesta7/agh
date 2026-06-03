@@ -65,6 +65,7 @@ Después trabajá desde un repo:
 
 ```bash
 agh sync
+agh agent select opencode # o: agh agent select claude
 agh pull --dry-run
 agh pull
 agh agent
@@ -98,15 +99,15 @@ Commiteá el estado estable del proyecto:
 
 - `.agh/project.toml`
 - `.agh/lock.toml`
-- `AGENTS.md` / `CLAUDE.md`
+- el target del agente seleccionado, como `AGENTS.md` o `CLAUDE.md`
 
-Ignorá el cache:
+Ignorá el cache y la selección local de agente de cada dev:
 
 ```gitignore
 .agh-cache/
 ```
 
-Los skill targets bajo `.claude/skills/` y `.opencode/skills/` los genera el flujo de pull del workspace. Commitelos solo si tu equipo quiere revisar esos archivos en Git. Si son symlinks, refrescá el workspace después de clonar para reconstruir `.agh-cache/packs/`.
+Los skill targets bajo `.claude/skills/` u `.opencode/skills/` los genera el flujo de pull para el agente local seleccionado. Commitelos solo si tu equipo quiere revisar esos archivos en Git. Si son symlinks, refrescá el workspace después de clonar para reconstruir `.agh-cache/packs/`.
 
 ## Desarrollo
 

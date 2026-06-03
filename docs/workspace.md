@@ -7,20 +7,52 @@ A workspace is a git repo linked to one AGH project. The repo gets the packs ass
 | Command | What it does | Writes files? |
 |---------|--------------|---------------|
 | `agh sync` | Matches the git remote to an AGH project and writes `.agh/project.toml`. | Yes |
-| `agh pull --dry-run` | Fetches the server plan and downloads files in memory. | No |
-| `agh pull` | Applies instructions and skills, refreshes `.agh-cache/packs/`, and writes `.agh/lock.toml`. | Yes |
-| `agh pull --force` | Replaces conflicted AGH blocks or skill targets. | Yes |
-| `agh agent` | Shows whether Claude Code/OpenCode paths look available. | No |
+| `agh agent` / `agh agent show` | Shows Claude Code/OpenCode availability and the current local selection. | No |
+| `agh agent select claude` | Selects Claude Code for this workspace in `.agh-cache/preferences.toml`. | Yes |
+| `agh agent select opencode` | Selects OpenCode for this workspace in `.agh-cache/preferences.toml`. | Yes |
+| `agh agent clear` | Removes the local workspace agent selection. | Yes |
+| `agh pull --dry-run` | Fetches the server plan and downloads selected-agent files in memory. | No |
+| `agh pull` | Applies instructions and skills for the selected agent, refreshes `.agh-cache/packs/`, and writes `.agh/lock.toml`. | Yes |
+| `agh pull --force` | Replaces conflicted AGH blocks or skill targets for the selected agent. | Yes |
+
+## Local agent selection
+
+Each developer chooses one local agent target per workspace. AGH stores that preference in local cache state:
+
+```toml
+# .agh-cache/preferences.toml
+[agents]
+target = "opencode" # or "claude"
+```
+
+Use one of these commands:
+
+```bash
+agh agent select claude
+agh agent select opencode
+```
+
+`agh pull` reads this file before applying anything. If it is missing and stdin is an interactive TTY, AGH asks:
+
+```text
+Which agent do you use for this workspace?
+1. Claude Code
+2. OpenCode
+3. Skip for now
+```
+
+There is no `both` option. If you choose Skip, AGH exits with code `2` and does not apply guidance. In non-interactive shells, AGH exits with code `2` and tells you to run `agh agent select claude` or `agh agent select opencode`.
 
 ## Pull flow
 
 ```text
 1. Read .agh/project.toml
-2. Ask the server what this project should use
-3. Download pack files through relative /api/v1/... URLs
-4. Check each checksum
-5. Apply instructions and skills
-6. Write .agh/lock.toml
+2. Read or prompt for .agh-cache/preferences.toml
+3. Ask the server what this project should use
+4. Download only artifacts for the selected agent through relative /api/v1/... URLs
+5. Check each checksum
+6. Apply instructions and skills for the selected agent
+7. Write .agh/lock.toml for the applied artifacts
 ```
 
 AGH writes the lockfile only after the repo files are updated.
@@ -39,10 +71,13 @@ If you edit inside the block, the next `agh pull` exits with conflict code `3`. 
 
 ## Skills stay clean
 
-Skills do not use AGH markers. AGH writes or links them at the paths agents already expect:
+Skills do not use AGH markers. AGH writes or links them at the paths agents already expect. It only writes paths for the selected local agent:
 
 ```text
+# claude
 .claude/skills/<skill>/SKILL.md
+
+# opencode
 .opencode/skills/<skill>/SKILL.md
 ```
 
@@ -65,9 +100,10 @@ It does not write Cursor, Codex, Pi, or global agent paths.
 | Path | Purpose | Commit? |
 |------|---------|---------|
 | `.agh/project.toml` | Links the repo to an AGH project. | Yes |
-| `.agh/lock.toml` | Records versions, checksums, source paths, and placement modes. | Yes |
+| `.agh/lock.toml` | Records versions, checksums, source paths, and placement modes for applied artifacts. | Yes |
+| `.agh-cache/preferences.toml` | Stores this developer's local agent selection. | No |
 | `.agh-cache/packs/` | Downloaded pack files. AGH can rebuild it. | No |
-| `.claude/skills/`, `.opencode/skills/` | Generated skill targets. Commit only if your team wants them reviewed in Git. | Team choice |
+| `.claude/skills/`, `.opencode/skills/` | Generated skill targets for the selected agent. Commit only if your team wants them reviewed in Git. | Team choice |
 
 Add this to `.gitignore`:
 
@@ -87,7 +123,7 @@ If this repo has an old pre-release `.agh/packs/` cache, you can delete it after
 |------|---------|
 | `0` | Success or no changes. |
 | `1` | Runtime/API/download failure. |
-| `2` | Local validation or malformed manifest. |
+| `2` | Local validation, malformed manifest, or missing/skipped agent selection. |
 | `3` | Conflict. |
 | `4` | Authentication/authorization failure. |
 | `5` | Workspace is not linked; run `agh sync`. |
