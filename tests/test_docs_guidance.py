@@ -347,7 +347,14 @@ def test_package_version_is_dynamic_from_git_metadata() -> None:
     for expected in [
         'requires = ["setuptools>=68", "setuptools-scm>=8", "wheel"]',
         'dynamic = ["version"]',
+        'description = "Self-hosted guidance distribution for coding agents"',
         'license = "MIT"',
+        '"Development Status :: 3 - Alpha"',
+        '"Framework :: FastAPI"',
+        '"coding-agents"',
+        "[project.urls]",
+        'Homepage = "https://github.com/giulianotesta7/AgentGuidanceHub"',
+        'Container = "https://github.com/giulianotesta7/AgentGuidanceHub/pkgs/container/agent-guidance-hub"',
         "[tool.setuptools_scm]",
     ]:
         assert expected in pyproject
