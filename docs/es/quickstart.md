@@ -88,9 +88,9 @@ AGH escribe:
 .agh/project.toml
 ```
 
-## 7. Elegir tu agent local y traer packs
+## 7. Elegir tu agente y traer packs
 
-Cada dev elige un target local por workspace. La selección se guarda en `.agh-cache/preferences.toml`, que es estado local de cache y no se commitea.
+Cada dev elige un agente por workspace. AGH guarda esa elección en `.agh-cache/preferences.toml`, que es estado de cache y no se commitea.
 
 Definilo explícitamente:
 
@@ -110,7 +110,7 @@ Aplicá los cambios:
 agh pull
 ```
 
-Chequeá paths locales y la selección actual:
+Chequeá los paths y la selección actual:
 
 ```bash
 agh agent
@@ -131,4 +131,4 @@ Ignorá el cache:
 .agh-cache/
 ```
 
-Los skill targets bajo `.claude/skills/` o `.opencode/skills/` los genera el pull del workspace para el agent local seleccionado. Commitelos solo si tu equipo quiere revisar esos archivos en Git. Si son symlinks, refrescá el workspace después de clonar para reconstruir `.agh-cache/packs/`.
+AGH genera skill targets bajo `.claude/skills/` u `.opencode/skills/` para el agente elegido. Commitelos solo si tu equipo quiere revisar esos archivos en Git. Si son symlinks, refrescá el workspace después de clonar para reconstruir `.agh-cache/packs/`.

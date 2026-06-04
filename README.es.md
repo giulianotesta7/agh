@@ -46,6 +46,10 @@ agh agent select opencode # o: agh agent select claude
 
 AGH guarda esa elección en `.agh-cache/preferences.toml`; no la commiteás.
 
+![Demo de pull de workspace en AGH](docs/assets/agh-workspace-demo.gif)
+
+Fuente del demo: [`docs/assets/agh-workspace-demo.tape`](docs/assets/agh-workspace-demo.tape).
+
 ## Quick start
 
 Levantá el server con la imagen Docker publicada:
