@@ -46,6 +46,10 @@ agh agent select opencode # or: agh agent select claude
 
 AGH stores that choice in `.agh-cache/preferences.toml`; you do not commit it.
 
+![AGH workspace pull demo](docs/assets/agh-workspace-demo.gif)
+
+Demo source: [`docs/assets/agh-workspace-demo.tape`](docs/assets/agh-workspace-demo.tape).
+
 ## Quick start
 
 Run the server with the published Docker image:
