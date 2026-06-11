@@ -1,4 +1,4 @@
-Output docs/assets/agh-workspace-demo.gif
+Output assets/agh-workspace-demo.gif
 
 Set Shell "bash"
 Set FontSize 26
