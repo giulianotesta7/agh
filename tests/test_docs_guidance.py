@@ -343,7 +343,9 @@ def test_ci_workflow_runs_release_validation_commands() -> None:
     assert "publish" not in ci.lower()
 
 
-def test_pr_validation_workflow_requires_issue_reference_without_label_blockers() -> None:
+def test_pr_validation_workflow_requires_issue_reference_without_label_blockers() -> (
+    None
+):
     workflow = _read(".github/workflows/pr-validation.yml")
     pr_template = _read(".github/pull_request_template.md")
     feature_template = _read(".github/ISSUE_TEMPLATE/feature_request.yml")
