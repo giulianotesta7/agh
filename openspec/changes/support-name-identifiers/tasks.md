@@ -45,8 +45,8 @@ Chain strategy: stacked-to-main
 
 ## Future PR2: User Email Refs
 
-- [ ] Add `GET /users/by-email/{email:path}` before `/{user_id}` in `agh/server/routes/users.py`; test exact, active, auth, 400, 404/hidden cases.
-- [ ] Add `agh user show` and resolve user refs for show/update/delete/token/member commands; keep `usr_...` passthrough and cover in `tests/test_cli_admin_commands.py`.
+- [x] Add `GET /users/by-email/{email:path}` before `/{user_id}` in `agh/server/routes/users.py`; test exact, active, auth, 400, 404/hidden cases.
+- [x] Add `agh user show` and resolve user refs for show/update/delete/token/member commands; keep `usr_...` passthrough and cover in `tests/test_cli_admin_commands.py`.
 
 ## Future PR3: Pack Version Refs
 

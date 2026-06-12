@@ -37,6 +37,7 @@ from agh.cli.config import (
 from agh.cli.pack_init import PackInitError, init_pack_template
 from agh.cli.pack_publish import PackPublishBuildError, build_pack_publish_payload
 from agh.cli.project_refs import ProjectRefResolutionError, resolve_project_ref
+from agh.cli.user_refs import UserRefResolutionError, resolve_user_ref
 from agh.cli.workspace_pull import (
     WorkspacePullError,
     WorkspacePullResult,
@@ -68,6 +69,7 @@ Arguments:
   Run `agh <command> --help` for command-specific options and arguments.
 """
 PROJECT_REF_HELP = "Project id or exact name. Numeric refs are treated as ids."
+USER_REF_HELP = "User id or exact email."
 
 
 class AghHelpGroup(TyperGroup):
@@ -279,6 +281,13 @@ def _resolve_project_ref(project_ref: str) -> str:
         return resolve_project_ref(project_ref, _api_request)
     except ProjectRefResolutionError as exc:
         _fail(str(exc))
+
+
+def _resolve_user_ref(user_ref: str) -> str:
+    try:
+        return resolve_user_ref(user_ref, _api_request)
+    except UserRefResolutionError as exc:
+        _fail(str(exc), code=exc.code)
 
 
 @app.command("pull", help="Pull assigned guidance packs into this repository.")
@@ -576,6 +585,13 @@ def _echo_user_list(payload: dict[str, Any]) -> None:
     )
 
 
+def _echo_user_detail(user: dict[str, Any]) -> None:
+    typer.echo(f"User: {user.get('email', '')}")
+    typer.echo(f"User ID: {user.get('id', '')}")
+    typer.echo(f"Role: {user.get('role', '')}")
+    typer.echo(f"Status: {_status_label(user)}")
+
+
 def _echo_user_created(payload: dict[str, Any]) -> None:
     user = payload.get("user", {})
     if not isinstance(user, dict):
@@ -760,9 +776,17 @@ def user_create(
     _echo_user_created(payload)
 
 
+@user_app.command("show", help="Show one user by id or exact email.")
+def user_show(
+    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
+) -> None:
+    resolved_user_id = _resolve_user_ref(user_id)
+    _echo_user_detail(_api_request("GET", user_path(resolved_user_id)))
+
+
 @user_app.command("update", help="Update user email, role, or active flag.")
 def user_update(
-    user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
+    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
     email: Annotated[str | None, typer.Option("--email", help="New email.")] = None,
     role: Annotated[
         str | None,
@@ -773,10 +797,11 @@ def user_update(
         typer.Option("--active/--inactive", help="Set whether the user is active."),
     ] = None,
 ) -> None:
+    resolved_user_id = _resolve_user_ref(user_id)
     _echo_user_updated(
         _api_request(
             "PATCH",
-            user_path(user_id),
+            user_path(resolved_user_id),
             body=_body_without_none(email=email, role=role, active=active),
         )
     )
@@ -784,9 +809,10 @@ def user_update(
 
 @user_app.command("delete", help="Deactivate a user.")
 def user_delete(
-    user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
+    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
 ) -> None:
-    _echo_user_deactivated(_api_request("DELETE", user_path(user_id)))
+    resolved_user_id = _resolve_user_ref(user_id)
+    _echo_user_deactivated(_api_request("DELETE", user_path(resolved_user_id)))
 
 
 def user_path(user_id: str) -> str:
@@ -803,23 +829,25 @@ def token_main(ctx: typer.Context) -> None:
 
 @token_app.command("rotate", help="Rotate a user's token and print the new token once.")
 def token_rotate(
-    user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
+    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
 ) -> None:
+    resolved_user_id = _resolve_user_ref(user_id)
     _echo_token_issued(
         "Rotated",
-        _api_request("POST", f"/users/{user_id}/token:rotate"),
-        user_id=user_id,
+        _api_request("POST", f"/users/{resolved_user_id}/token:rotate"),
+        user_id=resolved_user_id,
     )
 
 
 @token_app.command("reset", help="Reset a user's token and print the new token once.")
 def token_reset(
-    user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
+    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
 ) -> None:
+    resolved_user_id = _resolve_user_ref(user_id)
     _echo_token_issued(
         "Reset",
-        _api_request("POST", f"/users/{user_id}/token:reset"),
-        user_id=user_id,
+        _api_request("POST", f"/users/{resolved_user_id}/token:reset"),
+        user_id=resolved_user_id,
     )
 
 
@@ -981,28 +1009,34 @@ def project_member_main(ctx: typer.Context) -> None:
 @project_member_app.command("add", help="Add an active user as a project developer.")
 def project_member_add(
     project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
-    user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
+    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
 ) -> None:
     resolved_project_id = _resolve_project_ref(project_id)
+    resolved_user_id = _resolve_user_ref(user_id)
     _echo_project_member_success(
         "Added",
-        _api_request("PUT", f"/projects/{resolved_project_id}/members/{user_id}"),
+        _api_request(
+            "PUT", f"/projects/{resolved_project_id}/members/{resolved_user_id}"
+        ),
         project_id=resolved_project_id,
-        user_id=user_id,
+        user_id=resolved_user_id,
     )
 
 
 @project_member_app.command("remove", help="Remove a project developer membership.")
 def project_member_remove(
     project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
-    user_id: Annotated[str, typer.Argument(help="User id, e.g. usr_...")],
+    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
 ) -> None:
     resolved_project_id = _resolve_project_ref(project_id)
+    resolved_user_id = _resolve_user_ref(user_id)
     _echo_project_member_success(
         "Removed",
-        _api_request("DELETE", f"/projects/{resolved_project_id}/members/{user_id}"),
+        _api_request(
+            "DELETE", f"/projects/{resolved_project_id}/members/{resolved_user_id}"
+        ),
         project_id=resolved_project_id,
-        user_id=user_id,
+        user_id=resolved_user_id,
     )
 
 

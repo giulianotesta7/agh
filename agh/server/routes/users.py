@@ -57,6 +57,14 @@ def _clean_email(email: str) -> str:
     return cleaned
 
 
+def _clean_lookup_email(email: str) -> str:
+    if not is_valid_email(email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid email"
+        )
+    return email
+
+
 def _clean_role(role: str) -> str:
     if role not in ROLES:
         raise HTTPException(
@@ -184,6 +192,43 @@ def create_user(
         else:
             connection.commit()
         return {"user": _user_response(created), "token": token}
+    finally:
+        connection.close()
+
+
+@router.get("/by-email/{email:path}")
+def get_user_by_email(
+    email: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str]:
+    _require_user_admin(current_user)
+    cleaned_email = _clean_lookup_email(email)
+    connection = _connect(request)
+    try:
+        row = connection.execute(
+            "SELECT id, email FROM users WHERE email = ? AND active = 1",
+            (cleaned_email,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="user not found"
+            )
+        return {"id": row["id"], "email": row["email"]}
+    finally:
+        connection.close()
+
+
+@router.get("/{user_id}")
+def get_user(
+    user_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str | bool]:
+    _require_user_admin(current_user)
+    connection = _connect(request)
+    try:
+        return _user_response(_get_user(connection, user_id))
     finally:
         connection.close()
 

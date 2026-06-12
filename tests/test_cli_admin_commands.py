@@ -70,6 +70,8 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
                 }
             ]
         }
+    if (method, path) == ("GET", "/api/v1/users/by-email/member%40example.com"):
+        return 200, {"id": "usr_2", "email": "member@example.com"}
     if (method, path) == ("POST", "/api/v1/users"):
         return 201, {
             "user": {
@@ -80,6 +82,13 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
             },
             "token": "issued-user-token",
             "token_hash": "issued-hash-secret",
+        }
+    if (method, path) == ("GET", "/api/v1/users/usr_2"):
+        return 200, {
+            "id": "usr_2",
+            "email": "renamed@example.com",
+            "role": "member",
+            "active": True,
         }
     if (method, path) == ("PATCH", "/api/v1/users/usr_2"):
         return 200, {
@@ -195,6 +204,7 @@ def test_cli_user_token_project_commands_map_to_api_and_mask_stored_token(
             ["user", "create", "new@example.com", "--role", "member"],
             "issued-user-token",
         ),
+        (["user", "show", "usr_2"], "renamed@example.com"),
         (
             ["user", "update", "usr_2", "--email", "renamed@example.com", "--inactive"],
             "renamed@example.com",
@@ -492,6 +502,150 @@ def test_cli_project_refs_resolve_names_and_keep_numeric_refs_as_ids(
     assert ("GET", "/projects/by-name/12345") not in calls
 
 
+def test_cli_user_refs_resolve_emails_and_keep_user_ids(monkeypatch) -> None:
+    from agh.cli import main as cli_main
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_api(method: str, path: str, **_kwargs):
+        calls.append((method, path))
+        if path == "/users/by-email/member%40example.com":
+            return {"id": "usr_2", "email": "member@example.com"}
+        if path == "/users/usr_2":
+            return {
+                "id": "usr_2",
+                "email": "member@example.com",
+                "role": "member",
+                "active": True,
+            }
+        if path == "/users/usr_2/token:rotate":
+            return {"token": "rotated-token"}
+        if path == "/projects/prj_2/members/usr_2":
+            return {"project_id": "prj_2", "user_id": "usr_2"}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(cli_main, "_api_request", fake_api)
+    runner = CliRunner()
+    by_email = runner.invoke(cli_app, ["user", "show", "member@example.com"])
+    by_id = runner.invoke(cli_app, ["user", "show", "usr_2"])
+    token_by_email = runner.invoke(cli_app, ["token", "rotate", "member@example.com"])
+    member_by_email = runner.invoke(
+        cli_app, ["project", "member", "add", "prj_2", "member@example.com"]
+    )
+
+    assert by_email.exit_code == 0, by_email.stdout
+    assert "User ID: usr_2" in by_email.stdout
+    assert by_id.exit_code == 0, by_id.stdout
+    assert token_by_email.exit_code == 0, token_by_email.stdout
+    assert token_by_email.stdout.startswith("Rotated token for user usr_2.")
+    assert member_by_email.exit_code == 0, member_by_email.stdout
+    assert member_by_email.stdout == "Added user usr_2 to project prj_2.\n"
+
+    assert calls.count(("GET", "/users/by-email/member%40example.com")) == 3
+    assert calls.count(("GET", "/users/usr_2")) == 2
+
+
+def test_cli_user_refs_prefer_valid_usr_prefixed_email_over_id(monkeypatch) -> None:
+    from agh.cli import main as cli_main
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_api(method: str, path: str, **_kwargs):
+        calls.append((method, path))
+        if path == "/users/by-email/usr_jane%40example.com":
+            return {"id": "usr_2", "email": "usr_jane@example.com"}
+        if path == "/users/usr_2":
+            return {
+                "id": "usr_2",
+                "email": "usr_jane@example.com",
+                "role": "member",
+                "active": True,
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(cli_main, "_api_request", fake_api)
+
+    result = CliRunner().invoke(cli_app, ["user", "show", "usr_jane@example.com"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "User ID: usr_2" in result.stdout
+    assert calls == [
+        ("GET", "/users/by-email/usr_jane%40example.com"),
+        ("GET", "/users/usr_2"),
+    ]
+
+
+def test_cli_user_email_refs_cover_mutation_token_and_member_remove(
+    monkeypatch,
+) -> None:
+    from agh.cli import main as cli_main
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_api(method: str, path: str, **_kwargs):
+        calls.append((method, path))
+        if path == "/users/by-email/member%40example.com":
+            return {"id": "usr_2", "email": "member@example.com"}
+        if path == "/users/usr_2":
+            return {
+                "id": "usr_2",
+                "email": "renamed@example.com",
+                "role": "member",
+                "active": True,
+            }
+        if path == "/users/usr_2/token:reset":
+            return {"token": "reset-token"}
+        if path == "/projects/prj_2/members/usr_2":
+            return {"project_id": "prj_2", "user_id": "usr_2"}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(cli_main, "_api_request", fake_api)
+    runner = CliRunner()
+    updated = runner.invoke(
+        cli_app,
+        ["user", "update", "member@example.com", "--email", "renamed@example.com"],
+    )
+    deleted = runner.invoke(cli_app, ["user", "delete", "member@example.com"])
+    reset = runner.invoke(cli_app, ["token", "reset", "member@example.com"])
+    member_removed = runner.invoke(
+        cli_app, ["project", "member", "remove", "prj_2", "member@example.com"]
+    )
+
+    assert updated.exit_code == 0, updated.stdout
+    assert updated.stdout == (
+        "Updated user renamed@example.com (usr_2).\nRole: member\nStatus: active\n"
+    )
+    assert deleted.exit_code == 0, deleted.stdout
+    assert deleted.stdout == "Deactivated user renamed@example.com (usr_2).\n"
+    assert reset.exit_code == 0, reset.stdout
+    assert reset.stdout.startswith("Reset token for user usr_2.")
+    assert member_removed.exit_code == 0, member_removed.stdout
+    assert member_removed.stdout == "Removed user usr_2 from project prj_2.\n"
+
+    assert calls.count(("GET", "/users/by-email/member%40example.com")) == 4
+    assert ("PATCH", "/users/usr_2") in calls
+    assert ("DELETE", "/users/usr_2") in calls
+    assert ("POST", "/users/usr_2/token:reset") in calls
+    assert ("DELETE", "/projects/prj_2/members/usr_2") in calls
+
+
+def test_cli_user_ref_validation_rejects_malformed_email_without_api_call(
+    monkeypatch,
+) -> None:
+    from agh.cli import main as cli_main
+
+    calls = []
+    monkeypatch.setattr(
+        cli_main, "_api_request", lambda *args, **_kwargs: calls.append(args)
+    )
+
+    result = CliRunner().invoke(cli_app, ["user", "show", "not-an-email"])
+
+    assert result.exit_code == 2
+    assert "user ref must be a user id" in result.stdout
+    assert calls == []
+
+
 def test_cli_project_name_validation_rejects_digit_only_names_without_api_call(
     monkeypatch,
 ) -> None:
@@ -602,6 +756,7 @@ def test_cli_admin_help_preserves_main_manual_and_command_help() -> None:
 
     assert user_group_help.exit_code == 0
     assert "create" in user_group_help.stdout
+    assert "show" in user_group_help.stdout
     assert "delete" in user_group_help.stdout
     assert project_group_help.exit_code == 0
     assert "member" in project_group_help.stdout
@@ -616,3 +771,4 @@ def test_cli_admin_help_preserves_main_manual_and_command_help() -> None:
     assert "--repo-url" in project_help.stdout
     assert member_help.exit_code == 0
     assert "PROJECT_ID" in member_help.stdout or "project_id" in member_help.stdout
+    assert "USER_ID" in member_help.stdout or "user_id" in member_help.stdout
