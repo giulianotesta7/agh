@@ -237,12 +237,13 @@ Assign packs to a project:
 
 ```bash
 agh project pack add prj_... acme/onboarding@latest
+agh project pack add prj_... onboarding@1.0.0
 agh project pack list prj_...
 agh project pack update prj_... asn_... --pack-ref acme/onboarding@1.0.0
 agh project pack remove prj_... asn_...
 ```
 
-`asn_...` identifies the project-to-pack assignment. Use an exact version to pin the project. Use `latest` when the project should resolve to the newest published version during pull.
+`asn_...` identifies the project-to-pack assignment. Pack inputs accept `packv_...`, `domain/name@version`, and exact `name@version` refs. No-domain refs must match a single pack domain, otherwise AGH reports a conflict. Use an exact version to pin the project. Use `latest` with domain-qualified refs when the project should resolve to the newest published version during pull.
 
 During workspace pull, AGH writes the resolved concrete version and checksum to `.agh/lock.toml`.
 

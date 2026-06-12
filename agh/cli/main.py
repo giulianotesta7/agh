@@ -36,6 +36,7 @@ from agh.cli.config import (
 )
 from agh.cli.pack_init import PackInitError, init_pack_template
 from agh.cli.pack_publish import PackPublishBuildError, build_pack_publish_payload
+from agh.cli.pack_refs import PackVersionRefResolutionError, resolve_pack_version_ref
 from agh.cli.project_refs import ProjectRefResolutionError, resolve_project_ref
 from agh.cli.user_refs import UserRefResolutionError, resolve_user_ref
 from agh.cli.workspace_pull import (
@@ -70,6 +71,7 @@ Arguments:
 """
 PROJECT_REF_HELP = "Project id or exact name. Numeric refs are treated as ids."
 USER_REF_HELP = "User id or exact email."
+PACK_VERSION_REF_HELP = "Pack ref: packv_..., domain/name@version, or name@version."
 
 
 class AghHelpGroup(TyperGroup):
@@ -287,6 +289,13 @@ def _resolve_user_ref(user_ref: str) -> str:
     try:
         return resolve_user_ref(user_ref, _api_request)
     except UserRefResolutionError as exc:
+        _fail(str(exc), code=exc.code)
+
+
+def _resolve_pack_version_ref(pack_ref: str) -> str:
+    try:
+        return resolve_pack_version_ref(pack_ref, _api_request)
+    except PackVersionRefResolutionError as exc:
         _fail(str(exc), code=exc.code)
 
 
@@ -1061,15 +1070,16 @@ def project_pack_list(
 @project_pack_app.command("add", help="Assign a pack to a project.")
 def project_pack_add(
     project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
-    pack_ref: Annotated[str, typer.Argument(help="Pack ref, e.g. acme/name@1.0.0.")],
+    pack_ref: Annotated[str, typer.Argument(help=PACK_VERSION_REF_HELP)],
     position: Annotated[int, typer.Option("--position", help="Assignment order.")] = 0,
 ) -> None:
     resolved_project_id = _resolve_project_ref(project_id)
+    resolved_pack_ref = _resolve_pack_version_ref(pack_ref)
     _echo_project_pack_assigned(
         _api_request(
             "POST",
             f"/projects/{resolved_project_id}/packs",
-            body={"pack_ref": pack_ref, "position": position},
+            body={"pack_ref": resolved_pack_ref, "position": position},
         ),
         project_id=resolved_project_id,
     )
@@ -1080,7 +1090,7 @@ def project_pack_update(
     project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
     assignment_id: Annotated[str, typer.Argument(help="Assignment id, e.g. asn_...")],
     pack_ref: Annotated[
-        str | None, typer.Option("--pack-ref", help="New pack ref.")
+        str | None, typer.Option("--pack-ref", help=PACK_VERSION_REF_HELP)
     ] = None,
     position: Annotated[
         int | None, typer.Option("--position", help="New order.")
@@ -1091,12 +1101,15 @@ def project_pack_update(
     ] = None,
 ) -> None:
     resolved_project_id = _resolve_project_ref(project_id)
+    resolved_pack_ref = (
+        _resolve_pack_version_ref(pack_ref) if pack_ref is not None else None
+    )
     _echo_project_pack_updated(
         _api_request(
             "PATCH",
             f"/projects/{resolved_project_id}/packs/{assignment_id}",
             body=_body_without_none(
-                pack_ref=pack_ref, position=position, active=active
+                pack_ref=resolved_pack_ref, position=position, active=active
             ),
         ),
         project_id=resolved_project_id,

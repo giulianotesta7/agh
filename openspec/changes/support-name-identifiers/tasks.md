@@ -50,6 +50,6 @@ Chain strategy: stacked-to-main
 
 ## Future PR3: Pack Version Refs
 
-- [ ] Add pack-version ref parsing helpers; cover in `tests/test_common_helpers.py`.
-- [ ] Add `GET /packs/versions:resolve` in `agh/server/routes/packs.py`; test canonical `pack_ref`, malformed, missing, and ambiguous no-domain refs.
-- [ ] Resolve project-pack `pack_ref` inputs through the pack resolver when needed; update CLI help text and `tests/test_docs_guidance.py`.
+- [x] Add pack-version ref parsing helpers; cover in `tests/test_common_helpers.py`.
+- [x] Add `GET /packs/versions:resolve` in `agh/server/routes/packs.py`; test canonical `pack_ref`, malformed, missing, and ambiguous no-domain refs.
+- [x] Resolve project-pack `pack_ref` inputs through the pack resolver when needed; update CLI help text and `tests/test_docs_guidance.py`.

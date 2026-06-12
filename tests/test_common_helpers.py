@@ -17,6 +17,7 @@ from agh.common.validation import (
     is_valid_email,
     is_valid_slug,
     parse_pack_ref,
+    parse_pack_version_ref,
     validate_project_name,
     validate_pack_publish_ref,
 )
@@ -78,6 +79,30 @@ def test_pack_ref_parsing_and_publish_rules() -> None:
 
     with pytest.raises(ValueError):
         validate_pack_publish_ref("acme/onboarding@latest")
+
+
+def test_pack_version_ref_parsing_accepts_id_canonical_and_name_version() -> None:
+    by_id = parse_pack_version_ref("packv_0123456789abcdef", allow_latest=False)
+    assert by_id.kind == "id"
+    assert by_id.value == "packv_0123456789abcdef"
+
+    canonical = parse_pack_version_ref("acme/onboarding@1.2.3", allow_latest=False)
+    assert canonical.kind == "canonical"
+    assert canonical.domain == "acme"
+    assert canonical.name == "onboarding"
+    assert canonical.version == "1.2.3"
+
+    no_domain = parse_pack_version_ref("onboarding@1.2.3", allow_latest=False)
+    assert no_domain.kind == "name_version"
+    assert no_domain.domain is None
+    assert no_domain.name == "onboarding"
+    assert no_domain.version == "1.2.3"
+
+
+def test_pack_version_ref_parsing_rejects_malformed_refs() -> None:
+    for value in ["", "packv_bad", "onboarding", "Bad/name@1.0.0", "pack@latest"]:
+        with pytest.raises(ValueError):
+            parse_pack_version_ref(value, allow_latest=False)
 
 
 def test_semver_comparison() -> None:

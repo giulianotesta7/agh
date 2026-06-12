@@ -568,6 +568,64 @@ def test_cli_project_pack_mutation_commands_use_human_output(tmp_path: Path) -> 
     assert removed.stdout == "Removed assignment asn_1 from project prj_1.\n"
 
 
+def test_cli_project_pack_commands_resolve_pack_version_refs(monkeypatch) -> None:
+    from agh.cli import main as cli_main
+
+    calls: list[dict[str, Any]] = []
+
+    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append({"method": method, "path": path, **kwargs})
+        if (method, path) == (
+            "GET",
+            "/packs/versions:resolve?ref=onboarding%401.0.0",
+        ):
+            return {"pack_ref": "acme/onboarding@1.0.0"}
+        if (method, path) == (
+            "GET",
+            "/packs/versions:resolve?ref=packv_0123456789abcdef",
+        ):
+            return {"pack_ref": "acme/onboarding@1.2.0"}
+        if (method, path) == ("POST", "/projects/prj_1/packs"):
+            return {
+                "id": "asn_1",
+                "pack_ref": kwargs["body"]["pack_ref"],
+                "resolved_ref": kwargs["body"]["pack_ref"],
+            }
+        if (method, path) == ("PATCH", "/projects/prj_1/packs/asn_1"):
+            return {
+                "id": "asn_1",
+                "pack_ref": kwargs["body"]["pack_ref"],
+                "resolved_ref": kwargs["body"]["pack_ref"],
+                "position": 0,
+                "active": True,
+            }
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
+    runner = CliRunner()
+
+    added = runner.invoke(
+        cli_app, ["project", "pack", "add", "prj_1", "onboarding@1.0.0"]
+    )
+    updated = runner.invoke(
+        cli_app,
+        [
+            "project",
+            "pack",
+            "update",
+            "prj_1",
+            "asn_1",
+            "--pack-ref",
+            "packv_0123456789abcdef",
+        ],
+    )
+
+    assert added.exit_code == 0, added.stdout
+    assert updated.exit_code == 0, updated.stdout
+    assert calls[1]["body"] == {"pack_ref": "acme/onboarding@1.0.0", "position": 0}
+    assert calls[3]["body"] == {"pack_ref": "acme/onboarding@1.2.0"}
+
+
 def test_cli_pack_read_commands_show_empty_messages(monkeypatch) -> None:
     from agh.cli import main as cli_main
 
@@ -800,6 +858,7 @@ def test_cli_pack_help_is_discoverable() -> None:
 
     pack_help = runner.invoke(cli_app, ["pack", "--help"])
     project_pack_help = runner.invoke(cli_app, ["project", "pack", "--help"])
+    project_pack_add_help = runner.invoke(cli_app, ["project", "pack", "add", "--help"])
     publish_help = runner.invoke(cli_app, ["pack", "publish", "--help"])
     init_help = runner.invoke(cli_app, ["pack", "init", "--help"])
 
@@ -810,6 +869,9 @@ def test_cli_pack_help_is_discoverable() -> None:
     assert project_pack_help.exit_code == 0
     assert "add" in project_pack_help.stdout
     assert "remove" in project_pack_help.stdout
+    assert project_pack_add_help.exit_code == 0
+    assert "packv_" in project_pack_add_help.stdout
+    assert "name@version" in project_pack_add_help.stdout
     assert publish_help.exit_code == 0
     assert "PATH" in publish_help.stdout or "path" in publish_help.stdout
     assert init_help.exit_code == 0

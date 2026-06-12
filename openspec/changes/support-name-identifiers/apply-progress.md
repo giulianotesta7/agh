@@ -46,4 +46,27 @@
 
 ## Remaining Future Slices
 
-- PR3 pack version refs: resolver endpoint/parser, CLI pack-ref resolution, and tests.
+- None. PR3 pack version refs are implemented below; run SDD verify next.
+
+## PR 3 / Slice 3: Pack version refs only
+
+- Branch: `feat/pack-version-refs`
+- Chain strategy: `stacked-to-main`
+- Target: `main` directly because PR1 and PR2 are already merged to `main`.
+- Scope: pack-version refs only; no further project/user ref work beyond compatibility with existing PR1/PR2 behavior.
+- Mode: Standard (`strict_tdd: false`); tests were updated alongside behavior.
+
+## Completed
+
+- Added shared pack-version ref parsing for `packv_...`, `domain/name@version`, and exact `name@version` refs while preserving existing pack ref validation.
+- Added authenticated `GET /api/v1/packs/versions:resolve?ref=...` resolving `packv_...`, canonical refs, and unique no-domain refs; malformed refs return `400`, missing refs return `404`, and ambiguous no-domain refs return `409`.
+- Added CLI pack-ref resolution for `agh project pack add` and `agh project pack update --pack-ref`, converting `packv_...` and `name@version` to canonical `domain/name@version` before existing assignment APIs while keeping domain-qualified `latest` behavior unchanged.
+- Updated English README/help guidance and tests for pack-version refs.
+
+## Verification
+
+- `uv run pytest tests/test_common_helpers.py tests/test_pack_routes.py tests/test_cli_pack_commands.py tests/test_project_pack_assignments.py tests/test_docs_guidance.py` — passed (72 tests, 1 existing Starlette/httpx warning).
+- `uv run pytest` — passed (255 tests, 1 existing Starlette/httpx warning).
+- `uv run --with ruff ruff format --check .` — passed (52 files already formatted).
+- `uv run --with ruff ruff check .` — passed.
+- `git diff --check` — passed.

@@ -30,6 +30,8 @@ def _auth(token: str) -> dict[str, str]:
 
 def _pack_files(
     *,
+    domain: str = "acme",
+    name: str = "onboarding",
     version: str = "1.0.0",
     agents: str | None = "Use AGENTS.\n",
     claude: str | None = None,
@@ -37,8 +39,8 @@ def _pack_files(
 ) -> dict[str, str]:
     files = {
         "agh.pack.toml": (
-            'domain = "acme"\n'
-            'name = "onboarding"\n'
+            f'domain = "{domain}"\n'
+            f'name = "{name}"\n'
             f'version = "{version}"\n'
             'description = "Onboarding guidance"\n'
             'tags = ["team"]\n'
@@ -99,6 +101,87 @@ def test_owner_publishes_lists_and_downloads_pack_files(
         assert '"description": "Onboarding guidance"' in row["manifest_json"]
     finally:
         connection.close()
+
+
+def test_pack_version_resolver_accepts_id_canonical_and_name_version(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    published = _publish(client, owner_token, _pack_files()).json()
+
+    by_canonical = client.get(
+        "/api/v1/packs/versions:resolve?ref=acme/onboarding%401.0.0",
+        headers=_auth(owner_token),
+    )
+    by_name_version = client.get(
+        "/api/v1/packs/versions:resolve?ref=onboarding%401.0.0",
+        headers=_auth(owner_token),
+    )
+
+    connection = connect_database(get_database_path(tmp_path))
+    try:
+        version_id = connection.execute("SELECT id FROM pack_versions").fetchone()["id"]
+    finally:
+        connection.close()
+    by_id = client.get(
+        f"/api/v1/packs/versions:resolve?ref={version_id}",
+        headers=_auth(owner_token),
+    )
+
+    expected = {
+        "id": version_id,
+        "pack_ref": published["id"],
+        "domain": "acme",
+        "name": "onboarding",
+        "version": "1.0.0",
+    }
+    assert by_canonical.status_code == 200, by_canonical.text
+    assert by_canonical.json() == expected
+    assert by_name_version.status_code == 200, by_name_version.text
+    assert by_name_version.json() == expected
+    assert by_id.status_code == 200, by_id.text
+    assert by_id.json() == expected
+
+
+def test_pack_version_resolver_requires_auth(tmp_path: Path, monkeypatch) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    assert _publish(client, owner_token, _pack_files()).status_code == 201
+
+    response = client.get("/api/v1/packs/versions:resolve?ref=acme/onboarding%401.0.0")
+
+    assert response.status_code == 401
+
+
+def test_pack_version_resolver_reports_invalid_missing_and_ambiguous_refs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    assert _publish(client, owner_token, _pack_files()).status_code == 201
+    assert (
+        _publish(
+            client,
+            owner_token,
+            _pack_files(domain="other", name="onboarding", version="1.0.0"),
+        ).status_code
+        == 201
+    )
+
+    invalid = client.get(
+        "/api/v1/packs/versions:resolve?ref=not-a-ref", headers=_auth(owner_token)
+    )
+    missing = client.get(
+        "/api/v1/packs/versions:resolve?ref=acme/missing%401.0.0",
+        headers=_auth(owner_token),
+    )
+    ambiguous = client.get(
+        "/api/v1/packs/versions:resolve?ref=onboarding%401.0.0",
+        headers=_auth(owner_token),
+    )
+
+    assert invalid.status_code == 400
+    assert missing.status_code == 404
+    assert ambiguous.status_code == 409
+    assert "ambiguous" in ambiguous.json()["detail"]
 
 
 def test_pack_publish_works_with_relative_data_dir(tmp_path: Path, monkeypatch) -> None:

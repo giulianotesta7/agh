@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from agh.common.ids import is_valid_prefixed_id
+
 _SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 _SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -14,6 +16,15 @@ class PackRef:
     domain: str
     name: str
     version: str
+
+
+@dataclass(frozen=True)
+class PackVersionRef:
+    kind: str
+    value: str
+    domain: str | None = None
+    name: str | None = None
+    version: str | None = None
 
 
 def is_valid_email(value: str) -> bool:
@@ -67,6 +78,44 @@ def parse_pack_ref(value: str, *, allow_latest: bool) -> PackRef:
         raise ValueError(f"invalid pack version: {version}")
 
     return PackRef(domain=domain, name=name, version=version)
+
+
+def parse_pack_version_ref(value: str, *, allow_latest: bool) -> PackVersionRef:
+    if not value:
+        raise ValueError("pack version ref is required")
+
+    if value.startswith("packv_"):
+        if not is_valid_prefixed_id(value, "packv"):
+            raise ValueError(f"invalid pack version id: {value}")
+        return PackVersionRef(kind="id", value=value)
+
+    if "@" not in value:
+        raise ValueError(f"invalid pack version ref: {value}")
+
+    if "/" in value.rsplit("@", 1)[0]:
+        pack_ref = parse_pack_ref(value, allow_latest=allow_latest)
+        return PackVersionRef(
+            kind="canonical",
+            value=value,
+            domain=pack_ref.domain,
+            name=pack_ref.name,
+            version=pack_ref.version,
+        )
+
+    name, version = value.rsplit("@", 1)
+    validate_slug(name, label="name")
+    if version == "latest":
+        if not allow_latest:
+            raise ValueError("latest is not allowed here")
+    elif not is_semver(version):
+        raise ValueError(f"invalid pack version: {version}")
+
+    return PackVersionRef(
+        kind="name_version",
+        value=value,
+        name=name,
+        version=version,
+    )
 
 
 def validate_pack_publish_ref(value: str) -> PackRef:

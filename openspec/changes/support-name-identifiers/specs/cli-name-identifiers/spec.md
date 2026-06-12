@@ -2,7 +2,9 @@
 
 CLI project commands accepting project refs MUST resolve exact project names to canonical project IDs before action. Prefixed project IDs and all-digit project refs bypass name resolution.
 
-CLI user commands accepting user refs MUST accept exact email addresses as user refs and resolve them to canonical user IDs before action. Pack-version refs remain future work and are not part of this change.
+CLI user commands accepting user refs MUST accept exact email addresses as user refs and resolve them to canonical user IDs before action.
+
+CLI project-pack commands accepting pack refs MUST accept pack-version refs and resolve them to canonical domain-qualified pack refs before action.
 
 ## Requirements
 
@@ -135,3 +137,27 @@ The CLI MUST resolve exact email refs to canonical user IDs before user mutation
 - GIVEN `agh project member remove my-project member@example.com`
 - WHEN the command runs
 - THEN the CLI MUST resolve the project ref and user email ref before calling the membership removal endpoint
+
+### Requirement: Pack-Version Resolution Before Project-Pack Action
+
+The CLI MUST resolve pack-version refs to canonical domain-qualified pack refs before project-pack assignment create or update calls.
+
+#### Scenario: Project pack add resolves no-domain pack-version ref
+
+- GIVEN `agh project pack add my-project onboarding@1.0.0`
+- WHEN the command runs
+- THEN the CLI MUST resolve `onboarding@1.0.0` through the pack-version resolver
+- AND it MUST send the returned canonical `domain/name@version` ref in the assignment request
+
+#### Scenario: Project pack update resolves pack-version ID
+
+- GIVEN `agh project pack update my-project asn_abc --pack-ref packv_abc123`
+- WHEN the command runs
+- THEN the CLI MUST resolve `packv_abc123` through the pack-version resolver
+- AND it MUST send the returned canonical `domain/name@version` ref in the update request
+
+#### Scenario: Canonical pack ref passes through
+
+- GIVEN `agh project pack add my-project acme/onboarding@latest`
+- WHEN the command runs
+- THEN the CLI MUST pass the canonical pack ref without resolver lookup

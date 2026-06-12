@@ -15,7 +15,12 @@ from pydantic import BaseModel, ValidationError
 
 from agh.common.ids import generate_prefixed_id
 from agh.common.pack_manifest import PackManifest, PackManifestError, load_pack_manifest
-from agh.common.validation import is_semver, is_valid_slug
+from agh.common.validation import (
+    PackVersionRef,
+    is_semver,
+    is_valid_slug,
+    parse_pack_version_ref,
+)
 from agh.server.auth import CurrentUser, get_current_user
 from agh.server.db import connect_database, get_data_dir
 
@@ -56,6 +61,61 @@ def _pack_version_response(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _pack_version_resolve_response(row: sqlite3.Row) -> dict[str, str]:
+    pack_ref = f"{row['domain']}/{row['name']}@{row['version']}"
+    return {
+        "id": row["version_id"],
+        "pack_ref": pack_ref,
+        "domain": row["domain"],
+        "name": row["name"],
+        "version": row["version"],
+    }
+
+
+def _parse_pack_version_ref_or_400(value: str) -> PackVersionRef:
+    try:
+        return parse_pack_version_ref(value, allow_latest=False)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+
+
+def _resolve_pack_version_ref(
+    connection: sqlite3.Connection, pack_ref: PackVersionRef
+) -> sqlite3.Row:
+    base_query = """
+        SELECT pack_versions.id AS version_id, packs.domain, packs.name,
+               pack_versions.version
+        FROM pack_versions
+        JOIN packs ON packs.id = pack_versions.pack_id
+    """
+    if pack_ref.kind == "id":
+        rows = connection.execute(
+            f"{base_query} WHERE pack_versions.id = ?", (pack_ref.value,)
+        ).fetchall()
+    elif pack_ref.kind == "canonical":
+        rows = connection.execute(
+            f"{base_query} WHERE packs.domain = ? AND packs.name = ? AND pack_versions.version = ?",
+            (pack_ref.domain, pack_ref.name, pack_ref.version),
+        ).fetchall()
+    else:
+        rows = connection.execute(
+            f"{base_query} WHERE packs.name = ? AND pack_versions.version = ? ORDER BY packs.domain ASC",
+            (pack_ref.name, pack_ref.version),
+        ).fetchall()
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="pack version ref is ambiguous across pack domains",
+        )
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="pack version not found"
+        )
+    return rows[0]
+
+
 @router.get("")
 def list_packs(
     request: Request, current_user: CurrentUser = Depends(get_current_user)
@@ -74,6 +134,22 @@ def list_packs(
             """
         ).fetchall()
         return {"packs": [_pack_version_response(row) for row in rows]}
+    finally:
+        connection.close()
+
+
+@router.get("/versions:resolve")
+def resolve_pack_version(
+    ref: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str]:
+    pack_ref = _parse_pack_version_ref_or_400(ref)
+    connection = _connect(request)
+    try:
+        return _pack_version_resolve_response(
+            _resolve_pack_version_ref(connection, pack_ref)
+        )
     finally:
         connection.close()
 
