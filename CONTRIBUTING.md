@@ -6,32 +6,26 @@ AGH uses an issue-first workflow. Keep changes small and reviewable.
 
 1. Search existing issues.
 2. Open a bug report or feature request.
-3. Wait for a maintainer to add `status:approved`.
-4. Create a branch and open a PR that links the issue with `Closes #N`, `Fixes #N`, or `Resolves #N`.
-5. Add exactly one `type:*` label to the PR.
+3. Create a branch and open a PR that links the issue with `Closes #N`, `Fixes #N`, or `Resolves #N`.
 
-PRs without an approved linked issue or exactly one `type:*` label fail validation.
+PR validation checks linked issue references. Labels are triage aids, not contributor blockers.
 
 ## Labels
 
-Add exactly one PR type label:
+Use this minimal taxonomy for triage:
 
 | Label | Use it for |
 |-------|------------|
-| `type:bug` | Bug fixes. |
-| `type:feature` | New behavior or product improvements. |
-| `type:docs` | Documentation-only changes. |
-| `type:refactor` | Code changes without behavior changes. |
-| `type:chore` | Tooling, dependency, workflow, or repo maintenance. |
-| `type:breaking-change` | Breaking API, CLI, config, or packaging changes. |
-
-Issue status labels:
-
-| Label | Meaning |
-|-------|---------|
+| `bug` | Reproducible defects. |
+| `enhancement` | New behavior or product improvements. |
+| `documentation` | Documentation changes or gaps. |
+| `question` | Questions that need maintainer input. |
+| `help wanted` | Maintainers welcome outside help. |
+| `good first issue` | Approachable work for new contributors. |
 | `status:needs-review` | A maintainer still needs to review the issue. |
 | `status:approved` | The issue is approved for implementation. |
-| `status:blocked` | Work cannot move yet. |
+
+Issue templates apply `bug` or `enhancement` plus `status:needs-review` automatically. Maintainers may adjust labels during triage.
 
 ## Review size
 
@@ -56,9 +50,7 @@ Prefer one focused change per PR. Split large changes before review becomes hard
 
 Check this before opening a PR:
 
-- [ ] The issue has `status:approved`.
 - [ ] The PR body links the issue with `Closes #N`, `Fixes #N`, or `Resolves #N`.
-- [ ] The PR has exactly one `type:*` label.
 - [ ] The diff is reviewable, or the PR body explains why it is large.
 - [ ] Commits use conventional commit messages.
 - [ ] You ran the relevant validation commands.
