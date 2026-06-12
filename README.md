@@ -336,12 +336,15 @@ Admin commands:
 ```bash
 agh user list
 agh user create user@example.com --role admin
+agh user show user@example.com
 agh user update usr_... --role member
 agh user delete usr_...
 agh token rotate
 agh token reset usr_...
 agh config show
 ```
+
+User commands that take a user reference accept `usr_...` ids or exact emails.
 
 `agh config show` masks the saved token as `token = ****`.
 

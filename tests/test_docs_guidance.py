@@ -88,6 +88,8 @@ def test_readme_consolidates_guides_and_bookmarks() -> None:
         "token = ****",
         "token hashes",
         "agh user create",
+        "agh user show user@example.com",
+        "exact emails",
         "agh token rotate",
         "agh token reset",
         "/data/agh.sqlite3",

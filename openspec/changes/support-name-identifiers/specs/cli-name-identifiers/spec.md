@@ -1,8 +1,8 @@
 ## Purpose
 
-For PR1, CLI project commands accepting project refs MUST resolve exact project names to canonical project IDs before action. Prefixed project IDs and all-digit project refs bypass name resolution.
+CLI project commands accepting project refs MUST resolve exact project names to canonical project IDs before action. Prefixed project IDs and all-digit project refs bypass name resolution.
 
-User email refs and pack-version refs are future chained slices, not PR1 requirements.
+CLI user commands accepting user refs MUST accept exact email addresses as user refs and resolve them to canonical user IDs before action. Pack-version refs remain future work and are not part of this change.
 
 ## Requirements
 
@@ -84,3 +84,54 @@ When the project resolution endpoint returns 401, the CLI MUST surface the auth 
 - AND the auth token is expired
 - WHEN resolution returns 401
 - THEN the CLI MUST print an auth error and suggest re-login
+
+### Requirement: User Input Format Detection
+
+The CLI MUST deterministically classify user refs before routing user commands.
+
+#### Scenario: Valid email wins over ID prefix
+
+- GIVEN `agh user show usr_jane@example.com`
+- WHEN the ref is a syntactically valid email address
+- THEN the CLI MUST resolve it through the user email lookup endpoint
+- AND it MUST NOT pass it through as a `usr_...` ID
+
+#### Scenario: Prefixed user ID passes through when not an email
+
+- GIVEN `agh user show usr_abc123def456`
+- WHEN the ref starts with `usr_` and is not a syntactically valid email address
+- THEN the CLI MUST pass it directly as the user ID
+
+#### Scenario: Malformed email-like ref rejected
+
+- GIVEN `agh user show not-an-email`
+- WHEN the ref is neither a valid email address nor a `usr_...` ID
+- THEN the CLI MUST reject it before the action request
+
+### Requirement: User Email Resolution Before Action
+
+The CLI MUST resolve exact email refs to canonical user IDs before user mutation, token, and project membership calls.
+
+#### Scenario: User update by email resolves first
+
+- GIVEN `agh user update member@example.com --role admin`
+- WHEN the command runs
+- THEN the CLI MUST resolve `member@example.com` to a `usr_...` ID before calling the user update endpoint
+
+#### Scenario: User delete by email resolves first
+
+- GIVEN `agh user delete member@example.com`
+- WHEN the command runs
+- THEN the CLI MUST resolve `member@example.com` to a `usr_...` ID before calling the user delete endpoint
+
+#### Scenario: Token reset by email resolves first
+
+- GIVEN `agh token reset member@example.com`
+- WHEN the command runs
+- THEN the CLI MUST resolve `member@example.com` to a `usr_...` ID before calling the token reset endpoint
+
+#### Scenario: Project member removal by email resolves first
+
+- GIVEN `agh project member remove my-project member@example.com`
+- WHEN the command runs
+- THEN the CLI MUST resolve the project ref and user email ref before calling the membership removal endpoint

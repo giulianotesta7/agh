@@ -122,6 +122,53 @@ def test_owner_user_crud_lists_no_token_hashes(tmp_path: Path, monkeypatch) -> N
         connection.close()
 
 
+def test_user_lookup_by_email_is_exact_active_and_ordered_before_user_id_route(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    created = _create_user(client, owner_token, "member@example.com", "member")
+
+    resolved = client.get(
+        "/api/v1/users/by-email/member@example.com", headers=_auth(owner_token)
+    )
+    assert resolved.status_code == 200
+    assert resolved.json() == {"id": created["id"], "email": "member@example.com"}
+
+    shown = client.get(f"/api/v1/users/{created['id']}", headers=_auth(owner_token))
+    assert shown.status_code == 200
+    assert shown.json()["email"] == "member@example.com"
+
+    case_variant = client.get(
+        "/api/v1/users/by-email/Member@example.com", headers=_auth(owner_token)
+    )
+    assert case_variant.status_code == 404
+
+    invalid = client.get(
+        "/api/v1/users/by-email/not-an-email", headers=_auth(owner_token)
+    )
+    assert invalid.status_code == 400
+
+    client.delete(f"/api/v1/users/{created['id']}", headers=_auth(owner_token))
+    inactive = client.get(
+        "/api/v1/users/by-email/member@example.com", headers=_auth(owner_token)
+    )
+    assert inactive.status_code == 404
+
+
+def test_user_lookup_by_email_is_auth_protected(tmp_path: Path, monkeypatch) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    member = _create_user(client, owner_token, "member@example.com", "member")
+    member_token = _rotate_token(client, owner_token, str(member["id"]))
+
+    missing_auth = client.get("/api/v1/users/by-email/member@example.com")
+    assert missing_auth.status_code == 401
+
+    forbidden = client.get(
+        "/api/v1/users/by-email/member@example.com", headers=_auth(member_token)
+    )
+    assert forbidden.status_code == 403
+
+
 def test_admin_can_manage_members_but_not_admins_or_owners(
     tmp_path: Path, monkeypatch
 ) -> None:
