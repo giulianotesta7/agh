@@ -343,7 +343,7 @@ def test_ci_workflow_runs_release_validation_commands() -> None:
     assert "publish" not in ci.lower()
 
 
-def test_pr_validation_workflow_requires_issue_and_type_label() -> None:
+def test_pr_validation_workflow_requires_issue_reference_without_label_blockers() -> None:
     workflow = _read(".github/workflows/pr-validation.yml")
     pr_template = _read(".github/pull_request_template.md")
     feature_template = _read(".github/ISSUE_TEMPLATE/feature_request.yml")
@@ -353,29 +353,44 @@ def test_pr_validation_workflow_requires_issue_and_type_label() -> None:
 
     for expected in [
         "pull_request_target:",
-        "exactly one type:* label",
-        "status:approved",
         "Closes #N",
         "Fixes #N",
         "Resolves #N",
     ]:
         assert expected in workflow
 
-    for expected in ["Closes #", "type:feature", "uv run pytest"]:
+    for forbidden in ["type:*", "type:", "label;", "status:approved", "issue.labels"]:
+        assert forbidden not in workflow
+
+    for expected in ["Closes #", "uv run pytest"]:
         assert expected in pr_template
+
+    assert "type:" not in pr_template
 
     for template in [feature_template, bug_template]:
         assert "status:needs-review" in template
-        assert "status:approved" in template
+        assert "labels are triage aids, not contributor blockers" in template
         assert "required: true" in template
 
     for expected in [
         "issue-first workflow",
         "status:approved",
-        "exactly one `type:*` label",
+        "Labels are triage aids, not contributor blockers.",
+        "`status:needs-review`",
         "uv run --with pyright pyright agh tests",
     ]:
         assert expected in contributing
+
+    for forbidden in [
+        "type:*",
+        "type:bug",
+        "type:feature",
+        "status:blocked",
+        "priority:",
+    ]:
+        assert forbidden not in contributing
+
+    assert not ("The issue has" in contributing and "status:approved" in contributing)
 
     for expected in [
         "Do not open a public issue for vulnerabilities",
