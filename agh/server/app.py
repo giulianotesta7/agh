@@ -65,7 +65,7 @@ def configure_logging() -> Path:
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     configure_logging()
-    data_dir = get_data_dir()
+    data_dir = get_data_dir().resolve()
     db_path = get_database_path(data_dir)
     run_migrations(db_path)
 
@@ -80,15 +80,22 @@ def create_app() -> FastAPI:
     bootstrap_initial_owner(data_dir=data_dir, db_path=db_path)
 
     application = FastAPI(title="Agent Guidance Hub", version=__version__)
+    application.state.data_dir = data_dir
     application.state.db_path = db_path
 
     @application.middleware("http")
     async def reject_oversized_pack_publish(request: Request, call_next):  # type: ignore[no-untyped-def]
         if request.method == "POST" and request.url.path == "/api/v1/packs":
             content_length = request.headers.get("content-length")
+            try:
+                parsed_content_length = _parse_content_length(content_length)
+            except ValueError:
+                return JSONResponse(
+                    {"detail": "invalid content-length header"}, status_code=400
+                )
             if (
-                content_length is not None
-                and int(content_length) > MAX_PACK_PUBLISH_BODY_BYTES
+                parsed_content_length is not None
+                and parsed_content_length > MAX_PACK_PUBLISH_BODY_BYTES
             ):
                 return JSONResponse(
                     {"detail": "pack publish payload is too large"}, status_code=413
@@ -112,6 +119,14 @@ def create_app() -> FastAPI:
         }
 
     return application
+
+
+def _parse_content_length(value: str | None) -> int | None:
+    if value is None:
+        return None
+    if not value or not value.isdecimal():
+        raise ValueError("invalid content-length header")
+    return int(value)
 
 
 app = create_app()
