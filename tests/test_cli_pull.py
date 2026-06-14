@@ -489,6 +489,66 @@ def test_pull_success_in_git_repo_suppresses_vcs_hint_when_cache_ignored(
     assert "Hint: add .agh-cache/ to .gitignore" not in result.stdout
 
 
+def test_pull_vcs_hint_timeout_skips_hint_and_keeps_pull_success(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _init_git(repo)
+    _write_link(repo)
+    server, _handler, url = _serve_pull(content="Use AGH.\n")
+    monkeypatch.chdir(repo)
+
+    def timeout_run(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(cmd=["git", "rev-parse"], timeout=5)
+
+    monkeypatch.setattr("agh.cli.workspace_pull.subprocess.run", timeout_run)
+    try:
+        result = CliRunner().invoke(cli_app, ["pull"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    assert "Pull complete: 1 changed, 0 conflicts." in result.stdout
+    assert "Lockfile: .agh/lock.toml" in result.stdout
+    assert "Hint: add .agh-cache/ to .gitignore" not in result.stdout
+    assert (repo / "AGENTS.md").exists()
+    assert (repo / ".agh" / "lock.toml").exists()
+
+
+def test_pull_vcs_check_ignore_timeout_skips_hint_and_keeps_pull_success(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _init_git(repo)
+    _write_link(repo)
+    server, _handler, url = _serve_pull(content="Use AGH.\n")
+    monkeypatch.chdir(repo)
+
+    def check_ignore_timeout_run(
+        cmd: list[str], *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="true\n", stderr="")
+        if cmd[:2] == ["git", "check-ignore"]:
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=5)
+        raise AssertionError(f"unexpected command: {cmd!r}")
+
+    monkeypatch.setattr(
+        "agh.cli.workspace_pull.subprocess.run", check_ignore_timeout_run
+    )
+    try:
+        result = CliRunner().invoke(cli_app, ["pull"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    assert "Pull complete: 1 changed, 0 conflicts." in result.stdout
+    assert "Lockfile: .agh/lock.toml" in result.stdout
+    assert "Hint: add .agh-cache/ to .gitignore" not in result.stdout
+    assert (repo / "AGENTS.md").exists()
+    assert (repo / ".agh" / "lock.toml").exists()
+
+
 def test_pull_suppresses_vcs_hint_for_empty_manifest_when_cache_ignored(
     tmp_path: Path, monkeypatch
 ) -> None:

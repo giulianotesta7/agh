@@ -34,6 +34,7 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+GIT_SUBPROCESS_TIMEOUT_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -92,9 +93,16 @@ def _git_remote_url(*, remote: str, cwd: Path) -> str:
             check=False,
             capture_output=True,
             text=True,
+            timeout=GIT_SUBPROCESS_TIMEOUT_SECONDS,
         )
     except FileNotFoundError as exc:
         raise WorkspaceSyncError("git executable not found", code=1) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise WorkspaceSyncError(
+            f"timed out after {GIT_SUBPROCESS_TIMEOUT_SECONDS} seconds while reading "
+            f"git remote {remote!r}",
+            code=5,
+        ) from exc
     except OSError as exc:
         raise WorkspaceSyncError(f"failed to run git: {exc}", code=1) from exc
 

@@ -244,6 +244,29 @@ def test_sync_fails_for_missing_remote_and_no_matching_project(
     assert not (repo / ".agh" / "project.toml").exists()
 
 
+def test_sync_remote_lookup_timeout_fails_clearly(tmp_path: Path, monkeypatch) -> None:
+    repo = _git_repo(tmp_path, remotes={"origin": "git@github.com:org/app.git"})
+    server, handler, url = _serve_projects([])
+    monkeypatch.chdir(repo)
+
+    def timeout_run(*args: object, **kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(
+            cmd=["git", "remote", "get-url", "origin"], timeout=5
+        )
+
+    monkeypatch.setattr("agh.cli.workspace_sync.subprocess.run", timeout_run)
+    try:
+        result = CliRunner().invoke(cli_app, ["sync"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 5
+    assert "timed out after 5 seconds" in result.stdout
+    assert "git remote 'origin'" in result.stdout
+    assert handler.requests == []
+    assert not (repo / ".agh" / "project.toml").exists()
+
+
 def test_sync_help_has_no_manual_project_override() -> None:
     result = CliRunner().invoke(cli_app, ["sync", "--help"])
 

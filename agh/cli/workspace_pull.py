@@ -56,6 +56,7 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 _CHECKSUM_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+GIT_SUBPROCESS_TIMEOUT_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -249,7 +250,8 @@ def pull_workspace(
 def _vcs_guidance_hint(workspace: Path) -> str | None:
     if not _is_git_worktree(workspace):
         return None
-    if _is_git_ignored(workspace, ".agh-cache/"):
+    ignored = _is_git_ignored(workspace, ".agh-cache/")
+    if ignored is None or ignored:
         return None
     return (
         "Hint: add .agh-cache/ to .gitignore. Commit .agh/project.toml "
@@ -265,13 +267,14 @@ def _is_git_worktree(workspace: Path) -> bool:
             check=False,
             capture_output=True,
             text=True,
+            timeout=GIT_SUBPROCESS_TIMEOUT_SECONDS,
         )
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return False
     return completed.returncode == 0 and completed.stdout.strip() == "true"
 
 
-def _is_git_ignored(workspace: Path, path: str) -> bool:
+def _is_git_ignored(workspace: Path, path: str) -> bool | None:
     try:
         completed = subprocess.run(
             ["git", "check-ignore", "-q", path],
@@ -279,7 +282,10 @@ def _is_git_ignored(workspace: Path, path: str) -> bool:
             check=False,
             capture_output=True,
             text=True,
+            timeout=GIT_SUBPROCESS_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired:
+        return None
     except (FileNotFoundError, OSError):
         return False
     return completed.returncode == 0
