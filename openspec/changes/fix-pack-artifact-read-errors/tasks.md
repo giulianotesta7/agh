@@ -28,16 +28,16 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Core Implementation
 - [x] 2.1 Implement and verify safe path resolution, symlink rejection, and unreadable-file mapping in `agh/server/routes/packs.py`.
-- [ ] 2.2 Update `agh/server/routes/projects.py` to use `artifact_paths` when present and tolerate legacy manifests when absent.
-- [ ] 2.3 Preserve mixed instruction+skill packs when `skills/` exists; fail 404 only for genuine missing storage.
+- [x] 2.2 Update `agh/server/routes/projects.py` to use `artifact_paths` when present and tolerate legacy manifests when absent.
+- [x] 2.3 Preserve mixed instruction+skill packs when `skills/` exists; fail 404 only for genuine missing storage.
 
 ## Phase 3: Integration / Wiring
-- [ ] 3.1 Wire PR 2 manifest output to the new artifact-path behavior without touching PR 1 semantics.
+- [x] 3.1 Wire PR 2 manifest output to the new artifact-path behavior without touching PR 1 semantics.
 - [ ] 3.2 Keep PR 3 focused on `tests/test_pull_manifest_routes.py` for optional instruction reads and legacy fallback.
 
 ## Phase 4: Testing / Verification
 - [x] 4.1 Add PR 1 tests in `tests/test_pack_routes.py` for missing 404, unreadable 503, and path-resolution 503.
-- [ ] 4.2 Add PR 2 tests in `tests/test_pull_manifest_routes.py` for missing `artifact_paths` and missing `skills/` storage.
+- [x] 4.2 Add PR 2 tests in `tests/test_pull_manifest_routes.py` for missing `artifact_paths` and missing `skills/` storage.
 - [x] 4.3 Run `uv run pytest` after each slice.
 
 ## Phase 5: Cleanup / Documentation

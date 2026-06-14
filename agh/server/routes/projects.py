@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import quote
 
 from fastapi import (  # pyright: ignore[reportMissingImports]
@@ -329,23 +329,78 @@ def _pack_file_download_url(domain: str, name: str, version: str, path: str) -> 
     return f"/api/v1/packs/{domain}/{name}/versions/{version}/files/{quoted_path}"
 
 
-def _read_pack_file(storage_dir: Path, relative_path: str) -> str | None:
+def _raise_pack_artifact_missing() -> NoReturn:
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="pack file not found",
+    )
+
+
+def _raise_pack_artifact_storage_unavailable(
+    exc: OSError | UnicodeDecodeError,
+) -> NoReturn:
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="pack artifact storage unavailable",
+    ) from exc
+
+
+def _missing_pack_artifact_or_none(required: bool) -> None:
+    if required:
+        _raise_pack_artifact_missing()
+    return None
+
+
+def _read_pack_file(
+    storage_dir: Path, relative_path: str, *, required: bool
+) -> str | None:
     candidate = storage_dir / relative_path
     try:
         resolved_root = storage_dir.resolve(strict=True)
         resolved_candidate = candidate.resolve(strict=True)
         resolved_candidate.relative_to(resolved_root)
-    except (OSError, ValueError):
-        return None
+    except ValueError:
+        return _missing_pack_artifact_or_none(required)
+    except (FileNotFoundError, NotADirectoryError):
+        return _missing_pack_artifact_or_none(required)
+    except OSError as exc:
+        _raise_pack_artifact_storage_unavailable(exc)
     if not resolved_candidate.is_file():
-        return None
-    return resolved_candidate.read_text(encoding="utf-8")
+        return _missing_pack_artifact_or_none(required)
+    if _pack_artifact_path_has_symlink_component(storage_dir, candidate):
+        return _missing_pack_artifact_or_none(required)
+    try:
+        return resolved_candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        _raise_pack_artifact_storage_unavailable(exc)
+
+
+def _pack_artifact_path_has_symlink_component(
+    storage_dir: Path, candidate: Path
+) -> bool:
+    current = candidate
+    while True:
+        try:
+            is_symlink = current.is_symlink()
+        except OSError as exc:
+            _raise_pack_artifact_storage_unavailable(exc)
+        if is_symlink:
+            return True
+        if current == storage_dir:
+            return False
+        current = current.parent
 
 
 def _instruction_artifact(
-    *, domain: str, name: str, version: str, storage_dir: Path, path: str
+    *,
+    domain: str,
+    name: str,
+    version: str,
+    storage_dir: Path,
+    path: str,
+    required: bool,
 ) -> dict[str, str] | None:
-    content = _read_pack_file(storage_dir, path)
+    content = _read_pack_file(storage_dir, path, required=required)
     if content is None:
         return None
     target_agent = "opencode" if path.endswith("AGENTS.md") else "claude"
@@ -361,40 +416,107 @@ def _instruction_artifact(
 
 
 def _skill_artifacts(
-    *, domain: str, name: str, version: str, storage_dir: Path
+    *,
+    domain: str,
+    name: str,
+    version: str,
+    storage_dir: Path,
+    expected_paths: list[str] | None = None,
 ) -> list[dict[str, str]]:
+    if expected_paths is not None:
+        artifacts: list[dict[str, str]] = []
+        for path in sorted(expected_paths):
+            artifacts.extend(
+                _skill_artifacts_for_path(
+                    domain=domain,
+                    name=name,
+                    version=version,
+                    storage_dir=storage_dir,
+                    path=path,
+                    required=True,
+                )
+            )
+        return artifacts
+
     skills_dir = storage_dir / "skills"
     if not skills_dir.is_dir() or skills_dir.is_symlink():
         return []
     artifacts: list[dict[str, str]] = []
     for skill_dir in sorted(item for item in skills_dir.iterdir() if item.is_dir()):
         path = f"skills/{skill_dir.name}/SKILL.md"
-        content = _read_pack_file(storage_dir, path)
-        if content is None:
-            continue
-        checksum = managed_payload_checksum(content)
-        download_url = _pack_file_download_url(domain, name, version, path)
         artifacts.extend(
-            [
-                {
-                    "kind": "skill",
-                    "path": path,
-                    "target_agent": "opencode",
-                    "target_path": f".opencode/skills/{skill_dir.name}/SKILL.md",
-                    "checksum": checksum,
-                    "download_url": download_url,
-                },
-                {
-                    "kind": "skill",
-                    "path": path,
-                    "target_agent": "claude",
-                    "target_path": f".claude/skills/{skill_dir.name}/SKILL.md",
-                    "checksum": checksum,
-                    "download_url": download_url,
-                },
-            ]
+            _skill_artifacts_for_path(
+                domain=domain,
+                name=name,
+                version=version,
+                storage_dir=storage_dir,
+                path=path,
+                required=False,
+            )
         )
     return artifacts
+
+
+def _skill_artifacts_for_path(
+    *,
+    domain: str,
+    name: str,
+    version: str,
+    storage_dir: Path,
+    path: str,
+    required: bool,
+) -> list[dict[str, str]]:
+    skill_name = _skill_name_from_artifact_path(path)
+    if skill_name is None:
+        return []
+    content = _read_pack_file(storage_dir, path, required=required)
+    if content is None:
+        return []
+    checksum = managed_payload_checksum(content)
+    download_url = _pack_file_download_url(domain, name, version, path)
+    return [
+        {
+            "kind": "skill",
+            "path": path,
+            "target_agent": "opencode",
+            "target_path": f".opencode/skills/{skill_name}/SKILL.md",
+            "checksum": checksum,
+            "download_url": download_url,
+        },
+        {
+            "kind": "skill",
+            "path": path,
+            "target_agent": "claude",
+            "target_path": f".claude/skills/{skill_name}/SKILL.md",
+            "checksum": checksum,
+            "download_url": download_url,
+        },
+    ]
+
+
+def _skill_name_from_artifact_path(path: str) -> str | None:
+    parts = path.split("/")
+    if len(parts) == 3 and parts[0] == "skills" and parts[1] and parts[2] == "SKILL.md":
+        return parts[1]
+    return None
+
+
+def _expected_artifact_paths(manifest: dict[str, Any]) -> set[str] | None:
+    raw_paths = manifest.get("artifact_paths")
+    if raw_paths is None:
+        return None
+    if not isinstance(raw_paths, list):
+        return None
+    if not raw_paths or not all(
+        isinstance(path, str)
+        and (
+            path in {"instructions/AGENTS.md", "instructions/CLAUDE.md"}
+            or _skill_name_from_artifact_path(path) is not None
+        )
+        for path in raw_paths
+    ):
+        return None
+    return set(raw_paths)
 
 
 def _pull_manifest_pack(
@@ -407,6 +529,8 @@ def _pull_manifest_pack(
     domain = str(row["domain"])
     name = str(row["name"])
     storage_dir = Path(str(version_row["storage_path"]))
+    manifest = json.loads(str(version_row["manifest_json"]))
+    expected_paths = _expected_artifact_paths(manifest)
     artifacts: list[dict[str, str]] = []
     for instruction_path in ["instructions/AGENTS.md", "instructions/CLAUDE.md"]:
         artifact = _instruction_artifact(
@@ -415,19 +539,31 @@ def _pull_manifest_pack(
             version=version,
             storage_dir=storage_dir,
             path=instruction_path,
+            required=expected_paths is not None and instruction_path in expected_paths,
         )
         if artifact is not None:
             artifacts.append(artifact)
+    expected_skill_paths = None
+    if expected_paths is not None:
+        expected_skill_paths = [
+            path for path in expected_paths if _skill_name_from_artifact_path(path)
+        ]
     artifacts.extend(
         _skill_artifacts(
-            domain=domain, name=name, version=version, storage_dir=storage_dir
+            domain=domain,
+            name=name,
+            version=version,
+            storage_dir=storage_dir,
+            expected_paths=expected_skill_paths,
         )
     )
     return {
         "id": f"{domain}/{name}@{version}",
         "assignment_id": row["id"],
         "position": int(row["position"]),
-        "manifest": json.loads(str(version_row["manifest_json"])),
+        "manifest": {
+            key: value for key, value in manifest.items() if key != "artifact_paths"
+        },
         "artifacts": artifacts,
     }
 

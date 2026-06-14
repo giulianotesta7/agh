@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agh.common.checksums import managed_payload_checksum
 from agh.server.app import create_app
+from agh.server.db import connect_database, get_database_path
 
 
 def _client_with_owner(tmp_path: Path, monkeypatch) -> tuple[TestClient, str]:
@@ -118,6 +122,57 @@ def _assign_pack(
     return response.json()
 
 
+def _publish_and_assign(
+    tmp_path: Path, monkeypatch, ref: str, **files: str | None
+) -> tuple[TestClient, str, dict[str, Any]]:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    project = _create_project(client, owner_token)
+    _publish_pack(client, owner_token, ref, **files)
+    _assign_pack(client, owner_token, project["id"], ref)
+    return client, owner_token, project
+
+
+def _pull_manifest(client: TestClient, token: str, project: dict[str, Any]) -> Any:
+    return client.get(
+        f"/api/v1/projects/{project['id']}/pull-manifest",
+        headers=_auth(token),
+    )
+
+
+def _assert_skill_artifacts(artifacts: list[dict[str, Any]], content: str) -> None:
+    assert {artifact["target_path"] for artifact in artifacts} == {
+        ".opencode/skills/lint/SKILL.md",
+        ".claude/skills/lint/SKILL.md",
+    }
+    assert all(
+        artifact["checksum"] == managed_payload_checksum(content)
+        for artifact in artifacts
+    )
+
+
+def _store_manifest_artifact_paths(tmp_path: Path, artifact_paths: Any) -> None:
+    connection = connect_database(get_database_path(tmp_path))
+    try:
+        row = connection.execute(
+            "SELECT id, manifest_json FROM pack_versions"
+        ).fetchone()
+        manifest = json.loads(row["manifest_json"])
+        manifest["artifact_paths"] = artifact_paths
+        connection.execute(
+            "UPDATE pack_versions SET manifest_json = ? WHERE id = ?",
+            (json.dumps(manifest, sort_keys=True), row["id"]),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _stored_pack_path(tmp_path: Path, ref: str, relative_path: str) -> Path:
+    pair, version = ref.split("@", 1)
+    domain, name = pair.split("/", 1)
+    return tmp_path / "packs" / domain / name / version / relative_path
+
+
 def test_pull_manifest_resolves_latest_orders_assignments_and_builds_artifacts(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -219,6 +274,126 @@ def test_pull_manifest_includes_skill_only_pack_artifacts(
         artifact["checksum"] == managed_payload_checksum(skill_content)
         for artifact in artifacts
     )
+
+
+def test_pull_manifest_legacy_missing_discovered_skill_file_is_skipped(
+    tmp_path: Path, monkeypatch
+) -> None:
+    agents = "# Guide\n"
+    client, owner_token, project = _publish_and_assign(
+        tmp_path,
+        monkeypatch,
+        "acme/legacy@1.0.0",
+        agents=agents,
+        skill="# Lint\n",
+    )
+    stored_skill = _stored_pack_path(
+        tmp_path, "acme/legacy@1.0.0", "skills/lint/SKILL.md"
+    )
+    stored_skill.unlink()
+
+    response = _pull_manifest(client, owner_token, project)
+
+    assert response.status_code == 200, response.text
+    artifacts = response.json()["packs"][0]["artifacts"]
+    assert [artifact["path"] for artifact in artifacts] == ["instructions/AGENTS.md"]
+    assert artifacts[0]["checksum"] == managed_payload_checksum(agents)
+
+
+@pytest.mark.parametrize("artifact_paths", ["skills/lint/SKILL.md", ["not/a/thing"]])
+def test_pull_manifest_malformed_artifact_paths_uses_legacy_discovery(
+    tmp_path: Path, monkeypatch, artifact_paths: Any
+) -> None:
+    skill_content = "# Lint\nUse lint skill.\n"
+    client, owner_token, project = _publish_and_assign(
+        tmp_path, monkeypatch, "acme/legacy@1.0.0", skill=skill_content
+    )
+    _store_manifest_artifact_paths(tmp_path, artifact_paths)
+
+    response = _pull_manifest(client, owner_token, project)
+
+    assert response.status_code == 200, response.text
+    _assert_skill_artifacts(response.json()["packs"][0]["artifacts"], skill_content)
+
+
+@pytest.mark.parametrize(
+    ("ref", "files", "artifact_paths", "missing_path", "remove_tree"),
+    [
+        (
+            "acme/guide@1.0.0",
+            {"agents": "# Guide\n"},
+            ["instructions/AGENTS.md"],
+            "instructions/AGENTS.md",
+            False,
+        ),
+        (
+            "acme/mixed@1.0.0",
+            {"agents": "# Guide\n", "skill": "# Lint\n"},
+            ["instructions/AGENTS.md", "skills/lint/SKILL.md"],
+            "skills",
+            True,
+        ),
+    ],
+)
+def test_pull_manifest_expected_missing_storage_returns_json_404(
+    tmp_path: Path,
+    monkeypatch,
+    ref: str,
+    files: dict[str, str],
+    artifact_paths: list[str],
+    missing_path: str,
+    remove_tree: bool,
+) -> None:
+    client, owner_token, project = _publish_and_assign(
+        tmp_path, monkeypatch, ref, **files
+    )
+    _store_manifest_artifact_paths(tmp_path, artifact_paths)
+    stored_path = _stored_pack_path(tmp_path, ref, missing_path)
+    shutil.rmtree(stored_path) if remove_tree else stored_path.unlink()
+
+    response = _pull_manifest(client, owner_token, project)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "pack file not found"}
+
+
+def test_pull_manifest_expected_symlink_artifact_returns_json_404(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token, project = _publish_and_assign(
+        tmp_path, monkeypatch, "acme/skills@1.0.0", skill="# Lint\n"
+    )
+    _store_manifest_artifact_paths(tmp_path, ["skills/lint/SKILL.md"])
+    stored_skill = _stored_pack_path(
+        tmp_path, "acme/skills@1.0.0", "skills/lint/SKILL.md"
+    )
+    stored_skill.unlink()
+    stored_skill.symlink_to(
+        _stored_pack_path(tmp_path, "acme/skills@1.0.0", "agh.pack.toml")
+    )
+
+    response = _pull_manifest(client, owner_token, project)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "pack file not found"}
+
+
+def test_pull_manifest_unreadable_expected_artifact_returns_json_503(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token, project = _publish_and_assign(
+        tmp_path, monkeypatch, "acme/skills@1.0.0", skill="# Lint\n"
+    )
+    _store_manifest_artifact_paths(tmp_path, ["skills/lint/SKILL.md"])
+    stored_skill = _stored_pack_path(
+        tmp_path, "acme/skills@1.0.0", "skills/lint/SKILL.md"
+    )
+    stored_skill.write_bytes(b"\xff\xfe\x00")
+
+    response = _pull_manifest(client, owner_token, project)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "pack artifact storage unavailable"}
 
 
 def test_pull_manifest_developer_access_and_non_member_denial(
