@@ -22,3 +22,7 @@ Chain strategy: stacked-to-main
 - [x] 3.1 Add CLI dry-run and success consistency regressions.
 - [x] 3.2 Verify managed-block rejection and forced overwrite behavior.
 - [x] 3.3 Run changed modules and full verification.
+
+## Phase 4: Final Verification Remediation
+- [x] 4.1 Add stale-stage success regression and wire successful pull cleanup.
+- [x] 4.2 Move stale-stage cleanup before lock publication and cover cleanup-failure rollback.

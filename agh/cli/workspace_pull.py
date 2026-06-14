@@ -602,6 +602,7 @@ def _commit_pull_writes(
             cached_artifacts=staged.artifacts,
             rollback_entries=rollback_entries,
         )
+        _cleanup_stale_cache_staging_dirs(root, manifest=manifest)
         result = write_lock_for_cached_artifacts(
             root, manifest=manifest, artifacts=cached_artifacts
         )

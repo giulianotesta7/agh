@@ -166,6 +166,43 @@ def _skill_manifest(*, content: str = "Review carefully.\n") -> dict[str, Any]:
     }
 
 
+def _instruction_and_skill_manifest(*, content: str = "Use AGH.\n") -> dict[str, Any]:
+    checksum = managed_payload_checksum(content)
+    return {
+        "project": {"id": "prj_1", "name": "Demo"},
+        "packs": [
+            {
+                "id": "acme/onboarding@1.0.0",
+                "assignment_id": "asn_1",
+                "position": 0,
+                "manifest": {
+                    "domain": "acme",
+                    "name": "onboarding",
+                    "version": "1.0.0",
+                },
+                "artifacts": [
+                    {
+                        "kind": "instruction",
+                        "path": "instructions/AGENTS.md",
+                        "target_agent": "opencode",
+                        "target_path": "AGENTS.md",
+                        "checksum": checksum,
+                        "download_url": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+                    },
+                    {
+                        "kind": "skill",
+                        "path": "skills/reviewer/SKILL.md",
+                        "target_agent": "opencode",
+                        "target_path": ".opencode/skills/reviewer/SKILL.md",
+                        "checksum": checksum,
+                        "download_url": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/skills/reviewer/SKILL.md",
+                    },
+                ],
+            }
+        ],
+    }
+
+
 def _write_config(
     tmp_path: Path, url: str, token: str = "pull-secret-token"
 ) -> dict[str, str]:
@@ -314,6 +351,67 @@ def test_pull_writes_target_cache_and_lock(tmp_path: Path, monkeypatch) -> None:
     assert lock["artifacts"][0]["checksum"] == managed_payload_checksum(
         cached.read_text(encoding="utf-8")
     )
+    assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
+
+
+def test_successful_pull_removes_pre_existing_stale_cache_stages(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _write_link(repo)
+    pack_parent = repo / ".agh-cache" / "packs" / "acme" / "onboarding"
+    stale_stage = pack_parent / ".agh-pull-stage-1.0.0-stale"
+    stale_stage.mkdir(parents=True)
+    (stale_stage / "orphan.txt").write_text("stale\n", encoding="utf-8")
+    previous_cache = pack_parent / "0.9.0" / "instructions" / "AGENTS.md"
+    previous_cache.parent.mkdir(parents=True)
+    previous_cache.write_text("previous\n", encoding="utf-8")
+    unrelated_dir = pack_parent / "manual-stage"
+    unrelated_dir.mkdir()
+
+    server, _handler, url = _serve_pull(
+        content="Use AGH.\n", manifest=_instruction_and_skill_manifest()
+    )
+    monkeypatch.chdir(repo)
+    try:
+        result = CliRunner().invoke(cli_app, ["pull"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    assert "Pull complete: 2 changed, 0 conflicts." in result.stdout
+    assert "Use AGH." in (repo / "AGENTS.md").read_text(encoding="utf-8")
+    skill_target = repo / ".opencode" / "skills" / "reviewer" / "SKILL.md"
+    assert skill_target.read_text(encoding="utf-8") == "Use AGH.\n"
+    instruction_cache = pack_parent / "1.0.0" / "instructions" / "AGENTS.md"
+    skill_cache = pack_parent / "1.0.0" / "skills" / "reviewer" / "SKILL.md"
+    assert instruction_cache.read_text(encoding="utf-8") == "Use AGH.\n"
+    assert skill_cache.read_text(encoding="utf-8") == "Use AGH.\n"
+    lock = tomllib.loads((repo / ".agh" / "lock.toml").read_text(encoding="utf-8"))
+    artifacts_by_target = {
+        artifact["target_path"]: artifact for artifact in lock["artifacts"]
+    }
+    assert set(artifacts_by_target) == {
+        "AGENTS.md",
+        ".opencode/skills/reviewer/SKILL.md",
+    }
+    assert artifacts_by_target["AGENTS.md"]["source"] == (
+        ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+    )
+    assert artifacts_by_target["AGENTS.md"]["checksum"] == managed_payload_checksum(
+        instruction_cache.read_text(encoding="utf-8")
+    )
+    assert artifacts_by_target[".opencode/skills/reviewer/SKILL.md"]["source"] == (
+        ".agh-cache/packs/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
+    )
+    assert artifacts_by_target[".opencode/skills/reviewer/SKILL.md"]["checksum"] == (
+        managed_payload_checksum(skill_cache.read_text(encoding="utf-8"))
+    )
+    assert (
+        artifacts_by_target[".opencode/skills/reviewer/SKILL.md"]["mode"] == "symlink"
+    )
+    assert previous_cache.read_text(encoding="utf-8") == "previous\n"
+    assert unrelated_dir.exists()
     assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
 
 
@@ -911,6 +1009,46 @@ def test_pull_workspace_lock_failure_preserves_previous_public_state(
     assert (repo / "AGENTS.md").read_text(encoding="utf-8") == previous_target
     assert previous_cache.read_text(encoding="utf-8") == "Previous.\n"
     assert lock.read_text(encoding="utf-8") == "previous lock\n"
+
+
+def test_pull_workspace_stale_cleanup_failure_preserves_previous_public_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _write_link(repo)
+    previous_target = render_managed_block(
+        "acme/onboarding@1.0.0", "instructions/AGENTS.md", "Previous.\n"
+    )
+    (repo / "AGENTS.md").write_text(previous_target, encoding="utf-8")
+    previous_cache = (
+        repo / ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+    )
+    previous_cache.parent.mkdir(parents=True)
+    previous_cache.write_text("Previous.\n", encoding="utf-8")
+    lock = repo / ".agh" / "lock.toml"
+    lock.write_text("previous lock\n", encoding="utf-8")
+    server, _handler, url = _serve_pull(content="New.\n")
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("AGH_CONFIG_FILE", str(tmp_path / "config.toml"))
+    _write_config(tmp_path, url)
+
+    def fail_stale_cleanup(_workspace: Path, *, manifest: object) -> None:
+        raise OSError("stale cleanup failed")
+
+    monkeypatch.setattr(
+        "agh.cli.workspace_pull._cleanup_stale_cache_staging_dirs",
+        fail_stale_cleanup,
+    )
+    try:
+        with pytest.raises(WorkspacePullError, match="failed to write pull results"):
+            pull_workspace(cwd=repo)
+    finally:
+        server.shutdown()
+
+    assert (repo / "AGENTS.md").read_text(encoding="utf-8") == previous_target
+    assert previous_cache.read_text(encoding="utf-8") == "Previous.\n"
+    assert lock.read_text(encoding="utf-8") == "previous lock\n"
+    assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
 
 
 def test_pull_skill_copy_fallback_when_symlink_fails(
