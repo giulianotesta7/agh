@@ -1,4 +1,4 @@
-strict_tdd: false
+strict_tdd: true
 context: |
   Product: Agent Guidance Hub (AGH) — self-hosted FastAPI service plus local Python/Typer CLI binary `agh` for teams to centrally manage and distribute versioned agent guidance packs (instructions, rules, skills) across developer repositories (repository: `aictx`).
 

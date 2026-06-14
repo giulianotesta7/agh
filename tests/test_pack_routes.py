@@ -62,6 +62,18 @@ def _publish(client: TestClient, token: str, files: dict[str, str]):
     return client.post("/api/v1/packs", json={"files": files}, headers=_auth(token))
 
 
+def _stored_agents_file(tmp_path: Path) -> Path:
+    return (
+        tmp_path
+        / "packs"
+        / "acme"
+        / "onboarding"
+        / "1.0.0"
+        / "instructions"
+        / "AGENTS.md"
+    )
+
+
 def test_owner_publishes_lists_and_downloads_pack_files(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -561,6 +573,7 @@ def test_pack_file_download_rejects_traversal_and_symlinks(
         headers=_auth(owner_token),
     )
     assert traversal.status_code == 404
+    assert traversal.json() == {"detail": "pack file not found"}
 
     outside = tmp_path / "outside-secret.txt"
     outside.write_text("secret", encoding="utf-8")
@@ -571,3 +584,90 @@ def test_pack_file_download_rejects_traversal_and_symlinks(
         headers=_auth(owner_token),
     )
     assert leak.status_code == 404
+    assert leak.json() == {"detail": "pack file not found"}
+
+
+def test_pack_file_download_missing_artifact_returns_json_404(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    assert _publish(client, owner_token, _pack_files()).status_code == 201
+    stored_file = _stored_agents_file(tmp_path)
+    stored_file.unlink()
+
+    response = client.get(
+        "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+        headers=_auth(owner_token),
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "pack file not found"}
+
+
+def test_pack_file_download_unreadable_artifact_returns_json_503(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    assert _publish(client, owner_token, _pack_files()).status_code == 201
+    stored_file = _stored_agents_file(tmp_path)
+    stored_file.write_bytes(b"\xff\xfe\x00")
+
+    response = client.get(
+        "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+        headers=_auth(owner_token),
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "pack artifact storage unavailable"}
+
+
+def test_pack_file_download_read_error_returns_json_503(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    assert _publish(client, owner_token, _pack_files()).status_code == 201
+    stored_file = _stored_agents_file(tmp_path)
+    original_read_text = Path.read_text
+
+    def fail_candidate_read_text(
+        self: Path,
+        encoding: str | None = None,
+        errors: str | None = None,
+    ) -> str:
+        if self == stored_file and encoding == "utf-8":
+            raise OSError("simulated read failure")
+        return original_read_text(self, encoding=encoding, errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", fail_candidate_read_text)
+
+    response = client.get(
+        "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+        headers=_auth(owner_token),
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "pack artifact storage unavailable"}
+
+
+def test_pack_file_download_path_resolution_error_returns_json_503(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    assert _publish(client, owner_token, _pack_files()).status_code == 201
+    stored_file = _stored_agents_file(tmp_path)
+    original_resolve = Path.resolve
+
+    def fail_candidate_resolve(self: Path, strict: bool = False) -> Path:
+        if self == stored_file and strict:
+            raise OSError("simulated path resolution failure")
+        return original_resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", fail_candidate_resolve)
+
+    response = client.get(
+        "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+        headers=_auth(owner_token),
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "pack artifact storage unavailable"}

@@ -7,8 +7,9 @@ import json
 import os
 import shutil
 import sqlite3
+import stat as stat_module
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ValidationError
@@ -31,6 +32,8 @@ MAX_PACK_PATH_LENGTH = 240
 MAX_PACK_FILE_BYTES = 256 * 1024
 MAX_PACK_TOTAL_BYTES = 1024 * 1024
 MAX_PACK_PUBLISH_BODY_BYTES = MAX_PACK_TOTAL_BYTES + (MAX_PACK_FILES * 128)
+PACK_ARTIFACT_MISSING_DETAIL = "pack file not found"
+PACK_ARTIFACT_STORAGE_DETAIL = "pack artifact storage unavailable"
 
 
 class PackPublish(BaseModel):
@@ -74,6 +77,31 @@ def _pack_version_resolve_response(row: sqlite3.Row) -> dict[str, str]:
         "name": row["name"],
         "version": row["version"],
     }
+
+
+def _raise_pack_artifact_missing() -> NoReturn:
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=PACK_ARTIFACT_MISSING_DETAIL,
+    )
+
+
+def _raise_pack_artifact_storage_unavailable(
+    exc: OSError | UnicodeDecodeError,
+) -> NoReturn:
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=PACK_ARTIFACT_STORAGE_DETAIL,
+    ) from exc
+
+
+def _read_published_pack_file(storage_dir: Path, safe_path: Path) -> str:
+    candidate = storage_dir / safe_path
+    _require_pack_artifact_read_target(storage_dir, candidate)
+    try:
+        return candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        _raise_pack_artifact_storage_unavailable(exc)
 
 
 def _parse_pack_version_ref_or_400(value: str) -> PackVersionRef:
@@ -280,23 +308,16 @@ def get_pack_file(
         safe_path = _safe_relative_path(file_path)
     except PackManifestError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="pack file not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail=PACK_ARTIFACT_MISSING_DETAIL
         ) from exc
     connection = _connect(request)
     try:
         row = _find_pack_version(connection, domain, name, version)
         if row is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="pack file not found"
-            )
+            _raise_pack_artifact_missing()
         storage_dir = Path(row["storage_path"])
-        candidate = storage_dir / safe_path
-        if not _is_safe_pack_file(storage_dir, candidate):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="pack file not found"
-            )
         return Response(
-            candidate.read_text(encoding="utf-8"),
+            _read_published_pack_file(storage_dir, safe_path),
             media_type="text/plain; charset=utf-8",
         )
     finally:
@@ -557,19 +578,37 @@ def _pack_checksum(pack_dir: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def _is_safe_pack_file(storage_dir: Path, candidate: Path) -> bool:
+def _require_pack_artifact_read_target(storage_dir: Path, candidate: Path) -> None:
     try:
         resolved_root = storage_dir.resolve(strict=True)
         resolved_candidate = candidate.resolve(strict=True)
         resolved_candidate.relative_to(resolved_root)
-    except (OSError, ValueError):
-        return False
-    if not resolved_candidate.is_file():
-        return False
+    except ValueError:
+        _raise_pack_artifact_missing()
+    except (FileNotFoundError, NotADirectoryError):
+        _raise_pack_artifact_missing()
+    except OSError as exc:
+        _raise_pack_artifact_storage_unavailable(exc)
+    try:
+        candidate_stat = resolved_candidate.stat()
+    except (FileNotFoundError, NotADirectoryError):
+        _raise_pack_artifact_missing()
+    except OSError as exc:
+        _raise_pack_artifact_storage_unavailable(exc)
+    if not stat_module.S_ISREG(candidate_stat.st_mode):
+        _raise_pack_artifact_missing()
     current = candidate
     paths: list[Path] = []
     while current != storage_dir:
         paths.append(current)
         current = current.parent
     paths.append(storage_dir)
-    return not any(path.is_symlink() for path in paths)
+    for path in paths:
+        try:
+            path_stat = path.lstat()
+        except (FileNotFoundError, NotADirectoryError):
+            _raise_pack_artifact_missing()
+        except OSError as exc:
+            _raise_pack_artifact_storage_unavailable(exc)
+        if stat_module.S_ISLNK(path_stat.st_mode):
+            _raise_pack_artifact_missing()
