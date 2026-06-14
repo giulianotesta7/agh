@@ -192,6 +192,22 @@ def _write_config(
     return {"AGH_CONFIG_FILE": str(config_path)}
 
 
+def test_cli_admin_unknown_subcommands_exit_2_with_help_first_output() -> None:
+    runner = CliRunner()
+    expected_help = runner.invoke(cli_app, []).stdout
+
+    for args in [
+        ["user", "wrong-command"],
+        ["token", "wrong-command"],
+        ["project", "wrong-command"],
+        ["project", "member", "wrong-command"],
+    ]:
+        result = runner.invoke(cli_app, args)
+
+        assert result.exit_code == 2, args
+        assert result.stdout == expected_help
+
+
 def test_cli_user_token_project_commands_map_to_api_and_mask_stored_token(
     tmp_path: Path,
 ) -> None:

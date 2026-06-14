@@ -129,6 +129,20 @@ def _write_config(tmp_path: Path, url: str) -> dict[str, str]:
     return {"AGH_CONFIG_FILE": str(config_path)}
 
 
+def test_cli_pack_unknown_subcommands_exit_2_with_help_first_output() -> None:
+    runner = CliRunner()
+    expected_help = runner.invoke(cli_app, []).stdout
+
+    for args in [
+        ["pack", "wrong-command"],
+        ["project", "pack", "wrong-command"],
+    ]:
+        result = runner.invoke(cli_app, args)
+
+        assert result.exit_code == 2, args
+        assert result.stdout == expected_help
+
+
 def _pack_dir(tmp_path: Path) -> Path:
     root = tmp_path / "pack"
     (root / "instructions").mkdir(parents=True)

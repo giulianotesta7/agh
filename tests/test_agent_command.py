@@ -35,6 +35,15 @@ def test_agent_command_absent_agents_exits_zero_without_writes(
     assert set(tmp_path.iterdir()) == before
 
 
+def test_agent_unknown_subcommand_exits_2_with_help_first_output() -> None:
+    runner = CliRunner()
+    expected_help = runner.invoke(cli_app, []).stdout
+    result = runner.invoke(cli_app, ["agent", "wrong-command"])
+
+    assert result.exit_code == 2
+    assert result.stdout == expected_help
+
+
 def test_agent_select_show_and_clear_manage_workspace_preference(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:

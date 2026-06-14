@@ -69,9 +69,21 @@ Global options:
 Arguments:
   Run `agh <command> --help` for command-specific options and arguments.
 """
+USAGE_ERROR_EXIT_CODE = 2
 PROJECT_REF_HELP = "Project id or exact name. Numeric refs are treated as ids."
 USER_REF_HELP = "User id or exact email."
 PACK_VERSION_REF_HELP = "Pack ref: packv_..., domain/name@version, or name@version."
+
+
+def _exit_on_unknown_command(group: TyperGroup, ctx: Any, args: list[str]) -> None:
+    if not args:
+        return
+
+    command_name = args[0]
+    command = group.get_command(ctx, command_name)
+    if command is None and not command_name.startswith("-"):
+        typer.echo(APP_HELP)
+        raise typer.Exit(USAGE_ERROR_EXIT_CODE)
 
 
 class AghHelpGroup(TyperGroup):
@@ -81,12 +93,7 @@ class AghHelpGroup(TyperGroup):
         return APP_HELP
 
     def resolve_command(self, ctx: Any, args: list[str]) -> Any:
-        if args:
-            command_name = args[0]
-            command = self.get_command(ctx, command_name)
-            if command is None and not command_name.startswith("-"):
-                typer.echo(APP_HELP)
-                raise typer.Exit(0)
+        _exit_on_unknown_command(self, ctx, args)
         return super().resolve_command(ctx, args)
 
 
@@ -94,12 +101,7 @@ class AghSubcommandGroup(TyperGroup):
     """Typer subgroup that keeps real help but routes unknown commands to APP_HELP."""
 
     def resolve_command(self, ctx: Any, args: list[str]) -> Any:
-        if args:
-            command_name = args[0]
-            command = self.get_command(ctx, command_name)
-            if command is None and not command_name.startswith("-"):
-                typer.echo(APP_HELP)
-                raise typer.Exit(0)
+        _exit_on_unknown_command(self, ctx, args)
         return super().resolve_command(ctx, args)
 
 

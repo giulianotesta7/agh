@@ -300,10 +300,10 @@ def test_top_level_help_lists_login_config_flags_and_arguments() -> None:
 
     assert no_args.exit_code == 0
     assert help_result.exit_code == 0
-    assert invalid_command.exit_code == 0
+    assert invalid_command.exit_code == 2
     assert config_no_args.exit_code == 0
     assert config_help.exit_code == 0
-    assert config_invalid_command.exit_code == 0
+    assert config_invalid_command.exit_code == 2
     assert help_result.stdout == no_args.stdout
     assert invalid_command.stdout == no_args.stdout
     assert config_no_args.stdout == no_args.stdout
