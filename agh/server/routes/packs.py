@@ -22,7 +22,7 @@ from agh.common.validation import (
     parse_pack_version_ref,
 )
 from agh.server.auth import CurrentUser, get_current_user
-from agh.server.db import connect_database, get_data_dir
+from agh.server.db import connect_database
 
 router = APIRouter(prefix="/packs", tags=["packs"])
 
@@ -39,6 +39,10 @@ class PackPublish(BaseModel):
 
 def _connect(request: Request) -> sqlite3.Connection:
     return connect_database(getattr(request.app.state, "db_path", None))
+
+
+def _publish_data_dir(request: Request) -> Path:
+    return Path(request.app.state.data_dir)
 
 
 def _require_pack_publisher(current_user: CurrentUser) -> None:
@@ -161,7 +165,7 @@ async def publish_pack(
 ) -> dict[str, Any]:
     _require_pack_publisher(current_user)
     payload = await _read_pack_publish_payload(request)
-    data_dir = get_data_dir().resolve()
+    data_dir = _publish_data_dir(request)
     packs_root = data_dir / "packs"
     staging_dir = packs_root / ".staging" / generate_prefixed_id("packv")
     try:
@@ -186,6 +190,7 @@ async def publish_pack(
         connection = _connect(request)
         try:
             connection.execute("BEGIN IMMEDIATE")
+            storage_created = False
             try:
                 existing = _find_pack_version(
                     connection, manifest.domain, manifest.name, manifest.version
@@ -209,7 +214,8 @@ async def publish_pack(
                     pack_id = str(pack_row["id"])
 
                 version_id = generate_prefixed_id("packv")
-                _ensure_safe_storage_target(packs_root, storage_dir)
+                _recover_or_prepare_storage_target(connection, packs_root, storage_dir)
+                storage_created = True
                 _store_staged_pack(staging_dir, storage_dir)
                 connection.execute(
                     """
@@ -228,7 +234,7 @@ async def publish_pack(
                 )
             except sqlite3.IntegrityError as exc:
                 connection.rollback()
-                if storage_dir.exists():
+                if storage_created and storage_dir.exists():
                     shutil.rmtree(storage_dir, ignore_errors=True)
                 if "UNIQUE" in str(exc):
                     raise HTTPException(
@@ -241,7 +247,7 @@ async def publish_pack(
                 raise
             except Exception:
                 connection.rollback()
-                if storage_dir.exists():
+                if storage_created and storage_dir.exists():
                     shutil.rmtree(storage_dir, ignore_errors=True)
                 raise
             else:
@@ -495,7 +501,10 @@ def _ensure_safe_packs_root(packs_root: Path) -> None:
     packs_root.mkdir(parents=True, exist_ok=True)
 
 
-def _ensure_safe_storage_target(packs_root: Path, storage_dir: Path) -> None:
+def _recover_or_prepare_storage_target(
+    connection: sqlite3.Connection, packs_root: Path, storage_dir: Path
+) -> None:
+    """Validate the final storage path and remove unreferenced orphan contents."""
     _ensure_safe_packs_root(packs_root)
     root = packs_root.resolve()
     resolved_storage = storage_dir.resolve(strict=False)
@@ -510,8 +519,26 @@ def _ensure_safe_storage_target(packs_root: Path, storage_dir: Path) -> None:
             raise PackManifestError(
                 f"refusing to write through symlinked pack path: {current}"
             )
-    if storage_dir.exists():
+    if not storage_dir.exists():
+        return
+    if not storage_dir.is_dir() or _storage_path_is_referenced(connection, storage_dir):
         raise PackManifestError("pack storage path already exists")
+    shutil.rmtree(storage_dir)
+
+
+def _storage_path_is_referenced(
+    connection: sqlite3.Connection, storage_dir: Path
+) -> bool:
+    target = storage_dir.resolve(strict=False)
+    target_text = str(storage_dir)
+    rows = connection.execute("SELECT storage_path FROM pack_versions").fetchall()
+    for row in rows:
+        stored_path = Path(row["storage_path"])
+        if str(stored_path) == target_text:
+            return True
+        if stored_path.resolve(strict=False) == target:
+            return True
+    return False
 
 
 def _store_staged_pack(staging_dir: Path, storage_dir: Path) -> None:

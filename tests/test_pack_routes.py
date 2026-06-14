@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agh.server.app import create_app
@@ -12,10 +13,12 @@ from agh.server.db import connect_database, get_database_path
 from agh.server.routes.packs import MAX_PACK_FILE_BYTES, MAX_PACK_PUBLISH_BODY_BYTES
 
 
-def _client_with_owner(tmp_path: Path, monkeypatch) -> tuple[TestClient, str]:
+def _client_with_owner(
+    tmp_path: Path, monkeypatch, *, raise_server_exceptions: bool = True
+) -> tuple[TestClient, str]:
     monkeypatch.setenv("AGH_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("AGH_BOOTSTRAP_OWNER_EMAIL", "owner@example.com")
-    client = TestClient(create_app())
+    client = TestClient(create_app(), raise_server_exceptions=raise_server_exceptions)
     token = (
         (tmp_path / "secrets" / "initial_owner_token")
         .read_text(encoding="utf-8")
@@ -209,6 +212,118 @@ def test_pack_publish_works_with_relative_data_dir(tmp_path: Path, monkeypatch) 
     ).is_file()
 
 
+def test_pack_publish_ignores_request_time_data_dir_drift(
+    tmp_path: Path, monkeypatch
+) -> None:
+    startup_root = tmp_path / "startup"
+    drift_root = tmp_path / "drift"
+    client, owner_token = _client_with_owner(startup_root, monkeypatch)
+    monkeypatch.setenv("AGH_DATA_DIR", str(drift_root))
+
+    response = _publish(client, owner_token, _pack_files())
+
+    assert response.status_code == 201, response.text
+    startup_pack = startup_root / "packs" / "acme" / "onboarding" / "1.0.0"
+    assert (startup_pack / "agh.pack.toml").is_file()
+    assert not (drift_root / "packs").exists()
+    connection = connect_database(get_database_path(startup_root))
+    try:
+        row = connection.execute("SELECT storage_path FROM pack_versions").fetchone()
+        assert Path(row["storage_path"]) == startup_pack
+    finally:
+        connection.close()
+
+
+def test_pack_publish_cleans_proven_orphan_final_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    orphan = tmp_path / "packs" / "acme" / "onboarding" / "1.0.0"
+    orphan.mkdir(parents=True)
+    (orphan / "stale.txt").write_text("leftover", encoding="utf-8")
+
+    response = _publish(client, owner_token, _pack_files(agents="Recovered.\n"))
+
+    assert response.status_code == 201, response.text
+    assert not (orphan / "stale.txt").exists()
+    assert (orphan / "instructions" / "AGENTS.md").read_text(
+        encoding="utf-8"
+    ) == "Recovered.\n"
+
+
+def test_pack_publish_cleans_partial_final_directory_after_copy_failure(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(
+        tmp_path, monkeypatch, raise_server_exceptions=False
+    )
+    target = tmp_path / "packs" / "acme" / "onboarding" / "1.0.0"
+
+    def fail_after_partial_copy(
+        src: Path, dst: Path, *, symlinks: bool = False
+    ) -> None:
+        dst.mkdir(parents=True)
+        (dst / "partial.txt").write_text("partial", encoding="utf-8")
+        raise OSError("simulated copy failure")
+
+    monkeypatch.setattr(shutil, "copytree", fail_after_partial_copy)
+
+    response = _publish(client, owner_token, _pack_files())
+
+    assert response.status_code == 500
+    assert not target.exists()
+    connection = connect_database(get_database_path(tmp_path))
+    try:
+        assert (
+            connection.execute("SELECT COUNT(*) FROM pack_versions").fetchone()[0] == 0
+        )
+    finally:
+        connection.close()
+
+
+def test_pack_publish_preserves_db_referenced_final_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    target = tmp_path / "packs" / "acme" / "onboarding" / "1.0.0"
+    target.mkdir(parents=True)
+    sentinel = target / "sentinel.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    connection = connect_database(get_database_path(tmp_path))
+    try:
+        owner_id = connection.execute(
+            "SELECT id FROM users WHERE email = ?", ("owner@example.com",)
+        ).fetchone()["id"]
+        connection.execute(
+            "INSERT INTO packs (id, domain, name, created_by) VALUES (?, ?, ?, ?)",
+            ("pack_other", "other", "baseline", owner_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO pack_versions
+                (id, pack_id, version, manifest_json, storage_path, checksum)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "packv_other",
+                "pack_other",
+                "9.9.9",
+                '{"description": "Other"}',
+                str(target),
+                "sha256:other",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    response = _publish(client, owner_token, _pack_files())
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "pack storage path already exists"}
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
 def test_pack_publish_rejects_oversized_payload_before_filesystem_writes(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -238,7 +353,30 @@ def test_pack_publish_rejects_streamed_body_over_body_cap(
     )
 
     assert response.status_code == 413
+    assert response.json() == {"detail": "pack publish payload is too large"}
     assert not (tmp_path / "packs").exists()
+
+
+@pytest.mark.parametrize("content_length", ["abc", "1.2", "-1", "+1", ""])
+def test_pack_publish_rejects_invalid_content_length_with_json_400(
+    tmp_path: Path, monkeypatch, content_length: str
+) -> None:
+    client, owner_token = _client_with_owner(
+        tmp_path, monkeypatch, raise_server_exceptions=False
+    )
+
+    response = client.post(
+        "/api/v1/packs",
+        content=b"{}",
+        headers={
+            **_auth(owner_token),
+            "Content-Type": "application/json",
+            "Content-Length": content_length,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "invalid content-length header"}
 
 
 def test_pack_publish_validation_and_immutability(tmp_path: Path, monkeypatch) -> None:
