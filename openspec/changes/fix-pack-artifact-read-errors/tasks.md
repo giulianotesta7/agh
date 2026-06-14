@@ -33,7 +33,7 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Integration / Wiring
 - [x] 3.1 Wire PR 2 manifest output to the new artifact-path behavior without touching PR 1 semantics.
-- [ ] 3.2 Keep PR 3 focused on `tests/test_pull_manifest_routes.py` for optional instruction reads and legacy fallback.
+- [x] 3.2 Keep PR 3 focused on `tests/test_pull_manifest_routes.py` for optional instruction reads and legacy fallback.
 
 ## Phase 4: Testing / Verification
 - [x] 4.1 Add PR 1 tests in `tests/test_pack_routes.py` for missing 404, unreadable 503, and path-resolution 503.
@@ -41,5 +41,5 @@ Chain strategy: stacked-to-main
 - [x] 4.3 Run `uv run pytest` after each slice.
 
 ## Phase 5: Cleanup / Documentation
-- [ ] 5.1 Remove temporary slice assumptions once the chain is stable.
-- [ ] 5.2 Update change notes only after the final slice lands.
+- [x] 5.1 Remove temporary slice assumptions once the chain is stable.
+- [x] 5.2 Update change notes only after the final slice lands.

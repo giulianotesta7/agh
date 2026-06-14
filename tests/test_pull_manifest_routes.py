@@ -300,6 +300,61 @@ def test_pull_manifest_legacy_missing_discovered_skill_file_is_skipped(
     assert artifacts[0]["checksum"] == managed_payload_checksum(agents)
 
 
+def test_pull_manifest_legacy_missing_optional_instruction_file_is_skipped(
+    tmp_path: Path, monkeypatch
+) -> None:
+    agents = "# OpenCode Guide\n"
+    client, owner_token, project = _publish_and_assign(
+        tmp_path,
+        monkeypatch,
+        "acme/legacy@1.0.0",
+        agents=agents,
+        claude="# Claude Guide\n",
+        skill=None,
+    )
+    stored_claude = _stored_pack_path(
+        tmp_path, "acme/legacy@1.0.0", "instructions/CLAUDE.md"
+    )
+    stored_claude.unlink()
+
+    response = _pull_manifest(client, owner_token, project)
+
+    assert response.status_code == 200, response.text
+    artifacts = response.json()["packs"][0]["artifacts"]
+    assert [artifact["path"] for artifact in artifacts] == ["instructions/AGENTS.md"]
+    assert artifacts[0]["checksum"] == managed_payload_checksum(agents)
+
+
+def test_pull_manifest_expected_instruction_read_oserror_returns_json_503(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token, project = _publish_and_assign(
+        tmp_path,
+        monkeypatch,
+        "acme/current@1.0.0",
+        agents="# OpenCode Guide\n",
+        claude=None,
+        skill=None,
+    )
+    _store_manifest_artifact_paths(tmp_path, ["instructions/AGENTS.md"])
+    stored_agents = _stored_pack_path(
+        tmp_path, "acme/current@1.0.0", "instructions/AGENTS.md"
+    )
+    original_read_text = Path.read_text
+
+    def fail_expected_agents_read(path: Path, *args: Any, **kwargs: Any) -> str:
+        if path == stored_agents:
+            raise OSError("simulated storage read failure")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_expected_agents_read)
+
+    response = _pull_manifest(client, owner_token, project)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "pack artifact storage unavailable"}
+
+
 @pytest.mark.parametrize("artifact_paths", ["skills/lint/SKILL.md", ["not/a/thing"]])
 def test_pull_manifest_malformed_artifact_paths_uses_legacy_discovery(
     tmp_path: Path, monkeypatch, artifact_paths: Any

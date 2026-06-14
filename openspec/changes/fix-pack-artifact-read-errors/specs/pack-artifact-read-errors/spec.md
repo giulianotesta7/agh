@@ -29,7 +29,7 @@ The system MUST preserve existing traversal and unsafe-path protections for publ
 
 ### Requirement: Controlled pull-manifest artifact assembly errors
 
-The system MUST apply the same classification while assembling pull-manifest artifact metadata. Missing expected artifacts MUST fail with a JSON 404-equivalent response, unreadable storage MUST fail with a JSON 503-equivalent response, and expected artifact failures MUST NOT be silently dropped.
+The system MUST apply the same classification while assembling pull-manifest artifact metadata. Missing expected artifacts MUST fail with a JSON 404-equivalent response, unreadable storage MUST fail with a JSON 503-equivalent response, and expected artifact failures MUST NOT be silently dropped. Legacy manifests that lack stored artifact path inventory MAY continue conservative discovery fallback; full storage-loss detection for those legacy packs is deferred because the server cannot distinguish intentionally absent optional files from lost historical files.
 
 #### Scenario: Missing artifact is reported during pull-manifest assembly
 
@@ -38,13 +38,13 @@ The system MUST apply the same classification while assembling pull-manifest art
 - THEN manifest assembly reports a JSON 404-equivalent error
 - AND the artifact is not silently omitted
 
-#### Scenario: Legacy mixed-pack storage loss is not returned as a partial manifest
+#### Scenario: Legacy fallback without artifact inventory remains conservative
 
 - GIVEN a legacy pack lacks stored artifact path inventory
-- AND it originally contained instruction and skill artifacts
-- WHEN the skill storage directory is missing
-- THEN manifest assembly reports a JSON 404-equivalent error
-- AND the response does not return only the remaining instruction artifacts
+- AND it originally contained instruction or skill artifacts that are now missing from storage
+- WHEN pull-manifest assembly uses legacy discovery fallback
+- THEN the response may include only remaining discoverable artifacts
+- AND change notes document that full legacy storage-loss detection is deferred
 
 #### Scenario: Unreadable artifact is reported during pull-manifest assembly
 
