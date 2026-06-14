@@ -14,9 +14,11 @@ from agh.cli.workspace_pull import (
     WorkspacePullError,
     _cleanup_cache_stage_dirs,
     _cleanup_stale_cache_staging_dirs,
+    _commit_pull_writes,
     _stage_cache_artifacts,
     populate_cache_and_write_lock,
 )
+from agh.cli.pull_plan import PullPlan, PullTargetChange
 from agh.common.checksums import managed_payload_checksum
 
 
@@ -111,6 +113,162 @@ def _downloaded_extra_artifact(*, content: str = "Use Claude.\n") -> DownloadedA
         name="onboarding",
         version="1.0.0",
     )
+
+
+def _committed_cache_artifact(workspace: Path) -> Path:
+    return workspace / ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+
+
+def _downloaded_skill_artifact(
+    *, name: str = "reviewer", content: str = "Review carefully.\n"
+) -> DownloadedArtifact:
+    return DownloadedArtifact(
+        pack_ref="acme/onboarding@1.0.0",
+        path=f"skills/{name}/SKILL.md",
+        target_path=f".opencode/skills/{name}/SKILL.md",
+        checksum=managed_payload_checksum(content),
+        content=content,
+        kind="skill",
+        target_agent="opencode",
+        domain="acme",
+        name="onboarding",
+        version="1.0.0",
+    )
+
+
+def _changed_plan(target_path: str, content: str) -> PullPlan:
+    return PullPlan(
+        status="changed",
+        exit_code=0,
+        dry_run=False,
+        changes=[
+            PullTargetChange(
+                target_path=target_path,
+                status="insert",
+                content=content,
+                conflicts=[],
+            )
+        ],
+    )
+
+
+def test_commit_pull_writes_target_failure_restores_old_cache_and_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    committed = _committed_cache_artifact(tmp_path)
+    committed.parent.mkdir(parents=True)
+    committed.write_text("previous cache\n", encoding="utf-8")
+    lock = tmp_path / ".agh" / "lock.toml"
+    lock.parent.mkdir()
+    lock.write_text("previous lock\n", encoding="utf-8")
+
+    def fail_target_write(_root: Path, target_path: Path, _content: str) -> None:
+        raise OSError(f"target failed at {target_path.as_posix()}")
+
+    monkeypatch.setattr(workspace_pull, "_write_target_file", fail_target_write)
+
+    with pytest.raises(OSError, match="target failed"):
+        _commit_pull_writes(
+            tmp_path,
+            manifest=_manifest(content="new cache\n"),
+            artifacts=[_downloaded_artifact(content="new cache\n")],
+            instruction_plan=_changed_plan("AGENTS.md", "new target\n"),
+            skill_artifacts=[],
+        )
+
+    assert committed.read_text(encoding="utf-8") == "previous cache\n"
+    assert lock.read_text(encoding="utf-8") == "previous lock\n"
+    assert not (tmp_path / "AGENTS.md").exists()
+    assert not list(committed.parents[2].glob(".agh-pull-stage-*"))
+
+
+def test_commit_pull_writes_skill_failure_restores_instruction_target_and_cache(
+    tmp_path: Path, monkeypatch
+) -> None:
+    committed = _committed_cache_artifact(tmp_path)
+    committed.parent.mkdir(parents=True)
+    committed.write_text("previous cache\n", encoding="utf-8")
+    target = tmp_path / "AGENTS.md"
+    target.write_text("previous target\n", encoding="utf-8")
+    first_skill = tmp_path / ".opencode" / "skills" / "reviewer" / "SKILL.md"
+    first_skill.parent.mkdir(parents=True)
+    first_skill.write_text("previous skill\n", encoding="utf-8")
+    lock = tmp_path / ".agh" / "lock.toml"
+    lock.parent.mkdir()
+    lock.write_text("previous lock\n", encoding="utf-8")
+
+    def fail_skill_write(*, target: Path, source: Path, content: str) -> str:
+        if target.name != "SKILL.md" or "second" in target.parts:
+            raise OSError(f"skill failed at {target}")
+        target.write_text(content, encoding="utf-8")
+        return "copy"
+
+    def fail_second_skill_write(*, target: Path, source: Path, content: str) -> str:
+        if "second" in target.parts:
+            raise OSError(f"skill failed at {target}")
+        return fail_skill_write(target=target, source=source, content=content)
+
+    monkeypatch.setattr(workspace_pull, "_write_skill_target", fail_second_skill_write)
+
+    with pytest.raises(OSError, match="skill failed"):
+        _commit_pull_writes(
+            tmp_path,
+            manifest=_manifest(content="new cache\n"),
+            artifacts=[
+                _downloaded_artifact(content="new cache\n"),
+                _downloaded_skill_artifact(name="reviewer"),
+                _downloaded_skill_artifact(name="second", content="Second skill.\n"),
+            ],
+            instruction_plan=_changed_plan("AGENTS.md", "new target\n"),
+            skill_artifacts=[
+                _downloaded_skill_artifact(name="reviewer"),
+                _downloaded_skill_artifact(name="second", content="Second skill.\n"),
+            ],
+        )
+
+    assert committed.read_text(encoding="utf-8") == "previous cache\n"
+    assert target.read_text(encoding="utf-8") == "previous target\n"
+    assert first_skill.read_text(encoding="utf-8") == "previous skill\n"
+    assert lock.read_text(encoding="utf-8") == "previous lock\n"
+    assert not (tmp_path / ".opencode" / "skills" / "second" / "SKILL.md").exists()
+
+
+def test_commit_pull_writes_lock_failure_restores_promoted_outputs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    committed = _committed_cache_artifact(tmp_path)
+    committed.parent.mkdir(parents=True)
+    committed.write_text("previous cache\n", encoding="utf-8")
+    lock = tmp_path / ".agh" / "lock.toml"
+    lock.parent.mkdir()
+    lock.write_text("previous lock\n", encoding="utf-8")
+
+    skill = tmp_path / ".opencode" / "skills" / "reviewer" / "SKILL.md"
+
+    def fail_lock_write(_path: Path, *, manifest: dict, artifacts: list) -> None:
+        assert committed.read_text(encoding="utf-8") == "new cache\n"
+        assert "new target\n" in (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        assert skill.exists()
+        raise OSError("lock failed")
+
+    monkeypatch.setattr(workspace_pull, "_write_lockfile", fail_lock_write)
+
+    with pytest.raises(OSError, match="lock failed"):
+        _commit_pull_writes(
+            tmp_path,
+            manifest=_manifest(content="new cache\n"),
+            artifacts=[
+                _downloaded_artifact(content="new cache\n"),
+                _downloaded_skill_artifact(),
+            ],
+            instruction_plan=_changed_plan("AGENTS.md", "new target\n"),
+            skill_artifacts=[_downloaded_skill_artifact()],
+        )
+
+    assert committed.read_text(encoding="utf-8") == "previous cache\n"
+    assert lock.read_text(encoding="utf-8") == "previous lock\n"
+    assert not (tmp_path / "AGENTS.md").exists()
+    assert not skill.exists()
 
 
 def test_stage_cache_artifacts_writes_sibling_stage_dir_only(tmp_path: Path) -> None:

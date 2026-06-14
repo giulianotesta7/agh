@@ -807,6 +807,42 @@ def test_pull_replaces_old_pre_release_skill_cache_symlink(
     )
 
 
+def test_pull_workspace_lock_failure_preserves_previous_public_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _write_link(repo)
+    previous_target = render_managed_block(
+        "acme/onboarding@1.0.0", "instructions/AGENTS.md", "Previous.\n"
+    )
+    (repo / "AGENTS.md").write_text(previous_target, encoding="utf-8")
+    previous_cache = (
+        repo / ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+    )
+    previous_cache.parent.mkdir(parents=True)
+    previous_cache.write_text("Previous.\n", encoding="utf-8")
+    lock = repo / ".agh" / "lock.toml"
+    lock.write_text("previous lock\n", encoding="utf-8")
+    server, _handler, url = _serve_pull(content="New.\n")
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("AGH_CONFIG_FILE", str(tmp_path / "config.toml"))
+    _write_config(tmp_path, url)
+
+    def fail_lock_write(_path: Path, *, manifest: dict, artifacts: list) -> None:
+        raise OSError("lock failed")
+
+    monkeypatch.setattr("agh.cli.workspace_pull._write_lockfile", fail_lock_write)
+    try:
+        with pytest.raises(WorkspacePullError, match="failed to write pull results"):
+            pull_workspace(cwd=repo)
+    finally:
+        server.shutdown()
+
+    assert (repo / "AGENTS.md").read_text(encoding="utf-8") == previous_target
+    assert previous_cache.read_text(encoding="utf-8") == "Previous.\n"
+    assert lock.read_text(encoding="utf-8") == "previous lock\n"
+
+
 def test_pull_skill_copy_fallback_when_symlink_fails(
     tmp_path: Path, monkeypatch
 ) -> None:

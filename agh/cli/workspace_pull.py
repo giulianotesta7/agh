@@ -104,7 +104,16 @@ class _StagedCacheResult:
 
     cache_dir: Path
     stage_dirs: list[Path]
+    promotions: list[_StagedCachePromotion]
     artifacts: list[CachedArtifact]
+
+
+@dataclass(frozen=True)
+class _StagedCachePromotion:
+    """One staged cache directory ready to replace a final cache directory."""
+
+    stage_dir: Path
+    final_dir: Path
 
 
 @dataclass(frozen=True)
@@ -113,7 +122,6 @@ class _PullRollbackEntry:
 
     final_path: Path
     backup_path: Path | None
-    kind: str
 
 
 @dataclass(frozen=True)
@@ -231,26 +239,12 @@ def pull_workspace(
         )
     _preflight_workspace_cache_boundaries(workspace, manifest)
     try:
-        _clear_manifest_cache_dirs(workspace, manifest=manifest)
-        _apply_pull_plan(workspace, instruction_plan)
-        cache_result = write_cache_artifacts(workspace, artifacts=downloaded)
-        mode_overrides = _place_skill_artifacts(
+        cache_result = _commit_pull_writes(
             workspace,
+            manifest=manifest,
+            artifacts=downloaded,
+            instruction_plan=instruction_plan,
             skill_artifacts=skill_artifacts,
-            cached_artifacts=cache_result.artifacts,
-        )
-        cached_artifacts = [
-            replace(
-                artifact,
-                mode=mode_overrides.get(
-                    (artifact.pack_ref, artifact.path, artifact.target_path),
-                    artifact.mode,
-                ),
-            )
-            for artifact in cache_result.artifacts
-        ]
-        cache_result = write_lock_for_cached_artifacts(
-            workspace, manifest=manifest, artifacts=cached_artifacts
         )
         vcs_hint = _vcs_guidance_hint(workspace)
     except OSError as exc:
@@ -525,6 +519,7 @@ def _stage_cache_artifacts(
     cache_dir = _workspace_cache_dir(root)
     _ensure_cache_root_safe(root)
     staged_by_pack: dict[tuple[str, str, str], Path] = {}
+    promotions: list[_StagedCachePromotion] = []
     cached: list[CachedArtifact] = []
     try:
         for artifact in artifacts:
@@ -538,6 +533,15 @@ def _stage_cache_artifacts(
                     version=artifact.version,
                 )
                 staged_by_pack[key] = stage_dir
+                promotions.append(
+                    _StagedCachePromotion(
+                        stage_dir=stage_dir,
+                        final_dir=cache_dir
+                        / artifact.domain
+                        / artifact.name
+                        / artifact.version,
+                    )
+                )
             artifact_path = _safe_relative_path(artifact.path)
             _write_cache_file(stage_dir / artifact_path, artifact.content)
             final_cache_path = (
@@ -560,8 +564,121 @@ def _stage_cache_artifacts(
         _cleanup_cache_stage_dirs(staged_by_pack.values(), cache_dir=cache_dir)
         raise
     return _StagedCacheResult(
-        cache_dir=cache_dir, stage_dirs=list(staged_by_pack.values()), artifacts=cached
+        cache_dir=cache_dir,
+        stage_dirs=list(staged_by_pack.values()),
+        promotions=promotions,
+        artifacts=cached,
     )
+
+
+def _commit_pull_writes(
+    workspace: Path,
+    *,
+    manifest: object,
+    artifacts: list[DownloadedArtifact],
+    instruction_plan: PullPlan,
+    skill_artifacts: list[DownloadedArtifact],
+) -> WorkspacePullCacheResult:
+    root = workspace.resolve()
+    staged = _stage_cache_artifacts(root, artifacts=artifacts)
+    rollback_entries: list[_PullRollbackEntry] = []
+    try:
+        for promotion in staged.promotions:
+            rollback_entries.append(
+                _move_existing_path_for_rollback(promotion.final_dir)
+            )
+            os.replace(promotion.stage_dir, promotion.final_dir)
+        for change in instruction_plan.changes:
+            if change.status not in {"insert", "update"}:
+                continue
+            target_path = _safe_relative_path(change.target_path)
+            rollback_entries.append(
+                _move_existing_path_for_rollback(root / target_path)
+            )
+            _write_target_file(root, target_path, change.content)
+        cached_artifacts = _place_skill_artifacts_with_rollback(
+            root,
+            skill_artifacts=skill_artifacts,
+            cached_artifacts=staged.artifacts,
+            rollback_entries=rollback_entries,
+        )
+        result = write_lock_for_cached_artifacts(
+            root, manifest=manifest, artifacts=cached_artifacts
+        )
+    except Exception:
+        _restore_pull_rollback(rollback_entries)
+        _cleanup_cache_stage_dirs(staged.stage_dirs, cache_dir=staged.cache_dir)
+        raise
+    _discard_pull_rollback(rollback_entries)
+    return result
+
+
+def _place_skill_artifacts_with_rollback(
+    root: Path,
+    *,
+    skill_artifacts: list[DownloadedArtifact],
+    cached_artifacts: list[CachedArtifact],
+    rollback_entries: list[_PullRollbackEntry],
+) -> list[CachedArtifact]:
+    cached_by_key = {
+        (artifact.pack_ref, artifact.path, artifact.target_path): artifact
+        for artifact in cached_artifacts
+    }
+    modes: dict[tuple[str, str, str], str] = {}
+    for artifact in skill_artifacts:
+        key = (artifact.pack_ref, artifact.path, artifact.target_path)
+        cached = cached_by_key[key]
+        target_path = _safe_relative_path(artifact.target_path)
+        target = root / target_path
+        source = root / cached.cache_path
+        _ensure_target_parent_safe(root, target.parent)
+        rollback_entries.append(_move_existing_path_for_rollback(target))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        modes[key] = _write_skill_target(
+            target=target, source=source, content=artifact.content
+        )
+    return [
+        replace(
+            artifact,
+            mode=modes.get(
+                (artifact.pack_ref, artifact.path, artifact.target_path), artifact.mode
+            ),
+        )
+        for artifact in cached_artifacts
+    ]
+
+
+def _move_existing_path_for_rollback(path: Path) -> _PullRollbackEntry:
+    if not path.exists() and not path.is_symlink():
+        return _PullRollbackEntry(final_path=path, backup_path=None)
+    backup = Path(
+        tempfile.mkdtemp(prefix=f".agh-pull-backup-{path.name}-", dir=path.parent)
+    )
+    backup.rmdir()
+    os.replace(path, backup)
+    return _PullRollbackEntry(final_path=path, backup_path=backup)
+
+
+def _restore_pull_rollback(entries: list[_PullRollbackEntry]) -> None:
+    for entry in reversed(entries):
+        _remove_pull_path(entry.final_path)
+        if entry.backup_path is not None:
+            os.replace(entry.backup_path, entry.final_path)
+
+
+def _discard_pull_rollback(entries: list[_PullRollbackEntry]) -> None:
+    for entry in entries:
+        if entry.backup_path is not None:
+            _remove_pull_path(entry.backup_path)
+
+
+def _remove_pull_path(path: Path) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    else:
+        shutil.rmtree(path)
 
 
 def _make_cache_stage_dir(
@@ -758,32 +875,6 @@ def _merge_pull_and_skill_plans(
     return PullPlan(status="noop", exit_code=0, dry_run=dry_run, changes=changes)
 
 
-def _place_skill_artifacts(
-    workspace: Path,
-    *,
-    skill_artifacts: list[DownloadedArtifact],
-    cached_artifacts: list[CachedArtifact],
-) -> dict[tuple[str, str, str], str]:
-    root = workspace.resolve()
-    cached_by_key = {
-        (artifact.pack_ref, artifact.path, artifact.target_path): artifact
-        for artifact in cached_artifacts
-    }
-    modes: dict[tuple[str, str, str], str] = {}
-    for artifact in skill_artifacts:
-        key = (artifact.pack_ref, artifact.path, artifact.target_path)
-        cached = cached_by_key[key]
-        target_path = _safe_relative_path(artifact.target_path)
-        target = root / target_path
-        source = root / cached.cache_path
-        _ensure_target_parent_safe(root, target.parent)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        modes[key] = _write_skill_target(
-            target=target, source=source, content=artifact.content
-        )
-    return modes
-
-
 def _write_skill_target(*, target: Path, source: Path, content: str) -> str:
     if target.exists() and not target.is_file() and not target.is_symlink():
         raise WorkspacePullError(
@@ -828,15 +919,6 @@ def _relative_cache_path_for_artifact(artifact: DownloadedArtifact) -> Path:
         / artifact.version
         / _safe_relative_path(artifact.path)
     )
-
-
-def _apply_pull_plan(workspace: Path, plan: PullPlan) -> None:
-    root = workspace.resolve()
-    for change in plan.changes:
-        if change.status not in {"insert", "update"}:
-            continue
-        target_path = _safe_relative_path(change.target_path)
-        _write_target_file(root, target_path, change.content)
 
 
 def _write_target_file(root: Path, target_path: Path, content: str) -> None:
