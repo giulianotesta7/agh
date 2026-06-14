@@ -244,6 +244,39 @@ def test_pull_dry_run_downloads_for_planning_without_writes(
     ]
 
 
+def test_pull_dry_run_preserves_previous_public_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _write_link(repo)
+    previous_target = render_managed_block(
+        "acme/onboarding@1.0.0", "instructions/AGENTS.md", "Previous.\n"
+    )
+    (repo / "AGENTS.md").write_text(previous_target, encoding="utf-8")
+    previous_cache = (
+        repo / ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+    )
+    previous_cache.parent.mkdir(parents=True)
+    previous_cache.write_text("Previous.\n", encoding="utf-8")
+    lock = repo / ".agh" / "lock.toml"
+    lock.write_text("previous lock\n", encoding="utf-8")
+    server, _handler, url = _serve_pull(content="New.\n")
+    monkeypatch.chdir(repo)
+    try:
+        result = CliRunner().invoke(
+            cli_app, ["pull", "--dry-run"], env=_write_config(tmp_path, url)
+        )
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    assert "Dry run complete: 1 change planned, 0 conflicts." in result.stdout
+    assert (repo / "AGENTS.md").read_text(encoding="utf-8") == previous_target
+    assert previous_cache.read_text(encoding="utf-8") == "Previous.\n"
+    assert lock.read_text(encoding="utf-8") == "previous lock\n"
+    assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
+
+
 def test_pull_writes_target_cache_and_lock(tmp_path: Path, monkeypatch) -> None:
     repo = _repo(tmp_path)
     _write_link(repo)
@@ -278,6 +311,10 @@ def test_pull_writes_target_cache_and_lock(tmp_path: Path, monkeypatch) -> None:
         lock["artifacts"][0]["source"]
         == ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
+    assert lock["artifacts"][0]["checksum"] == managed_payload_checksum(
+        cached.read_text(encoding="utf-8")
+    )
+    assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
 
 
 def test_pull_filters_manifest_to_selected_agent(tmp_path: Path, monkeypatch) -> None:
@@ -616,6 +653,39 @@ def test_pull_conflict_exits_3_without_writes(tmp_path: Path, monkeypatch) -> No
     assert (repo / "AGENTS.md").read_text(encoding="utf-8") == before
     assert not (repo / ".agh-cache" / "packs").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
+
+
+def test_pull_conflict_preserves_previous_cache_and_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = _repo(tmp_path)
+    _write_link(repo)
+    original = render_managed_block(
+        "acme/onboarding@1.0.0", "instructions/AGENTS.md", "Original.\n"
+    )
+    conflicted = original.replace("Original.", "Edited by user.")
+    (repo / "AGENTS.md").write_text(f"Manual\n\n{conflicted}", encoding="utf-8")
+    before = (repo / "AGENTS.md").read_text(encoding="utf-8")
+    previous_cache = (
+        repo / ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+    )
+    previous_cache.parent.mkdir(parents=True)
+    previous_cache.write_text("Previous.\n", encoding="utf-8")
+    lock = repo / ".agh" / "lock.toml"
+    lock.write_text("previous lock\n", encoding="utf-8")
+    server, _handler, url = _serve_pull(content="New.\n")
+    monkeypatch.chdir(repo)
+    try:
+        result = CliRunner().invoke(cli_app, ["pull"], env=_write_config(tmp_path, url))
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 3, result.stdout
+    assert "Pull blocked: 1 conflict." in result.stdout
+    assert (repo / "AGENTS.md").read_text(encoding="utf-8") == before
+    assert previous_cache.read_text(encoding="utf-8") == "Previous.\n"
+    assert lock.read_text(encoding="utf-8") == "previous lock\n"
+    assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
 
 
 def test_pull_force_overwrites_conflicted_block_only(

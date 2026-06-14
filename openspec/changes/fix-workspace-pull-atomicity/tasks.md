@@ -19,6 +19,6 @@ Chain strategy: stacked-to-main
 - [x] 2.4 Add cache/target/skill/lock failure tests.
 
 ## Phase 3: CLI Regression Verification
-- [ ] 3.1 Add CLI dry-run and success consistency regressions.
-- [ ] 3.2 Verify managed-block rejection and forced overwrite behavior.
-- [ ] 3.3 Run changed modules and full verification.
+- [x] 3.1 Add CLI dry-run and success consistency regressions.
+- [x] 3.2 Verify managed-block rejection and forced overwrite behavior.
+- [x] 3.3 Run changed modules and full verification.
