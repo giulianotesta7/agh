@@ -45,7 +45,7 @@ Releases = "https://github.com/giulianotesta7/AgentGuidanceHub/releases"
 Container = "https://github.com/giulianotesta7/AgentGuidanceHub/pkgs/container/agent-guidance-hub"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "httpx>=0.27"]
+dev = ["pytest>=8.0", "httpx2>=0.28"]
 
 [project.scripts]
 agh = "agh.cli.main:app"
