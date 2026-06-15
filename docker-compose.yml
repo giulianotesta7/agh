@@ -7,6 +7,11 @@ services:
       - agh-data:/data
     environment:
       AGH_BOOTSTRAP_OWNER_EMAIL: owner@example.com
+    user: "10001:10001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
 volumes:
   agh-data:

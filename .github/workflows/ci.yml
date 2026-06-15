@@ -46,6 +46,9 @@ jobs:
       - name: Check Dockerfile
         run: docker build --check .
 
+      - name: Test Docker runtime hardening
+        run: AGH_STRICT_DOCKER_RUNTIME=1 uv run pytest tests/test_docker_runtime.py -q
+
       - name: Build package
         run: uv build
 

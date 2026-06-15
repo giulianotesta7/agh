@@ -361,6 +361,10 @@ El estado runtime vive bajo `/data`:
 | `/data/logs/agh.log` | Log del server. |
 | `/data/secrets/initial_owner_token` | Primer owner token, creado una vez. |
 
+La imagen deja `/data` como `agh:agh` (`10001:10001`) durante el build.
+Los named volumes de Docker se inicializan desde ese árbol `/data` ya preparado en la imagen.
+Los bind mounts tienen que ser escribibles previamente por UID/GID `10001:10001`; el container no repara ownership del host.
+
 Docker run directo:
 
 ```bash

@@ -98,6 +98,9 @@ def test_readme_consolidates_guides_and_bookmarks() -> None:
         "/data/agh.sqlite3",
         "/data/packs/",
         "/data/logs/agh.log",
+        "The image owns `/data` as `agh:agh` (`10001:10001`) at build time.",
+        "Named Docker volumes are initialized from that image-owned `/data` tree.",
+        "Bind mounts must already be writable by UID/GID `10001:10001`; the container does not repair host ownership.",
         "docker run --rm -p 8912:8912 -v agh-data:/data",
         "AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com",
         "Backup",
@@ -214,6 +217,9 @@ def test_spanish_readme_mirrors_consolidated_guides() -> None:
         "/data/agh.sqlite3",
         "/data/packs/",
         "/data/logs/agh.log",
+        "La imagen deja `/data` como `agh:agh` (`10001:10001`) durante el build.",
+        "Los named volumes de Docker se inicializan desde ese árbol `/data` ya preparado en la imagen.",
+        "Los bind mounts tienen que ser escribibles previamente por UID/GID `10001:10001`; el container no repara ownership del host.",
         "docker run --rm -p 8912:8912 -v agh-data:/data",
         "AGH_BOOTSTRAP_OWNER_EMAIL=owner@example.com",
         "Backup",
@@ -269,8 +275,16 @@ def test_compose_uses_published_ghcr_image_and_data_volume() -> None:
         "volumes:",
         "agh-data:",
         "name: agh-data",
+        "security_opt:",
+        "no-new-privileges:true",
+        "cap_drop:",
+        "- ALL",
+        'user: "10001:10001"',
     ]:
         assert expected in compose
+
+    for deferred_hardening in ["read_only:", "tmpfs:"]:
+        assert deferred_hardening not in compose
 
 
 def test_install_cli_script_is_safe_and_uses_uv_tool_install() -> None:
@@ -334,13 +348,41 @@ def test_ci_workflow_runs_release_validation_commands() -> None:
         "uv run --with ruff ruff format --check .",
         "uv run --with pyright pyright agh tests",
         "docker build --check .",
+        "AGH_STRICT_DOCKER_RUNTIME=1 uv run pytest tests/test_docker_runtime.py -q",
         "uv build",
         "uv tool install --force dist/*.whl",
         "agh --help",
     ]:
         assert expected in ci
 
+    assert "scripts/docker-runtime-smoke.sh" not in ci
     assert "publish" not in ci.lower()
+
+
+def test_docker_runtime_validation_is_pytest_based_not_smoke_script() -> None:
+    runtime_tests = _read("tests/test_docker_runtime.py")
+    dockerfile = _read("Dockerfile")
+
+    assert not Path("scripts/docker-runtime-smoke.sh").exists()
+    assert not Path("scripts/docker-entrypoint.py").exists()
+    assert not Path("tests/test_docker_entrypoint.py").exists()
+    for expected in [
+        '"docker", "build"',
+        "docker_image_contract",
+        "/proc/1/status",
+        'status["Groups"]',
+        "--user",
+        "10001:10001",
+        "test_named_volume_is_initialized_from_image_owned_data_tree",
+        "test_pre_owned_bind_mount_is_operator_responsibility",
+        "test_root_owned_bind_mount_is_not_repaired_by_container",
+    ]:
+        assert expected in runtime_tests
+
+    assert "scripts/docker-runtime-smoke.sh" not in runtime_tests
+    assert "docker-entrypoint.py" not in runtime_tests
+    assert "scripts/docker-entrypoint.py" not in dockerfile
+    assert "ENTRYPOINT" not in dockerfile
 
 
 def test_pr_validation_workflow_requires_issue_reference_without_label_blockers() -> (
@@ -427,6 +469,7 @@ def test_tag_release_workflow_publishes_package_image_and_release() -> None:
         "uv run --with ruff ruff format --check .",
         "uv run --with pyright pyright agh tests",
         "docker build --check .",
+        "AGH_STRICT_DOCKER_RUNTIME=1 uv run pytest tests/test_docker_runtime.py -q",
         "uv build",
         "Verify built package version",
         "environment: pypi",
@@ -440,6 +483,8 @@ def test_tag_release_workflow_publishes_package_image_and_release() -> None:
     ]:
         assert expected in release
 
+    assert "scripts/docker-runtime-smoke.sh" not in release
+
 
 def test_dockerfile_documents_data_dirs_and_healthcheck() -> None:
     dockerfile = _read("Dockerfile")
@@ -450,12 +495,23 @@ def test_dockerfile_documents_data_dirs_and_healthcheck() -> None:
         "SETUPTOOLS_SCM_PRETEND_VERSION_FOR_AGH=${AGH_VERSION} uv sync --locked --no-dev"
         in dockerfile
     )
+    assert "groupadd --gid 10001 agh" in dockerfile
+    assert "useradd --uid 10001 --gid 10001" in dockerfile
     assert "mkdir -p /data/logs /data/secrets /data/packs" in dockerfile
+    assert "touch /data/agh.sqlite3" in dockerfile
+    assert "chown -R agh:agh /data" in dockerfile
+    assert "USER 10001:10001" in dockerfile
+    assert "scripts/docker-entrypoint.py" not in dockerfile
+    assert "ENTRYPOINT" not in dockerfile
     assert "EXPOSE 8912" in dockerfile
     assert "HEALTHCHECK" in dockerfile
     assert "127.0.0.1:8912/api/v1/health" in dockerfile
     assert "/data/logs/agh.log" in dockerfile
     assert "/data/secrets/initial_owner_token" in dockerfile
+    assert (
+        '["uvicorn", "agh.server.app:app", "--host", "0.0.0.0", "--port", "8912"]'
+        in dockerfile
+    )
 
 
 def test_dockerignore_keeps_runtime_state_out_but_keeps_package_inputs() -> None:
