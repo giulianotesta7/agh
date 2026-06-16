@@ -1,4 +1,4 @@
-"""Local pack template scaffolding."""
+"""Local package template scaffolding."""
 
 from __future__ import annotations
 
@@ -9,20 +9,20 @@ from pathlib import Path
 from agh.common.validation import is_semver, is_valid_slug
 
 
-class PackInitError(ValueError):
-    """Raised when a pack template cannot be initialized."""
+class PackageInitError(ValueError):
+    """Raised when a package template cannot be initialized."""
 
 
 @dataclass(frozen=True)
-class PackInitResult:
-    """Paths created by pack init."""
+class PackageInitResult:
+    """Paths created by package init."""
 
     root: Path
     manifest: Path
     created_files: tuple[Path, ...]
 
 
-def init_pack_template(
+def init_package_template(
     path: Path,
     *,
     domain: str,
@@ -32,26 +32,26 @@ def init_pack_template(
     with_agents: bool = False,
     with_claude: bool = False,
     skills: list[str] | None = None,
-) -> PackInitResult:
-    """Create a local pack template directory."""
+) -> PackageInitResult:
+    """Create a local package template directory."""
     if not is_valid_slug(domain):
-        raise PackInitError(f"invalid domain: {domain}")
+        raise PackageInitError(f"invalid domain: {domain}")
     if not is_valid_slug(name):
-        raise PackInitError(f"invalid name: {name}")
+        raise PackageInitError(f"invalid name: {name}")
     if not is_semver(version):
-        raise PackInitError(f"invalid version: {version}")
+        raise PackageInitError(f"invalid version: {version}")
     skill_names = tuple(skills or [])
     seen_skills: set[str] = set()
     for skill in skill_names:
         if not is_valid_slug(skill):
-            raise PackInitError(f"invalid skill name: {skill}")
+            raise PackageInitError(f"invalid skill name: {skill}")
         if skill in seen_skills:
-            raise PackInitError(f"duplicate skill name: {skill}")
+            raise PackageInitError(f"duplicate skill name: {skill}")
         seen_skills.add(skill)
 
     root = path.expanduser()
     if root.exists():
-        raise PackInitError(f"pack path already exists: {path}")
+        raise PackageInitError(f"package path already exists: {path}")
 
     manifest_text = _manifest_template(
         domain=domain, name=name, version=version, description=description
@@ -60,7 +60,7 @@ def init_pack_template(
     try:
         (root / "instructions").mkdir(parents=True)
         (root / "skills").mkdir()
-        manifest = root / "agh.pack.toml"
+        manifest = root / "agh.package.toml"
         manifest.write_text(manifest_text, encoding="utf-8")
         created_files.append(manifest)
 
@@ -78,11 +78,11 @@ def init_pack_template(
             skill_file.write_text(f"# {skill}\n\n", encoding="utf-8")
             created_files.append(skill_file)
     except Exception as exc:
-        raise PackInitError(f"failed to initialize pack: {exc}") from exc
+        raise PackageInitError(f"failed to initialize package: {exc}") from exc
 
-    return PackInitResult(
+    return PackageInitResult(
         root=root,
-        manifest=root / "agh.pack.toml",
+        manifest=root / "agh.package.toml",
         created_files=tuple(created_files),
     )
 

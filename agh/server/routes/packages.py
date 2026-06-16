@@ -1,4 +1,4 @@
-"""Pack publish, listing, and file download routes."""
+"""Package publish, listing, and file download routes."""
 
 from __future__ import annotations
 
@@ -15,28 +15,38 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ValidationError
 
 from agh.common.ids import generate_prefixed_id
-from agh.common.pack_manifest import PackManifest, PackManifestError, load_pack_manifest
+from agh.common.package_limits import (
+    MAX_PACKAGE_FILE_BYTES,
+    MAX_PACKAGE_FILES,
+    MAX_PACKAGE_PATH_LENGTH,
+    MAX_PACKAGE_PUBLISH_BODY_BYTES,
+    MAX_PACKAGE_TOTAL_BYTES,
+)
+from agh.common.package_manifest import (
+    PackageManifest,
+    PackageManifestError,
+    load_package_manifest,
+)
 from agh.common.validation import (
-    PackVersionRef,
+    PackageVersionRef,
     is_semver,
     is_valid_slug,
-    parse_pack_version_ref,
+    parse_package_version_ref,
 )
 from agh.server.auth import CurrentUser, get_current_user
 from agh.server.db import connect_database
 
-router = APIRouter(prefix="/packs", tags=["packs"])
+router = APIRouter(prefix="/packages", tags=["packages"])
 
-MAX_PACK_FILES = 128
-MAX_PACK_PATH_LENGTH = 240
-MAX_PACK_FILE_BYTES = 256 * 1024
-MAX_PACK_TOTAL_BYTES = 1024 * 1024
-MAX_PACK_PUBLISH_BODY_BYTES = MAX_PACK_TOTAL_BYTES + (MAX_PACK_FILES * 128)
-PACK_ARTIFACT_MISSING_DETAIL = "pack file not found"
-PACK_ARTIFACT_STORAGE_DETAIL = "pack artifact storage unavailable"
+# Package list, resolve, and file download intentionally form a global authenticated package registry.
+# Project membership gates project assignment and pull-manifest access, not read
+# access to published package artifacts.
+
+PACKAGE_ARTIFACT_MISSING_DETAIL = "package file not found"
+PACKAGE_ARTIFACT_STORAGE_DETAIL = "package artifact storage unavailable"
 
 
-class PackPublish(BaseModel):
+class PackagePublish(BaseModel):
     files: dict[str, str]
 
 
@@ -48,16 +58,16 @@ def _publish_data_dir(request: Request) -> Path:
     return Path(request.app.state.data_dir)
 
 
-def _require_pack_publisher(current_user: CurrentUser) -> None:
+def _require_package_publisher(current_user: CurrentUser) -> None:
     if current_user.role not in {"owner", "admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
 
 
-def _pack_version_response(row: sqlite3.Row) -> dict[str, Any]:
+def _package_version_response(row: sqlite3.Row) -> dict[str, Any]:
     manifest = json.loads(row["manifest_json"])
     return {
         "id": f"{row['domain']}/{row['name']}@{row['version']}",
-        "pack_id": row["pack_id"],
+        "package_id": row["package_id"],
         "domain": row["domain"],
         "name": row["name"],
         "version": row["version"],
@@ -68,140 +78,140 @@ def _pack_version_response(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _pack_version_resolve_response(row: sqlite3.Row) -> dict[str, str]:
-    pack_ref = f"{row['domain']}/{row['name']}@{row['version']}"
+def _package_version_resolve_response(row: sqlite3.Row) -> dict[str, str]:
+    package_ref = f"{row['domain']}/{row['name']}@{row['version']}"
     return {
         "id": row["version_id"],
-        "pack_ref": pack_ref,
+        "package_ref": package_ref,
         "domain": row["domain"],
         "name": row["name"],
         "version": row["version"],
     }
 
 
-def _raise_pack_artifact_missing() -> NoReturn:
+def _raise_package_artifact_missing() -> NoReturn:
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        detail=PACK_ARTIFACT_MISSING_DETAIL,
+        detail=PACKAGE_ARTIFACT_MISSING_DETAIL,
     )
 
 
-def _raise_pack_artifact_storage_unavailable(
+def _raise_package_artifact_storage_unavailable(
     exc: OSError | UnicodeDecodeError,
 ) -> NoReturn:
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail=PACK_ARTIFACT_STORAGE_DETAIL,
+        detail=PACKAGE_ARTIFACT_STORAGE_DETAIL,
     ) from exc
 
 
-def _read_published_pack_file(storage_dir: Path, safe_path: Path) -> str:
+def _read_published_package_file(storage_dir: Path, safe_path: Path) -> str:
     candidate = storage_dir / safe_path
-    _require_pack_artifact_read_target(storage_dir, candidate)
+    _require_package_artifact_read_target(storage_dir, candidate)
     try:
         return candidate.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        _raise_pack_artifact_storage_unavailable(exc)
+        _raise_package_artifact_storage_unavailable(exc)
 
 
-def _parse_pack_version_ref_or_400(value: str) -> PackVersionRef:
+def _parse_package_version_ref_or_400(value: str) -> PackageVersionRef:
     try:
-        return parse_pack_version_ref(value, allow_latest=False)
+        return parse_package_version_ref(value, allow_latest=False)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
 
-def _resolve_pack_version_ref(
-    connection: sqlite3.Connection, pack_ref: PackVersionRef
+def _resolve_package_version_ref(
+    connection: sqlite3.Connection, package_ref: PackageVersionRef
 ) -> sqlite3.Row:
     base_query = """
-        SELECT pack_versions.id AS version_id, packs.domain, packs.name,
-               pack_versions.version
-        FROM pack_versions
-        JOIN packs ON packs.id = pack_versions.pack_id
+        SELECT package_versions.id AS version_id, packages.domain, packages.name,
+               package_versions.version
+        FROM package_versions
+        JOIN packages ON packages.id = package_versions.package_id
     """
-    if pack_ref.kind == "id":
+    if package_ref.kind == "id":
         rows = connection.execute(
-            f"{base_query} WHERE pack_versions.id = ?", (pack_ref.value,)
+            f"{base_query} WHERE package_versions.id = ?", (package_ref.value,)
         ).fetchall()
-    elif pack_ref.kind == "canonical":
+    elif package_ref.kind == "canonical":
         rows = connection.execute(
-            f"{base_query} WHERE packs.domain = ? AND packs.name = ? AND pack_versions.version = ?",
-            (pack_ref.domain, pack_ref.name, pack_ref.version),
+            f"{base_query} WHERE packages.domain = ? AND packages.name = ? AND package_versions.version = ?",
+            (package_ref.domain, package_ref.name, package_ref.version),
         ).fetchall()
     else:
         rows = connection.execute(
-            f"{base_query} WHERE packs.name = ? AND pack_versions.version = ? ORDER BY packs.domain ASC",
-            (pack_ref.name, pack_ref.version),
+            f"{base_query} WHERE packages.name = ? AND package_versions.version = ? ORDER BY packages.domain ASC",
+            (package_ref.name, package_ref.version),
         ).fetchall()
     if len(rows) > 1:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="pack version ref is ambiguous across pack domains",
+            detail="package version ref is ambiguous across package domains",
         )
     if not rows:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="pack version not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="package version not found"
         )
     return rows[0]
 
 
 @router.get("")
-def list_packs(
+def list_packages(
     request: Request, current_user: CurrentUser = Depends(get_current_user)
 ) -> dict[str, list[dict[str, Any]]]:
     connection = _connect(request)
     try:
         rows = connection.execute(
             """
-            SELECT packs.id AS pack_id, packs.domain, packs.name,
-                   pack_versions.id AS version_id, pack_versions.version,
-                   pack_versions.manifest_json, pack_versions.checksum,
-                   pack_versions.created_at
-            FROM pack_versions
-            JOIN packs ON packs.id = pack_versions.pack_id
-            ORDER BY packs.domain ASC, packs.name ASC, pack_versions.version ASC
+            SELECT packages.id AS package_id, packages.domain, packages.name,
+                   package_versions.id AS version_id, package_versions.version,
+                   package_versions.manifest_json, package_versions.checksum,
+                   package_versions.created_at
+            FROM package_versions
+            JOIN packages ON packages.id = package_versions.package_id
+            ORDER BY packages.domain ASC, packages.name ASC, package_versions.version ASC
             """
         ).fetchall()
-        return {"packs": [_pack_version_response(row) for row in rows]}
+        return {"packages": [_package_version_response(row) for row in rows]}
     finally:
         connection.close()
 
 
 @router.get("/versions:resolve")
-def resolve_pack_version(
+def resolve_package_version(
     ref: str,
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, str]:
-    pack_ref = _parse_pack_version_ref_or_400(ref)
+    package_ref = _parse_package_version_ref_or_400(ref)
     connection = _connect(request)
     try:
-        return _pack_version_resolve_response(
-            _resolve_pack_version_ref(connection, pack_ref)
+        return _package_version_resolve_response(
+            _resolve_package_version_ref(connection, package_ref)
         )
     finally:
         connection.close()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def publish_pack(
+async def publish_package(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, Any]:
-    _require_pack_publisher(current_user)
-    payload = await _read_pack_publish_payload(request)
+    _require_package_publisher(current_user)
+    payload = await _read_package_publish_payload(request)
     data_dir = _publish_data_dir(request)
-    packs_root = data_dir / "packs"
-    staging_dir = packs_root / ".staging" / generate_prefixed_id("packv")
+    packages_root = data_dir / "packages"
+    staging_dir = packages_root / ".staging" / generate_prefixed_id("pkgv")
     try:
         _validate_publish_payload(payload.files)
-        _ensure_safe_packs_root(packs_root)
+        _ensure_safe_packages_root(packages_root)
         _write_payload_to_staging(staging_dir, payload.files)
-        manifest = _validate_staged_pack(staging_dir)
-        checksum = _pack_checksum(staging_dir)
+        manifest = _validate_staged_package(staging_dir)
+        checksum = _package_checksum(staging_dir)
         manifest_json = json.dumps(
             {
                 "domain": manifest.domain,
@@ -213,47 +223,49 @@ async def publish_pack(
             sort_keys=True,
         )
         storage_dir = (
-            data_dir / "packs" / manifest.domain / manifest.name / manifest.version
+            data_dir / "packages" / manifest.domain / manifest.name / manifest.version
         )
         connection = _connect(request)
         try:
             connection.execute("BEGIN IMMEDIATE")
             storage_created = False
             try:
-                existing = _find_pack_version(
+                existing = _find_package_version(
                     connection, manifest.domain, manifest.name, manifest.version
                 )
                 if existing is not None:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
-                        detail="pack version already exists",
+                        detail="package version already exists",
                     )
-                pack_row = connection.execute(
-                    "SELECT id FROM packs WHERE domain = ? AND name = ?",
+                package_row = connection.execute(
+                    "SELECT id FROM packages WHERE domain = ? AND name = ?",
                     (manifest.domain, manifest.name),
                 ).fetchone()
-                if pack_row is None:
-                    pack_id = generate_prefixed_id("pack")
+                if package_row is None:
+                    package_id = generate_prefixed_id("pkg")
                     connection.execute(
-                        "INSERT INTO packs (id, domain, name, created_by) VALUES (?, ?, ?, ?)",
-                        (pack_id, manifest.domain, manifest.name, current_user.id),
+                        "INSERT INTO packages (id, domain, name, created_by) VALUES (?, ?, ?, ?)",
+                        (package_id, manifest.domain, manifest.name, current_user.id),
                     )
                 else:
-                    pack_id = str(pack_row["id"])
+                    package_id = str(package_row["id"])
 
-                version_id = generate_prefixed_id("packv")
-                _recover_or_prepare_storage_target(connection, packs_root, storage_dir)
+                version_id = generate_prefixed_id("pkgv")
+                _recover_or_prepare_storage_target(
+                    connection, packages_root, storage_dir
+                )
                 storage_created = True
-                _store_staged_pack(staging_dir, storage_dir)
+                _store_staged_package(staging_dir, storage_dir)
                 connection.execute(
                     """
-                    INSERT INTO pack_versions
-                        (id, pack_id, version, manifest_json, storage_path, checksum)
+                    INSERT INTO package_versions
+                        (id, package_id, version, manifest_json, storage_path, checksum)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
                         version_id,
-                        pack_id,
+                        package_id,
                         manifest.version,
                         manifest_json,
                         str(storage_dir),
@@ -267,7 +279,7 @@ async def publish_pack(
                 if "UNIQUE" in str(exc):
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
-                        detail="pack version already exists",
+                        detail="package version already exists",
                     ) from exc
                 raise
             except HTTPException:
@@ -280,13 +292,13 @@ async def publish_pack(
                 raise
             else:
                 connection.commit()
-            created = _get_pack_version(
+            created = _get_package_version(
                 connection, manifest.domain, manifest.name, manifest.version
             )
-            return _pack_version_response(created)
+            return _package_version_response(created)
         finally:
             connection.close()
-    except PackManifestError as exc:
+    except PackageManifestError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
@@ -295,7 +307,7 @@ async def publish_pack(
 
 
 @router.get("/{domain}/{name}/versions/{version}/files/{file_path:path}")
-def get_pack_file(
+def get_package_file(
     domain: str,
     name: str,
     version: str,
@@ -303,78 +315,79 @@ def get_pack_file(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Response:
-    _validate_pack_parts(domain, name, version)
+    _validate_package_parts(domain, name, version)
     try:
         safe_path = _safe_relative_path(file_path)
-    except PackManifestError as exc:
+    except PackageManifestError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=PACK_ARTIFACT_MISSING_DETAIL
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=PACKAGE_ARTIFACT_MISSING_DETAIL,
         ) from exc
     connection = _connect(request)
     try:
-        row = _find_pack_version(connection, domain, name, version)
+        row = _find_package_version(connection, domain, name, version)
         if row is None:
-            _raise_pack_artifact_missing()
+            _raise_package_artifact_missing()
         storage_dir = Path(row["storage_path"])
         return Response(
-            _read_published_pack_file(storage_dir, safe_path),
+            _read_published_package_file(storage_dir, safe_path),
             media_type="text/plain; charset=utf-8",
         )
     finally:
         connection.close()
 
 
-def _validate_pack_parts(domain: str, name: str, version: str) -> None:
+def _validate_package_parts(domain: str, name: str, version: str) -> None:
     if not is_valid_slug(domain) or not is_valid_slug(name):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="pack not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="package not found"
         )
     try:
         _assert_publish_version(version)
-    except PackManifestError as exc:
+    except PackageManifestError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="pack not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="package not found"
         ) from exc
 
 
-def _find_pack_version(
+def _find_package_version(
     connection: sqlite3.Connection, domain: str, name: str, version: str
 ) -> sqlite3.Row | None:
     return connection.execute(
         """
-        SELECT packs.id AS pack_id, packs.domain, packs.name,
-               pack_versions.id AS version_id, pack_versions.version,
-               pack_versions.manifest_json, pack_versions.storage_path,
-               pack_versions.checksum, pack_versions.created_at
-        FROM pack_versions
-        JOIN packs ON packs.id = pack_versions.pack_id
-        WHERE packs.domain = ? AND packs.name = ? AND pack_versions.version = ?
+        SELECT packages.id AS package_id, packages.domain, packages.name,
+               package_versions.id AS version_id, package_versions.version,
+               package_versions.manifest_json, package_versions.storage_path,
+               package_versions.checksum, package_versions.created_at
+        FROM package_versions
+        JOIN packages ON packages.id = package_versions.package_id
+        WHERE packages.domain = ? AND packages.name = ? AND package_versions.version = ?
         """,
         (domain, name, version),
     ).fetchone()
 
 
-def _get_pack_version(
+def _get_package_version(
     connection: sqlite3.Connection, domain: str, name: str, version: str
 ) -> sqlite3.Row:
-    row = _find_pack_version(connection, domain, name, version)
+    row = _find_package_version(connection, domain, name, version)
     if row is None:
-        raise RuntimeError("published pack version missing after commit")
+        raise RuntimeError("published package version missing after commit")
     return row
 
 
-async def _read_pack_publish_payload(request: Request) -> PackPublish:
+async def _read_package_publish_payload(request: Request) -> PackagePublish:
     body = bytearray()
     async for chunk in request.stream():
-        if len(body) + len(chunk) > MAX_PACK_PUBLISH_BODY_BYTES:
+        if len(body) + len(chunk) > MAX_PACKAGE_PUBLISH_BODY_BYTES:
             raise HTTPException(
                 status_code=413,
-                detail="pack publish payload is too large",
+                detail="package publish payload is too large",
             )
         body.extend(chunk)
     try:
         raw_payload = json.loads(body.decode("utf-8"))
-        return PackPublish(**raw_payload)
+        return PackagePublish(**raw_payload)
     except (
         UnicodeDecodeError,
         json.JSONDecodeError,
@@ -383,34 +396,36 @@ async def _read_pack_publish_payload(request: Request) -> PackPublish:
     ) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="invalid pack publish payload",
+            detail="invalid package publish payload",
         ) from exc
 
 
 def _validate_publish_payload(files: dict[str, str]) -> None:
     if not files:
-        raise PackManifestError("pack files are required")
-    if len(files) > MAX_PACK_FILES:
-        raise PackManifestError(f"pack cannot contain more than {MAX_PACK_FILES} files")
+        raise PackageManifestError("package files are required")
+    if len(files) > MAX_PACKAGE_FILES:
+        raise PackageManifestError(
+            f"package cannot contain more than {MAX_PACKAGE_FILES} files"
+        )
     total_bytes = 0
     for raw_path, content in files.items():
         if not isinstance(content, str):
-            raise PackManifestError(f"pack file must be text: {raw_path}")
-        if len(raw_path) > MAX_PACK_PATH_LENGTH:
-            raise PackManifestError(f"pack file path is too long: {raw_path}")
+            raise PackageManifestError(f"package file must be text: {raw_path}")
+        if len(raw_path) > MAX_PACKAGE_PATH_LENGTH:
+            raise PackageManifestError(f"package file path is too long: {raw_path}")
         file_bytes = len(content.encode("utf-8"))
-        if file_bytes > MAX_PACK_FILE_BYTES:
-            raise PackManifestError(f"pack file is too large: {raw_path}")
+        if file_bytes > MAX_PACKAGE_FILE_BYTES:
+            raise PackageManifestError(f"package file is too large: {raw_path}")
         total_bytes += file_bytes
-        if total_bytes > MAX_PACK_TOTAL_BYTES:
-            raise PackManifestError("pack payload is too large")
+        if total_bytes > MAX_PACKAGE_TOTAL_BYTES:
+            raise PackageManifestError("package payload is too large")
 
 
 def _write_payload_to_staging(staging_dir: Path, files: dict[str, str]) -> None:
     staging_dir.mkdir(parents=True, exist_ok=False)
     for raw_path, content in files.items():
         if not isinstance(content, str):
-            raise PackManifestError(f"pack file must be text: {raw_path}")
+            raise PackageManifestError(f"package file must be text: {raw_path}")
         relative_path = _safe_relative_path(raw_path)
         destination = staging_dir / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -426,36 +441,36 @@ def _write_payload_to_staging(staging_dir: Path, files: dict[str, str]) -> None:
             raise
 
 
-def _validate_staged_pack(staging_dir: Path) -> PackManifest:
-    manifest = load_pack_manifest(staging_dir / "agh.pack.toml")
+def _validate_staged_package(staging_dir: Path) -> PackageManifest:
+    manifest = load_package_manifest(staging_dir / "agh.package.toml")
     _assert_publish_version(manifest.version)
-    _validate_allowed_pack_files(staging_dir)
+    _validate_allowed_package_files(staging_dir)
     _validate_skills(staging_dir)
     _validate_publishable_artifacts(staging_dir)
     return manifest
 
 
-def _validate_allowed_pack_files(staging_dir: Path) -> None:
-    allowed_root_names = {"agh.pack.toml", "instructions", "skills"}
+def _validate_allowed_package_files(staging_dir: Path) -> None:
+    allowed_root_names = {"agh.package.toml", "instructions", "skills"}
     for entry in staging_dir.iterdir():
         if entry.name not in allowed_root_names:
-            raise PackManifestError(f"unexpected pack file path: {entry.name}")
-        if entry.name == "agh.pack.toml" and not entry.is_file():
-            raise PackManifestError("agh.pack.toml must be a file")
+            raise PackageManifestError(f"unexpected package file path: {entry.name}")
+        if entry.name == "agh.package.toml" and not entry.is_file():
+            raise PackageManifestError("agh.package.toml must be a file")
         if entry.name == "instructions":
             _validate_instruction_files(staging_dir, entry)
         if entry.name == "skills" and not entry.is_dir():
-            raise PackManifestError("skills must be a directory")
+            raise PackageManifestError("skills must be a directory")
 
 
 def _validate_instruction_files(staging_dir: Path, instructions_dir: Path) -> None:
     if not instructions_dir.is_dir():
-        raise PackManifestError("instructions must be a directory")
+        raise PackageManifestError("instructions must be a directory")
     allowed_names = {"AGENTS.md", "CLAUDE.md"}
     for entry in instructions_dir.iterdir():
         if entry.name not in allowed_names or not entry.is_file():
             relative = entry.relative_to(staging_dir).as_posix()
-            raise PackManifestError(f"unexpected pack file path: {relative}")
+            raise PackageManifestError(f"unexpected package file path: {relative}")
 
 
 def _validate_publishable_artifacts(staging_dir: Path) -> None:
@@ -465,7 +480,9 @@ def _validate_publishable_artifacts(staging_dir: Path) -> None:
         or _has_skill_artifact(staging_dir)
     ):
         return
-    raise PackManifestError("pack must include at least one instruction file or skill")
+    raise PackageManifestError(
+        "package must include at least one instruction file or skill"
+    )
 
 
 def _has_skill_artifact(staging_dir: Path) -> bool:
@@ -481,9 +498,9 @@ def _has_skill_artifact(staging_dir: Path) -> bool:
 
 def _assert_publish_version(version: str) -> None:
     if version == "latest":
-        raise PackManifestError("latest is not allowed for publish")
+        raise PackageManifestError("latest is not allowed for publish")
     if not is_semver(version):
-        raise PackManifestError(f"invalid version: {version}")
+        raise PackageManifestError(f"invalid version: {version}")
 
 
 def _validate_skills(staging_dir: Path) -> None:
@@ -491,59 +508,59 @@ def _validate_skills(staging_dir: Path) -> None:
     if not skills_dir.exists():
         return
     if not skills_dir.is_dir():
-        raise PackManifestError("skills must be a directory")
+        raise PackageManifestError("skills must be a directory")
     for child in skills_dir.iterdir():
         if not child.is_dir():
-            raise PackManifestError(f"invalid skill entry: {child.name}")
+            raise PackageManifestError(f"invalid skill entry: {child.name}")
         if not is_valid_slug(child.name):
-            raise PackManifestError(f"invalid skill name: {child.name}")
+            raise PackageManifestError(f"invalid skill name: {child.name}")
         for entry in child.iterdir():
             if entry.name != "SKILL.md" or not entry.is_file():
                 relative = entry.relative_to(staging_dir).as_posix()
-                raise PackManifestError(f"unexpected pack file path: {relative}")
+                raise PackageManifestError(f"unexpected package file path: {relative}")
         if not (child / "SKILL.md").is_file():
-            raise PackManifestError(f"skills/{child.name}/SKILL.md is required")
+            raise PackageManifestError(f"skills/{child.name}/SKILL.md is required")
 
 
 def _safe_relative_path(raw_path: str) -> Path:
     if not raw_path or "\\" in raw_path:
-        raise PackManifestError(f"invalid pack file path: {raw_path}")
+        raise PackageManifestError(f"invalid package file path: {raw_path}")
     posix = PurePosixPath(raw_path)
     if posix.is_absolute() or any(part in {"", ".", ".."} for part in posix.parts):
-        raise PackManifestError(f"invalid pack file path: {raw_path}")
+        raise PackageManifestError(f"invalid package file path: {raw_path}")
     return Path(*posix.parts)
 
 
-def _ensure_safe_packs_root(packs_root: Path) -> None:
-    if packs_root.exists() and packs_root.is_symlink():
-        raise PackManifestError(
-            f"refusing to write through symlinked packs directory: {packs_root}"
+def _ensure_safe_packages_root(packages_root: Path) -> None:
+    if packages_root.exists() and packages_root.is_symlink():
+        raise PackageManifestError(
+            f"refusing to write through symlinked packages directory: {packages_root}"
         )
-    packs_root.mkdir(parents=True, exist_ok=True)
+    packages_root.mkdir(parents=True, exist_ok=True)
 
 
 def _recover_or_prepare_storage_target(
-    connection: sqlite3.Connection, packs_root: Path, storage_dir: Path
+    connection: sqlite3.Connection, packages_root: Path, storage_dir: Path
 ) -> None:
     """Validate the final storage path and remove unreferenced orphan contents."""
-    _ensure_safe_packs_root(packs_root)
-    root = packs_root.resolve()
+    _ensure_safe_packages_root(packages_root)
+    root = packages_root.resolve()
     resolved_storage = storage_dir.resolve(strict=False)
     try:
         relative_parts = resolved_storage.relative_to(root).parts
     except ValueError as exc:
-        raise PackManifestError("invalid pack storage path") from exc
+        raise PackageManifestError("invalid package storage path") from exc
     current = root
     for part in relative_parts:
         current = current / part
         if current.exists() and current.is_symlink():
-            raise PackManifestError(
-                f"refusing to write through symlinked pack path: {current}"
+            raise PackageManifestError(
+                f"refusing to write through symlinked package path: {current}"
             )
     if not storage_dir.exists():
         return
     if not storage_dir.is_dir() or _storage_path_is_referenced(connection, storage_dir):
-        raise PackManifestError("pack storage path already exists")
+        raise PackageManifestError("package storage path already exists")
     shutil.rmtree(storage_dir)
 
 
@@ -552,7 +569,7 @@ def _storage_path_is_referenced(
 ) -> bool:
     target = storage_dir.resolve(strict=False)
     target_text = str(storage_dir)
-    rows = connection.execute("SELECT storage_path FROM pack_versions").fetchall()
+    rows = connection.execute("SELECT storage_path FROM package_versions").fetchall()
     for row in rows:
         stored_path = Path(row["storage_path"])
         if str(stored_path) == target_text:
@@ -562,15 +579,15 @@ def _storage_path_is_referenced(
     return False
 
 
-def _store_staged_pack(staging_dir: Path, storage_dir: Path) -> None:
+def _store_staged_package(staging_dir: Path, storage_dir: Path) -> None:
     storage_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(staging_dir, storage_dir, symlinks=False)
 
 
-def _pack_checksum(pack_dir: Path) -> str:
+def _package_checksum(package_dir: Path) -> str:
     digest = hashlib.sha256()
-    for path in sorted(item for item in pack_dir.rglob("*") if item.is_file()):
-        relative = path.relative_to(pack_dir).as_posix()
+    for path in sorted(item for item in package_dir.rglob("*") if item.is_file()):
+        relative = path.relative_to(package_dir).as_posix()
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
@@ -578,25 +595,25 @@ def _pack_checksum(pack_dir: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def _require_pack_artifact_read_target(storage_dir: Path, candidate: Path) -> None:
+def _require_package_artifact_read_target(storage_dir: Path, candidate: Path) -> None:
     try:
         resolved_root = storage_dir.resolve(strict=True)
         resolved_candidate = candidate.resolve(strict=True)
         resolved_candidate.relative_to(resolved_root)
     except ValueError:
-        _raise_pack_artifact_missing()
+        _raise_package_artifact_missing()
     except (FileNotFoundError, NotADirectoryError):
-        _raise_pack_artifact_missing()
+        _raise_package_artifact_missing()
     except OSError as exc:
-        _raise_pack_artifact_storage_unavailable(exc)
+        _raise_package_artifact_storage_unavailable(exc)
     try:
         candidate_stat = resolved_candidate.stat()
     except (FileNotFoundError, NotADirectoryError):
-        _raise_pack_artifact_missing()
+        _raise_package_artifact_missing()
     except OSError as exc:
-        _raise_pack_artifact_storage_unavailable(exc)
+        _raise_package_artifact_storage_unavailable(exc)
     if not stat_module.S_ISREG(candidate_stat.st_mode):
-        _raise_pack_artifact_missing()
+        _raise_package_artifact_missing()
     current = candidate
     paths: list[Path] = []
     while current != storage_dir:
@@ -607,8 +624,8 @@ def _require_pack_artifact_read_target(storage_dir: Path, candidate: Path) -> No
         try:
             path_stat = path.lstat()
         except (FileNotFoundError, NotADirectoryError):
-            _raise_pack_artifact_missing()
+            _raise_package_artifact_missing()
         except OSError as exc:
-            _raise_pack_artifact_storage_unavailable(exc)
+            _raise_package_artifact_storage_unavailable(exc)
         if stat_module.S_ISLNK(path_stat.st_mode):
-            _raise_pack_artifact_missing()
+            _raise_package_artifact_missing()

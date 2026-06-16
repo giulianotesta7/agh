@@ -51,9 +51,9 @@ def _create_project(client: TestClient, owner_token: str) -> dict[str, Any]:
     return response.json()
 
 
-def _pack_files(*, agents: str = "# Guide\n") -> dict[str, str]:
+def _package_files(*, agents: str = "# Guide\n") -> dict[str, str]:
     return {
-        "agh.pack.toml": (
+        "agh.package.toml": (
             'domain = "acme"\n'
             'name = "onboarding"\n'
             'version = "1.0.0"\n'
@@ -63,10 +63,12 @@ def _pack_files(*, agents: str = "# Guide\n") -> dict[str, str]:
     }
 
 
-def _publish_pack(client: TestClient, owner_token: str, *, agents: str = "# Guide\n"):
+def _publish_package(
+    client: TestClient, owner_token: str, *, agents: str = "# Guide\n"
+):
     return client.post(
-        "/api/v1/packs",
-        json={"files": _pack_files(agents=agents)},
+        "/api/v1/packages",
+        json={"files": _package_files(agents=agents)},
         headers=_auth(owner_token),
     )
 
@@ -92,7 +94,9 @@ def test_api_errors_are_json_for_forbidden_role(tmp_path: Path, monkeypatch) -> 
     )
 
     response = client.post(
-        "/api/v1/packs", json={"files": _pack_files()}, headers=_auth(member_token)
+        "/api/v1/packages",
+        json={"files": _package_files()},
+        headers=_auth(member_token),
     )
 
     assert response.status_code == 403
@@ -103,15 +107,15 @@ def test_api_errors_are_json_for_missing_resources(tmp_path: Path, monkeypatch) 
     client, owner_token = _client_with_owner(tmp_path, monkeypatch)
 
     project = client.get("/api/v1/projects/prj_missing", headers=_auth(owner_token))
-    pack_file = client.get(
-        "/api/v1/packs/acme/missing/versions/1.0.0/files/instructions/AGENTS.md",
+    package_file = client.get(
+        "/api/v1/packages/acme/missing/versions/1.0.0/files/instructions/AGENTS.md",
         headers=_auth(owner_token),
     )
 
     assert project.status_code == 404
     assert project.json() == {"detail": "project not found"}
-    assert pack_file.status_code == 404
-    assert pack_file.json() == {"detail": "pack file not found"}
+    assert package_file.status_code == 404
+    assert package_file.json() == {"detail": "package file not found"}
 
 
 def test_api_errors_are_json_for_validation_failures(
@@ -124,12 +128,12 @@ def test_api_errors_are_json_for_validation_failures(
         json={"name": "Missing repo URL"},
         headers=_auth(owner_token),
     )
-    pack_ref_validation = client.get(
-        "/api/v1/packs/acme/onboarding/versions/latest/files/instructions/AGENTS.md",
+    package_ref_validation = client.get(
+        "/api/v1/packages/acme/onboarding/versions/latest/files/instructions/AGENTS.md",
         headers=_auth(owner_token),
     )
     manifest_validation = client.post(
-        "/api/v1/packs",
+        "/api/v1/packages",
         json={"files": {"instructions/AGENTS.md": "# Missing manifest\n"}},
         headers=_auth(owner_token),
     )
@@ -137,10 +141,10 @@ def test_api_errors_are_json_for_validation_failures(
     assert schema_validation.status_code == 422
     assert isinstance(schema_validation.json()["detail"], list)
     assert schema_validation.json()["detail"][0]["type"] == "missing"
-    assert pack_ref_validation.status_code == 404
-    assert pack_ref_validation.json() == {"detail": "pack not found"}
+    assert package_ref_validation.status_code == 404
+    assert package_ref_validation.json() == {"detail": "package not found"}
     assert manifest_validation.status_code == 400
-    assert "agh.pack.toml" in manifest_validation.json()["detail"]
+    assert "agh.package.toml" in manifest_validation.json()["detail"]
 
 
 def test_api_errors_are_json_for_duplicate_and_conflict_cases(
@@ -148,25 +152,25 @@ def test_api_errors_are_json_for_duplicate_and_conflict_cases(
 ) -> None:
     client, owner_token = _client_with_owner(tmp_path, monkeypatch)
     project = _create_project(client, owner_token)
-    first_pack = _publish_pack(client, owner_token)
-    duplicate_pack = _publish_pack(client, owner_token, agents="# Replacement\n")
+    first_pack = _publish_package(client, owner_token)
+    duplicate_pack = _publish_package(client, owner_token, agents="# Replacement\n")
     duplicate_project = client.post(
         "/api/v1/projects",
         json={"name": "Duplicate", "repo_url": "https://github.com/acme/app.git"},
         headers=_auth(owner_token),
     )
     missing_assignment_pack = client.post(
-        f"/api/v1/projects/{project['id']}/packs",
-        json={"pack_ref": "acme/missing@1.0.0", "position": 0},
+        f"/api/v1/projects/{project['id']}/packages",
+        json={"package_ref": "acme/missing@1.0.0", "position": 0},
         headers=_auth(owner_token),
     )
 
     assert first_pack.status_code == 201, first_pack.text
     assert duplicate_pack.status_code == 409
-    assert duplicate_pack.json() == {"detail": "pack version already exists"}
+    assert duplicate_pack.json() == {"detail": "package version already exists"}
     assert duplicate_project.status_code == 409
     assert duplicate_project.json() == {
         "detail": "active project repo URL already exists"
     }
     assert missing_assignment_pack.status_code == 404
-    assert missing_assignment_pack.json() == {"detail": "pack not found"}
+    assert missing_assignment_pack.json() == {"detail": "package not found"}

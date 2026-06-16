@@ -10,20 +10,20 @@ from agh.common.ids import (
     is_valid_prefixed_id,
     validate_prefixed_id,
 )
-from agh.common.pack_manifest import PackManifestError, load_pack_manifest
+from agh.common.package_manifest import PackageManifestError, load_package_manifest
 from agh.common.repo_url import normalize_repo_url
 from agh.common.validation import (
     compare_semver,
     is_valid_email,
     is_valid_slug,
-    parse_pack_ref,
-    parse_pack_version_ref,
+    parse_package_ref,
+    parse_package_version_ref,
     validate_project_name,
-    validate_pack_publish_ref,
+    validate_package_publish_ref,
 )
 
 
-@pytest.mark.parametrize("prefix", ["usr", "tok", "prj", "pack", "packv", "asn"])
+@pytest.mark.parametrize("prefix", ["usr", "tok", "prj", "pkg", "pkgv", "asn"])
 def test_prefixed_ids_generate_and_validate(prefix: str) -> None:
     ident = generate_prefixed_id(prefix)
     assert ident.startswith(f"{prefix}_")
@@ -68,41 +68,41 @@ def test_project_name_validation_trims_and_rejects_digit_only_names() -> None:
         validate_project_name("12345")
 
 
-def test_pack_ref_parsing_and_publish_rules() -> None:
-    parsed = parse_pack_ref("acme/onboarding@1.2.3", allow_latest=True)
+def test_package_ref_parsing_and_publish_rules() -> None:
+    parsed = parse_package_ref("acme/onboarding@1.2.3", allow_latest=True)
     assert parsed.domain == "acme"
     assert parsed.name == "onboarding"
     assert parsed.version == "1.2.3"
 
-    latest = parse_pack_ref("acme/onboarding@latest", allow_latest=True)
+    latest = parse_package_ref("acme/onboarding@latest", allow_latest=True)
     assert latest.version == "latest"
 
     with pytest.raises(ValueError):
-        validate_pack_publish_ref("acme/onboarding@latest")
+        validate_package_publish_ref("acme/onboarding@latest")
 
 
-def test_pack_version_ref_parsing_accepts_id_canonical_and_name_version() -> None:
-    by_id = parse_pack_version_ref("packv_0123456789abcdef", allow_latest=False)
+def test_package_version_ref_parsing_accepts_id_canonical_and_name_version() -> None:
+    by_id = parse_package_version_ref("pkgv_0123456789abcdef", allow_latest=False)
     assert by_id.kind == "id"
-    assert by_id.value == "packv_0123456789abcdef"
+    assert by_id.value == "pkgv_0123456789abcdef"
 
-    canonical = parse_pack_version_ref("acme/onboarding@1.2.3", allow_latest=False)
+    canonical = parse_package_version_ref("acme/onboarding@1.2.3", allow_latest=False)
     assert canonical.kind == "canonical"
     assert canonical.domain == "acme"
     assert canonical.name == "onboarding"
     assert canonical.version == "1.2.3"
 
-    no_domain = parse_pack_version_ref("onboarding@1.2.3", allow_latest=False)
+    no_domain = parse_package_version_ref("onboarding@1.2.3", allow_latest=False)
     assert no_domain.kind == "name_version"
     assert no_domain.domain is None
     assert no_domain.name == "onboarding"
     assert no_domain.version == "1.2.3"
 
 
-def test_pack_version_ref_parsing_rejects_malformed_refs() -> None:
-    for value in ["", "packv_bad", "onboarding", "Bad/name@1.0.0", "pack@latest"]:
+def test_package_version_ref_parsing_rejects_malformed_refs() -> None:
+    for value in ["", "pkgv_bad", "onboarding", "Bad/name@1.0.0", "package@latest"]:
         with pytest.raises(ValueError):
-            parse_pack_version_ref(value, allow_latest=False)
+            parse_package_version_ref(value, allow_latest=False)
 
 
 def test_semver_comparison() -> None:
@@ -151,8 +151,8 @@ def test_repo_url_normalization_matches_common_github_forms() -> None:
     )
 
 
-def test_pack_manifest_loader_and_validation(tmp_path: Path) -> None:
-    manifest = tmp_path / "agh.pack.toml"
+def test_package_manifest_loader_and_validation(tmp_path: Path) -> None:
+    manifest = tmp_path / "agh.package.toml"
     manifest.write_text(
         """
         domain = "acme"
@@ -163,7 +163,7 @@ def test_pack_manifest_loader_and_validation(tmp_path: Path) -> None:
         """,
         encoding="utf-8",
     )
-    data = load_pack_manifest(manifest)
+    data = load_package_manifest(manifest)
     assert data.domain == "acme"
     assert data.tags == ["quick-start", "team"]
 
@@ -176,12 +176,12 @@ def test_pack_manifest_loader_and_validation(tmp_path: Path) -> None:
         """,
         encoding="utf-8",
     )
-    with pytest.raises(PackManifestError):
-        load_pack_manifest(manifest)
+    with pytest.raises(PackageManifestError):
+        load_package_manifest(manifest)
 
     manifest.write_text('domain = "acme"\nname =', encoding="utf-8")
-    with pytest.raises(PackManifestError, match="invalid agh.pack.toml"):
-        load_pack_manifest(manifest)
+    with pytest.raises(PackageManifestError, match="invalid agh.package.toml"):
+        load_package_manifest(manifest)
 
 
 def test_checksum_payload_normalization() -> None:

@@ -33,7 +33,7 @@ class PullPlanError(RuntimeError):
 class PullArtifact:
     """One resolved artifact to apply to a workspace target."""
 
-    pack_ref: str
+    package_ref: str
     artifact_path: str
     target_path: str
     content: str
@@ -136,7 +136,7 @@ def _plan_marker_update(
         return plan_managed_update(
             current_text,
             ManagedBlockRequest(
-                pack_ref=artifact.pack_ref,
+                package_ref=artifact.package_ref,
                 artifact_path=artifact.artifact_path,
                 payload=artifact.content,
             ),

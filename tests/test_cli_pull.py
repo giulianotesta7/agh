@@ -35,9 +35,9 @@ class _PullHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(type(self).manifest).encode("utf-8"))
             return
         if self.path in {
-            "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
-            "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/CLAUDE.md",
-            "/api/v1/packs/acme/onboarding/versions/1.0.0/files/skills/reviewer/SKILL.md",
+            "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+            "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/CLAUDE.md",
+            "/api/v1/packages/acme/onboarding/versions/1.0.0/files/skills/reviewer/SKILL.md",
         }:
             self.send_response(type(self).artifact_status)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -76,7 +76,7 @@ def _serve_pull(
 def _manifest(*, content: str = "Use AGH.\n") -> dict[str, Any]:
     return {
         "project": {"id": "prj_1", "name": "Demo"},
-        "packs": [
+        "packages": [
             {
                 "id": "acme/onboarding@1.0.0",
                 "assignment_id": "asn_1",
@@ -93,7 +93,7 @@ def _manifest(*, content: str = "Use AGH.\n") -> dict[str, Any]:
                         "target_agent": "opencode",
                         "target_path": "AGENTS.md",
                         "checksum": managed_payload_checksum(content),
-                        "download_url": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+                        "download_url": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
                     }
                 ],
             }
@@ -105,7 +105,7 @@ def _dual_agent_manifest(*, content: str = "Use AGH.\n") -> dict[str, Any]:
     checksum = managed_payload_checksum(content)
     return {
         "project": {"id": "prj_1", "name": "Demo"},
-        "packs": [
+        "packages": [
             {
                 "id": "acme/onboarding@1.0.0",
                 "assignment_id": "asn_1",
@@ -122,7 +122,7 @@ def _dual_agent_manifest(*, content: str = "Use AGH.\n") -> dict[str, Any]:
                         "target_agent": "opencode",
                         "target_path": "AGENTS.md",
                         "checksum": checksum,
-                        "download_url": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+                        "download_url": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
                     },
                     {
                         "kind": "instruction",
@@ -130,7 +130,7 @@ def _dual_agent_manifest(*, content: str = "Use AGH.\n") -> dict[str, Any]:
                         "target_agent": "claude",
                         "target_path": "CLAUDE.md",
                         "checksum": checksum,
-                        "download_url": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/CLAUDE.md",
+                        "download_url": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/CLAUDE.md",
                     },
                 ],
             }
@@ -141,7 +141,7 @@ def _dual_agent_manifest(*, content: str = "Use AGH.\n") -> dict[str, Any]:
 def _skill_manifest(*, content: str = "Review carefully.\n") -> dict[str, Any]:
     return {
         "project": {"id": "prj_1", "name": "Demo"},
-        "packs": [
+        "packages": [
             {
                 "id": "acme/onboarding@1.0.0",
                 "assignment_id": "asn_1",
@@ -158,7 +158,7 @@ def _skill_manifest(*, content: str = "Review carefully.\n") -> dict[str, Any]:
                         "target_agent": "claude",
                         "target_path": ".claude/skills/reviewer/SKILL.md",
                         "checksum": managed_payload_checksum(content),
-                        "download_url": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/skills/reviewer/SKILL.md",
+                        "download_url": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/skills/reviewer/SKILL.md",
                     }
                 ],
             }
@@ -170,7 +170,7 @@ def _instruction_and_skill_manifest(*, content: str = "Use AGH.\n") -> dict[str,
     checksum = managed_payload_checksum(content)
     return {
         "project": {"id": "prj_1", "name": "Demo"},
-        "packs": [
+        "packages": [
             {
                 "id": "acme/onboarding@1.0.0",
                 "assignment_id": "asn_1",
@@ -187,7 +187,7 @@ def _instruction_and_skill_manifest(*, content: str = "Use AGH.\n") -> dict[str,
                         "target_agent": "opencode",
                         "target_path": "AGENTS.md",
                         "checksum": checksum,
-                        "download_url": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+                        "download_url": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
                     },
                     {
                         "kind": "skill",
@@ -195,7 +195,7 @@ def _instruction_and_skill_manifest(*, content: str = "Use AGH.\n") -> dict[str,
                         "target_agent": "opencode",
                         "target_path": ".opencode/skills/reviewer/SKILL.md",
                         "checksum": checksum,
-                        "download_url": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/skills/reviewer/SKILL.md",
+                        "download_url": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/skills/reviewer/SKILL.md",
                     },
                 ],
             }
@@ -267,7 +267,7 @@ def test_pull_dry_run_downloads_for_planning_without_writes(
     assert "No files were written." in result.stdout
     assert '"dry_run"' not in result.stdout
     assert not (repo / "AGENTS.md").exists()
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
     assert handler.requests == [
         {
@@ -275,7 +275,7 @@ def test_pull_dry_run_downloads_for_planning_without_writes(
             "authorization": "Bearer pull-secret-token",
         },
         {
-            "path": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+            "path": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
             "authorization": "Bearer pull-secret-token",
         },
     ]
@@ -291,7 +291,7 @@ def test_pull_dry_run_preserves_previous_public_state(
     )
     (repo / "AGENTS.md").write_text(previous_target, encoding="utf-8")
     previous_cache = (
-        repo / ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+        repo / ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
     previous_cache.parent.mkdir(parents=True)
     previous_cache.write_text("Previous.\n", encoding="utf-8")
@@ -311,7 +311,7 @@ def test_pull_dry_run_preserves_previous_public_state(
     assert (repo / "AGENTS.md").read_text(encoding="utf-8") == previous_target
     assert previous_cache.read_text(encoding="utf-8") == "Previous.\n"
     assert lock.read_text(encoding="utf-8") == "previous lock\n"
-    assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
+    assert not list((repo / ".agh-cache" / "packages").rglob(".agh-pull-stage-*"))
 
 
 def test_pull_writes_target_cache_and_lock(tmp_path: Path, monkeypatch) -> None:
@@ -334,7 +334,7 @@ def test_pull_writes_target_cache_and_lock(tmp_path: Path, monkeypatch) -> None:
     cached = (
         repo
         / ".agh-cache"
-        / "packs"
+        / "packages"
         / "acme"
         / "onboarding"
         / "1.0.0"
@@ -346,12 +346,12 @@ def test_pull_writes_target_cache_and_lock(tmp_path: Path, monkeypatch) -> None:
     assert lock["project"]["id"] == "prj_1"
     assert (
         lock["artifacts"][0]["source"]
-        == ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+        == ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
     assert lock["artifacts"][0]["checksum"] == managed_payload_checksum(
         cached.read_text(encoding="utf-8")
     )
-    assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
+    assert not list((repo / ".agh-cache" / "packages").rglob(".agh-pull-stage-*"))
 
 
 def test_successful_pull_removes_pre_existing_stale_cache_stages(
@@ -359,14 +359,14 @@ def test_successful_pull_removes_pre_existing_stale_cache_stages(
 ) -> None:
     repo = _repo(tmp_path)
     _write_link(repo)
-    pack_parent = repo / ".agh-cache" / "packs" / "acme" / "onboarding"
-    stale_stage = pack_parent / ".agh-pull-stage-1.0.0-stale"
+    package_parent = repo / ".agh-cache" / "packages" / "acme" / "onboarding"
+    stale_stage = package_parent / ".agh-pull-stage-1.0.0-stale"
     stale_stage.mkdir(parents=True)
     (stale_stage / "orphan.txt").write_text("stale\n", encoding="utf-8")
-    previous_cache = pack_parent / "0.9.0" / "instructions" / "AGENTS.md"
+    previous_cache = package_parent / "0.9.0" / "instructions" / "AGENTS.md"
     previous_cache.parent.mkdir(parents=True)
     previous_cache.write_text("previous\n", encoding="utf-8")
-    unrelated_dir = pack_parent / "manual-stage"
+    unrelated_dir = package_parent / "manual-stage"
     unrelated_dir.mkdir()
 
     server, _handler, url = _serve_pull(
@@ -383,8 +383,8 @@ def test_successful_pull_removes_pre_existing_stale_cache_stages(
     assert "Use AGH." in (repo / "AGENTS.md").read_text(encoding="utf-8")
     skill_target = repo / ".opencode" / "skills" / "reviewer" / "SKILL.md"
     assert skill_target.read_text(encoding="utf-8") == "Use AGH.\n"
-    instruction_cache = pack_parent / "1.0.0" / "instructions" / "AGENTS.md"
-    skill_cache = pack_parent / "1.0.0" / "skills" / "reviewer" / "SKILL.md"
+    instruction_cache = package_parent / "1.0.0" / "instructions" / "AGENTS.md"
+    skill_cache = package_parent / "1.0.0" / "skills" / "reviewer" / "SKILL.md"
     assert instruction_cache.read_text(encoding="utf-8") == "Use AGH.\n"
     assert skill_cache.read_text(encoding="utf-8") == "Use AGH.\n"
     lock = tomllib.loads((repo / ".agh" / "lock.toml").read_text(encoding="utf-8"))
@@ -396,13 +396,13 @@ def test_successful_pull_removes_pre_existing_stale_cache_stages(
         ".opencode/skills/reviewer/SKILL.md",
     }
     assert artifacts_by_target["AGENTS.md"]["source"] == (
-        ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+        ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
     assert artifacts_by_target["AGENTS.md"]["checksum"] == managed_payload_checksum(
         instruction_cache.read_text(encoding="utf-8")
     )
     assert artifacts_by_target[".opencode/skills/reviewer/SKILL.md"]["source"] == (
-        ".agh-cache/packs/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
+        ".agh-cache/packages/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
     )
     assert artifacts_by_target[".opencode/skills/reviewer/SKILL.md"]["checksum"] == (
         managed_payload_checksum(skill_cache.read_text(encoding="utf-8"))
@@ -412,7 +412,7 @@ def test_successful_pull_removes_pre_existing_stale_cache_stages(
     )
     assert previous_cache.read_text(encoding="utf-8") == "previous\n"
     assert unrelated_dir.exists()
-    assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
+    assert not list((repo / ".agh-cache" / "packages").rglob(".agh-pull-stage-*"))
 
 
 def test_pull_filters_manifest_to_selected_agent(tmp_path: Path, monkeypatch) -> None:
@@ -434,7 +434,7 @@ def test_pull_filters_manifest_to_selected_agent(tmp_path: Path, monkeypatch) ->
     assert not (
         repo
         / ".agh-cache"
-        / "packs"
+        / "packages"
         / "acme"
         / "onboarding"
         / "1.0.0"
@@ -449,7 +449,7 @@ def test_pull_filters_manifest_to_selected_agent(tmp_path: Path, monkeypatch) ->
             "authorization": "Bearer pull-secret-token",
         },
         {
-            "path": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/CLAUDE.md",
+            "path": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/CLAUDE.md",
             "authorization": "Bearer pull-secret-token",
         },
     ]
@@ -539,7 +539,7 @@ def test_pull_dry_run_prompt_does_not_write_preferences(
     assert result.exit_code == 0
     assert not (repo / ".agh-cache" / "preferences.toml").exists()
     assert not (repo / "AGENTS.md").exists()
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -567,7 +567,7 @@ def test_pull_clears_stale_cache_entries_when_agent_selection_changes(
     assert not (
         repo
         / ".agh-cache"
-        / "packs"
+        / "packages"
         / "acme"
         / "onboarding"
         / "1.0.0"
@@ -577,7 +577,7 @@ def test_pull_clears_stale_cache_entries_when_agent_selection_changes(
     assert (
         repo
         / ".agh-cache"
-        / "packs"
+        / "packages"
         / "acme"
         / "onboarding"
         / "1.0.0"
@@ -692,7 +692,7 @@ def test_pull_suppresses_vcs_hint_for_empty_manifest_when_cache_ignored(
     (repo / ".gitignore").write_text(".agh-cache/\n", encoding="utf-8")
     _write_link(repo)
     manifest = _manifest()
-    manifest["packs"][0]["artifacts"] = []
+    manifest["packages"][0]["artifacts"] = []
     server, _handler, url = _serve_pull(manifest=manifest)
     monkeypatch.chdir(repo)
     try:
@@ -704,7 +704,7 @@ def test_pull_suppresses_vcs_hint_for_empty_manifest_when_cache_ignored(
     assert "Pull complete: no changes." in result.stdout
     assert "Lockfile: .agh/lock.toml" in result.stdout
     assert "Hint: add .agh-cache/ to .gitignore" not in result.stdout
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
 
 
 def test_pull_dry_run_in_git_repo_does_not_print_vcs_hint(
@@ -724,7 +724,7 @@ def test_pull_dry_run_in_git_repo_does_not_print_vcs_hint(
 
     assert result.exit_code == 0, result.stdout
     assert "Hint: add .agh-cache/ to .gitignore" not in result.stdout
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -749,7 +749,7 @@ def test_pull_conflict_exits_3_without_writes(tmp_path: Path, monkeypatch) -> No
     assert "Conflicts:\n  AGENTS.md" in result.stdout
     assert "Run with --force to replace AGH-managed blocks." in result.stdout
     assert (repo / "AGENTS.md").read_text(encoding="utf-8") == before
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -765,7 +765,7 @@ def test_pull_conflict_preserves_previous_cache_and_lock(
     (repo / "AGENTS.md").write_text(f"Manual\n\n{conflicted}", encoding="utf-8")
     before = (repo / "AGENTS.md").read_text(encoding="utf-8")
     previous_cache = (
-        repo / ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+        repo / ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
     previous_cache.parent.mkdir(parents=True)
     previous_cache.write_text("Previous.\n", encoding="utf-8")
@@ -783,7 +783,7 @@ def test_pull_conflict_preserves_previous_cache_and_lock(
     assert (repo / "AGENTS.md").read_text(encoding="utf-8") == before
     assert previous_cache.read_text(encoding="utf-8") == "Previous.\n"
     assert lock.read_text(encoding="utf-8") == "previous lock\n"
-    assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
+    assert not list((repo / ".agh-cache" / "packages").rglob(".agh-pull-stage-*"))
 
 
 def test_pull_force_overwrites_conflicted_block_only(
@@ -848,7 +848,7 @@ def test_pull_invalid_manifest_path_exits_2_without_writes(
     repo = _repo(tmp_path)
     _write_link(repo)
     manifest = _manifest()
-    manifest["packs"][0]["artifacts"][0]["target_path"] = "../AGENTS.md"
+    manifest["packages"][0]["artifacts"][0]["target_path"] = "../AGENTS.md"
     server, _handler, url = _serve_pull(manifest=manifest)
     monkeypatch.chdir(repo)
     try:
@@ -859,7 +859,7 @@ def test_pull_invalid_manifest_path_exits_2_without_writes(
     assert result.exit_code == 2
     assert "invalid artifact path" in result.stdout
     assert not (repo / "AGENTS.md").exists()
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -889,7 +889,7 @@ def test_pull_places_skill_as_relative_symlink_and_records_lock_mode(
     assert artifact["mode"] == "symlink"
     assert (
         artifact["source"]
-        == ".agh-cache/packs/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
+        == ".agh-cache/packages/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
     )
 
 
@@ -912,12 +912,12 @@ def test_pull_rejects_file_at_cache_root_before_target_writes(
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
-def test_pull_rejects_file_at_cache_packs_before_target_writes(
+def test_pull_rejects_file_at_cache_packages_before_target_writes(
     tmp_path: Path, monkeypatch
 ) -> None:
     repo = _repo(tmp_path)
     _write_link(repo)
-    (repo / ".agh-cache" / "packs").write_text("not a directory\n", encoding="utf-8")
+    (repo / ".agh-cache" / "packages").write_text("not a directory\n", encoding="utf-8")
     server, _handler, url = _serve_pull(content="Use AGH.\n")
     monkeypatch.chdir(repo)
     try:
@@ -939,7 +939,7 @@ def test_pull_replaces_old_pre_release_skill_cache_symlink(
     old_source = (
         repo
         / ".agh"
-        / "packs"
+        / "packages"
         / "acme"
         / "onboarding"
         / "1.0.0"
@@ -952,7 +952,7 @@ def test_pull_replaces_old_pre_release_skill_cache_symlink(
     target = repo / ".claude" / "skills" / "reviewer" / "SKILL.md"
     target.parent.mkdir(parents=True)
     target.symlink_to(
-        Path("../../../.agh/packs/acme/onboarding/1.0.0/skills/reviewer/SKILL.md")
+        Path("../../../.agh/packages/acme/onboarding/1.0.0/skills/reviewer/SKILL.md")
     )
     server, _handler, url = _serve_pull(
         content="Review carefully.\n", manifest=_skill_manifest()
@@ -971,7 +971,7 @@ def test_pull_replaces_old_pre_release_skill_cache_symlink(
     lock = tomllib.loads((repo / ".agh" / "lock.toml").read_text(encoding="utf-8"))
     assert (
         lock["artifacts"][0]["source"]
-        == ".agh-cache/packs/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
+        == ".agh-cache/packages/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
     )
 
 
@@ -985,7 +985,7 @@ def test_pull_workspace_lock_failure_preserves_previous_public_state(
     )
     (repo / "AGENTS.md").write_text(previous_target, encoding="utf-8")
     previous_cache = (
-        repo / ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+        repo / ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
     previous_cache.parent.mkdir(parents=True)
     previous_cache.write_text("Previous.\n", encoding="utf-8")
@@ -1021,7 +1021,7 @@ def test_pull_workspace_stale_cleanup_failure_preserves_previous_public_state(
     )
     (repo / "AGENTS.md").write_text(previous_target, encoding="utf-8")
     previous_cache = (
-        repo / ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+        repo / ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
     previous_cache.parent.mkdir(parents=True)
     previous_cache.write_text("Previous.\n", encoding="utf-8")
@@ -1048,7 +1048,7 @@ def test_pull_workspace_stale_cleanup_failure_preserves_previous_public_state(
     assert (repo / "AGENTS.md").read_text(encoding="utf-8") == previous_target
     assert previous_cache.read_text(encoding="utf-8") == "Previous.\n"
     assert lock.read_text(encoding="utf-8") == "previous lock\n"
-    assert not list((repo / ".agh-cache" / "packs").rglob(".agh-pull-stage-*"))
+    assert not list((repo / ".agh-cache" / "packages").rglob(".agh-pull-stage-*"))
 
 
 def test_pull_skill_copy_fallback_when_symlink_fails(
@@ -1102,7 +1102,7 @@ def test_pull_skill_conflict_exits_3_without_writes(
     assert "Conflicts:\n  .claude/skills/reviewer/SKILL.md" in result.stdout
     assert "Run with --force to replace AGH-managed blocks." in result.stdout
     assert target.read_text(encoding="utf-8") == before
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -1149,7 +1149,7 @@ def test_pull_skill_dry_run_has_no_writes(tmp_path: Path, monkeypatch) -> None:
     assert "Planned:\n  .claude/skills/reviewer/SKILL.md" in result.stdout
     assert "No files were written." in result.stdout
     assert not (repo / ".claude").exists()
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -1159,7 +1159,7 @@ def test_pull_skill_rejects_unapproved_target_path_without_writes(
     repo = _repo(tmp_path)
     _write_link(repo, agent_target="claude")
     manifest = _skill_manifest()
-    manifest["packs"][0]["artifacts"][0]["target_path"] = ".git/hooks/pre-commit"
+    manifest["packages"][0]["artifacts"][0]["target_path"] = ".git/hooks/pre-commit"
     server, _handler, url = _serve_pull(
         content="Review carefully.\n", manifest=manifest
     )
@@ -1172,7 +1172,7 @@ def test_pull_skill_rejects_unapproved_target_path_without_writes(
     assert result.exit_code == 2, result.stdout
     assert "invalid claude skill target path" in result.stdout
     assert not (repo / ".git" / "hooks" / "pre-commit").exists()
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -1182,7 +1182,7 @@ def test_pull_skill_rejects_target_agent_path_mismatch_without_writes(
     repo = _repo(tmp_path)
     _write_link(repo, agent_target="claude")
     manifest = _skill_manifest()
-    manifest["packs"][0]["artifacts"][0]["target_agent"] = "opencode"
+    manifest["packages"][0]["artifacts"][0]["target_agent"] = "opencode"
     server, _handler, url = _serve_pull(
         content="Review carefully.\n", manifest=manifest
     )
@@ -1195,7 +1195,7 @@ def test_pull_skill_rejects_target_agent_path_mismatch_without_writes(
     assert result.exit_code == 2, result.stdout
     assert "invalid opencode skill target path" in result.stdout
     assert not (repo / ".claude").exists()
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -1205,8 +1205,8 @@ def test_pull_skill_rejects_cursor_target_agent_without_writes(
     repo = _repo(tmp_path)
     _write_link(repo, agent_target="claude")
     manifest = _skill_manifest()
-    manifest["packs"][0]["artifacts"][0]["target_agent"] = "cursor"
-    manifest["packs"][0]["artifacts"][0]["target_path"] = ".cursor/rules/skill.md"
+    manifest["packages"][0]["artifacts"][0]["target_agent"] = "cursor"
+    manifest["packages"][0]["artifacts"][0]["target_path"] = ".cursor/rules/skill.md"
     server, _handler, url = _serve_pull(
         content="Review carefully.\n", manifest=manifest
     )
@@ -1219,7 +1219,7 @@ def test_pull_skill_rejects_cursor_target_agent_without_writes(
     assert result.exit_code == 2, result.stdout
     assert "unsupported pull manifest target_agent" in result.stdout
     assert not (repo / ".cursor").exists()
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
 
 
@@ -1244,5 +1244,5 @@ def test_pull_skill_rejects_symlinked_target_parent_without_writes(
 
     assert result.exit_code == 2, result.stdout
     assert "symlinked directory" in result.stdout
-    assert not (repo / ".agh-cache" / "packs").exists()
+    assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()

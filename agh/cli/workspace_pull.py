@@ -37,7 +37,7 @@ from agh.cli.pull_plan import (
     plan_pull,
 )
 from agh.common.checksums import managed_payload_checksum
-from agh.common.validation import parse_pack_ref
+from agh.common.validation import parse_package_ref
 
 
 class WorkspacePullError(RuntimeError):
@@ -59,13 +59,14 @@ _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 _CHECKSUM_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CACHE_STAGE_PREFIX = ".agh-pull-stage-"
 GIT_SUBPROCESS_TIMEOUT_SECONDS = 5
+LEGACY_PACK_CACHE_DIR = "packs"
 
 
 @dataclass(frozen=True)
 class DownloadedArtifact:
     """One resolved artifact downloaded and verified from a pull manifest."""
 
-    pack_ref: str
+    package_ref: str
     path: str
     target_path: str
     checksum: str
@@ -81,7 +82,7 @@ class DownloadedArtifact:
 class CachedArtifact:
     """One artifact downloaded into the local cache."""
 
-    pack_ref: str
+    package_ref: str
     path: str
     target_path: str
     checksum: str
@@ -218,7 +219,7 @@ def pull_workspace(
     skill_artifacts = [artifact for artifact in downloaded if artifact.kind == "skill"]
     artifacts = [
         PullArtifact(
-            pack_ref=artifact.pack_ref,
+            package_ref=artifact.package_ref,
             artifact_path=artifact.path,
             target_path=artifact.target_path,
             content=artifact.content,
@@ -311,7 +312,7 @@ def populate_cache_and_write_lock(
     config: AghConfig,
     manifest: object,
 ) -> WorkspacePullCacheResult:
-    """Download manifest artifacts into .agh-cache/packs and atomically write lockfile."""
+    """Download manifest artifacts into .agh-cache/packages and atomically write lockfile."""
     manifest = _validate_manifest(manifest)
     _preflight_workspace_cache_boundaries(workspace, manifest)
     downloaded = download_manifest_artifacts(config=config, manifest=manifest)
@@ -331,10 +332,10 @@ def _preflight_workspace_cache_boundaries(workspace: Path, manifest: dict) -> No
 
 
 def _preflight_cache_boundaries(*, cache_dir: Path, manifest: dict) -> None:
-    for pack in _manifest_packs(manifest):
-        pack_ref = _pack_id(pack)
-        domain, name, version = _parse_resolved_pack_ref(pack_ref)
-        for artifact in _pack_artifacts(pack):
+    for package in _manifest_packages(manifest):
+        package_ref = _package_id(package)
+        domain, name, version = _parse_resolved_package_ref(package_ref)
+        for artifact in _package_artifacts(package):
             artifact_path = _artifact_path(artifact)
             cache_path = _cache_path(
                 cache_dir=cache_dir,
@@ -428,10 +429,10 @@ def download_manifest_artifacts(
     manifest = _validate_manifest(manifest)
     _validate_manifest_metadata(manifest)
     artifacts: list[DownloadedArtifact] = []
-    for pack in _manifest_packs(manifest):
-        pack_ref = _pack_id(pack)
-        domain, name, version = _parse_resolved_pack_ref(pack_ref)
-        for artifact in _pack_artifacts(pack):
+    for package in _manifest_packages(manifest):
+        package_ref = _package_id(package)
+        domain, name, version = _parse_resolved_package_ref(package_ref)
+        for artifact in _package_artifacts(package):
             artifact_path = _artifact_path(artifact)
             target_path = _target_path(artifact)
             checksum = _artifact_checksum(artifact)
@@ -447,11 +448,11 @@ def download_manifest_artifacts(
             actual_checksum = managed_payload_checksum(content)
             if actual_checksum != checksum:
                 raise WorkspacePullError(
-                    f"checksum mismatch for {pack_ref} {artifact_path}", code=1
+                    f"checksum mismatch for {package_ref} {artifact_path}", code=1
                 )
             artifacts.append(
                 DownloadedArtifact(
-                    pack_ref=pack_ref,
+                    package_ref=package_ref,
                     path=artifact_path,
                     target_path=target_path,
                     checksum=checksum,
@@ -500,7 +501,7 @@ def write_cache_artifacts(
         _write_cache_file(cache_path, artifact.content)
         cached.append(
             CachedArtifact(
-                pack_ref=artifact.pack_ref,
+                package_ref=artifact.package_ref,
                 path=artifact.path,
                 target_path=artifact.target_path,
                 checksum=artifact.checksum,
@@ -518,13 +519,13 @@ def _stage_cache_artifacts(
     root = workspace.resolve()
     cache_dir = _workspace_cache_dir(root)
     _ensure_cache_root_safe(root)
-    staged_by_pack: dict[tuple[str, str, str], Path] = {}
+    staged_by_package: dict[tuple[str, str, str], Path] = {}
     promotions: list[_StagedCachePromotion] = []
     cached: list[CachedArtifact] = []
     try:
         for artifact in artifacts:
             key = (artifact.domain, artifact.name, artifact.version)
-            stage_dir = staged_by_pack.get(key)
+            stage_dir = staged_by_package.get(key)
             if stage_dir is None:
                 stage_dir = _make_cache_stage_dir(
                     cache_dir=cache_dir,
@@ -532,7 +533,7 @@ def _stage_cache_artifacts(
                     name=artifact.name,
                     version=artifact.version,
                 )
-                staged_by_pack[key] = stage_dir
+                staged_by_package[key] = stage_dir
                 promotions.append(
                     _StagedCachePromotion(
                         stage_dir=stage_dir,
@@ -553,7 +554,7 @@ def _stage_cache_artifacts(
             )
             cached.append(
                 CachedArtifact(
-                    pack_ref=artifact.pack_ref,
+                    package_ref=artifact.package_ref,
                     path=artifact.path,
                     target_path=artifact.target_path,
                     checksum=artifact.checksum,
@@ -561,11 +562,11 @@ def _stage_cache_artifacts(
                 )
             )
     except Exception:
-        _cleanup_cache_stage_dirs(staged_by_pack.values(), cache_dir=cache_dir)
+        _cleanup_cache_stage_dirs(staged_by_package.values(), cache_dir=cache_dir)
         raise
     return _StagedCacheResult(
         cache_dir=cache_dir,
-        stage_dirs=list(staged_by_pack.values()),
+        stage_dirs=list(staged_by_package.values()),
         promotions=promotions,
         artifacts=cached,
     )
@@ -622,12 +623,12 @@ def _place_skill_artifacts_with_rollback(
     rollback_entries: list[_PullRollbackEntry],
 ) -> list[CachedArtifact]:
     cached_by_key = {
-        (artifact.pack_ref, artifact.path, artifact.target_path): artifact
+        (artifact.package_ref, artifact.path, artifact.target_path): artifact
         for artifact in cached_artifacts
     }
     modes: dict[tuple[str, str, str], str] = {}
     for artifact in skill_artifacts:
-        key = (artifact.pack_ref, artifact.path, artifact.target_path)
+        key = (artifact.package_ref, artifact.path, artifact.target_path)
         cached = cached_by_key[key]
         target_path = _safe_relative_path(artifact.target_path)
         target = root / target_path
@@ -642,7 +643,8 @@ def _place_skill_artifacts_with_rollback(
         replace(
             artifact,
             mode=modes.get(
-                (artifact.pack_ref, artifact.path, artifact.target_path), artifact.mode
+                (artifact.package_ref, artifact.path, artifact.target_path),
+                artifact.mode,
             ),
         )
         for artifact in cached_artifacts
@@ -685,11 +687,11 @@ def _remove_pull_path(path: Path) -> None:
 def _make_cache_stage_dir(
     *, cache_dir: Path, domain: str, name: str, version: str
 ) -> Path:
-    pack_parent = cache_dir / domain / name
-    _ensure_safe_directory_boundary(cache_dir, pack_parent)
-    pack_parent.mkdir(parents=True, exist_ok=True)
+    package_parent = cache_dir / domain / name
+    _ensure_safe_directory_boundary(cache_dir, package_parent)
+    package_parent.mkdir(parents=True, exist_ok=True)
     return Path(
-        tempfile.mkdtemp(prefix=f"{_CACHE_STAGE_PREFIX}{version}-", dir=pack_parent)
+        tempfile.mkdtemp(prefix=f"{_CACHE_STAGE_PREFIX}{version}-", dir=package_parent)
     )
 
 
@@ -698,20 +700,20 @@ def _cleanup_stale_cache_staging_dirs(workspace: Path, *, manifest: object) -> N
     cache_dir = _workspace_cache_dir(root)
     _ensure_cache_root_safe(root)
     manifest = _validate_manifest(manifest)
-    for pack in _manifest_packs(manifest):
-        domain, name, _version = _parse_resolved_pack_ref(_pack_id(pack))
-        pack_parent = cache_dir / domain / name
-        _ensure_safe_directory_boundary(cache_dir, pack_parent)
-        if not pack_parent.exists():
+    for package in _manifest_packages(manifest):
+        domain, name, _version = _parse_resolved_package_ref(_package_id(package))
+        package_parent = cache_dir / domain / name
+        _ensure_safe_directory_boundary(cache_dir, package_parent)
+        if not package_parent.exists():
             continue
-        if pack_parent.is_symlink() or not pack_parent.is_dir():
+        if package_parent.is_symlink() or not package_parent.is_dir():
             raise WorkspacePullError(
-                f"refusing to clean unsafe AGH cache path: {pack_parent}", code=2
+                f"refusing to clean unsafe AGH cache path: {package_parent}", code=2
             )
         _cleanup_cache_stage_dirs(
             (
                 child
-                for child in pack_parent.iterdir()
+                for child in package_parent.iterdir()
                 if child.name.startswith(_CACHE_STAGE_PREFIX)
             ),
             cache_dir=cache_dir,
@@ -744,23 +746,23 @@ def _clear_manifest_cache_dirs(workspace: Path, *, manifest: object) -> None:
     cache_dir = _workspace_cache_dir(root)
     _ensure_cache_root_safe(root)
     manifest = _validate_manifest(manifest)
-    for pack in _manifest_packs(manifest):
-        domain, name, version = _parse_resolved_pack_ref(_pack_id(pack))
-        pack_cache_dir = cache_dir / domain / name / version
-        _ensure_safe_directory_boundary(cache_dir, pack_cache_dir)
-        if not pack_cache_dir.exists():
+    for package in _manifest_packages(manifest):
+        domain, name, version = _parse_resolved_package_ref(_package_id(package))
+        package_cache_dir = cache_dir / domain / name / version
+        _ensure_safe_directory_boundary(cache_dir, package_cache_dir)
+        if not package_cache_dir.exists():
             continue
-        if pack_cache_dir.is_symlink():
+        if package_cache_dir.is_symlink():
             raise WorkspacePullError(
-                f"refusing to remove symlinked AGH cache path: {pack_cache_dir}",
+                f"refusing to remove symlinked AGH cache path: {package_cache_dir}",
                 code=2,
             )
-        if not pack_cache_dir.is_dir():
+        if not package_cache_dir.is_dir():
             raise WorkspacePullError(
-                f"refusing to remove non-directory AGH cache path: {pack_cache_dir}",
+                f"refusing to remove non-directory AGH cache path: {package_cache_dir}",
                 code=2,
             )
-        shutil.rmtree(pack_cache_dir)
+        shutil.rmtree(package_cache_dir)
 
 
 def write_lock_for_cached_artifacts(
@@ -850,7 +852,7 @@ def _skill_conflict(
     artifact: DownloadedArtifact, *, actual_checksum: str
 ) -> MarkerConflict:
     return MarkerConflict(
-        pack_ref=artifact.pack_ref,
+        package_ref=artifact.package_ref,
         artifact_path=artifact.path,
         expected_checksum=artifact.checksum,
         actual_checksum=actual_checksum,
@@ -914,7 +916,7 @@ def _write_plain_file(path: Path, content: str) -> None:
 def _relative_cache_path_for_artifact(artifact: DownloadedArtifact) -> Path:
     return (
         Path(".agh-cache")
-        / "packs"
+        / "packages"
         / artifact.domain
         / artifact.name
         / artifact.version
@@ -947,7 +949,7 @@ def _write_target_file(root: Path, target_path: Path, content: str) -> None:
 
 
 def _workspace_cache_dir(root: Path) -> Path:
-    return root / ".agh-cache" / "packs"
+    return root / ".agh-cache" / "packages"
 
 
 def _ensure_cache_root_safe(root: Path) -> None:
@@ -962,14 +964,14 @@ def _ensure_cache_root_safe(root: Path) -> None:
             f"refusing to write through non-directory AGH cache path: {cache_root}",
             code=2,
         )
-    packs_dir = cache_root / "packs"
-    if packs_dir.exists() and not packs_dir.is_dir():
+    packages_dir = cache_root / "packages"
+    if packages_dir.exists() and not packages_dir.is_dir():
         raise WorkspacePullError(
-            f"refusing to write through non-directory AGH cache path: {packs_dir}",
+            f"refusing to write through non-directory AGH cache path: {packages_dir}",
             code=2,
         )
     _ensure_safe_directory_boundary(root, cache_root)
-    _ensure_safe_directory_boundary(root, packs_dir)
+    _ensure_safe_directory_boundary(root, packages_dir)
 
 
 def _symlink_points_into_old_cache(*, path: Path, root: Path) -> bool:
@@ -980,9 +982,27 @@ def _symlink_points_into_old_cache(*, path: Path, root: Path) -> bool:
     target = Path(raw_target)
     if not target.is_absolute():
         target = path.parent / target
-    old_cache = root / ".agh" / "packs"
+    resolved_target = target.resolve(strict=False)
+    # Migration-only ownership detection for skill symlinks created by older AGH
+    # cache layouts. These roots are accepted only so pull can replace them with
+    # canonical `.agh-cache/packages` symlinks; new writes never target them.
+    legacy_cache_roots = (
+        root / ".agh" / LEGACY_PACK_CACHE_DIR,
+        root / ".agh" / "packages",
+        root / ".agh-cache" / LEGACY_PACK_CACHE_DIR,
+    )
+    return any(
+        _path_is_relative_to(
+            resolved_target,
+            legacy_cache_root.resolve(strict=False),
+        )
+        for legacy_cache_root in legacy_cache_roots
+    )
+
+
+def _path_is_relative_to(path: Path, root: Path) -> bool:
     try:
-        target.resolve(strict=False).relative_to(old_cache.resolve(strict=False))
+        path.relative_to(root)
     except ValueError:
         return False
     return True
@@ -1148,18 +1168,23 @@ def _lockfile_toml(*, manifest: dict, artifacts: list[CachedArtifact]) -> str:
         raise WorkspacePullError("pull manifest project id must be a string", code=2)
     if project_id:
         lines.extend(["\n[project]\n", f'id = "{_toml_escape(project_id)}"\n'])
-    seen_packs: set[str] = set()
+    seen_packages: set[str] = set()
     for artifact in artifacts:
-        if artifact.pack_ref in seen_packs:
+        if artifact.package_ref in seen_packages:
             continue
-        seen_packs.add(artifact.pack_ref)
-        lines.extend(["\n[[packs]]\n", f'ref = "{_toml_escape(artifact.pack_ref)}"\n'])
+        seen_packages.add(artifact.package_ref)
+        lines.extend(
+            [
+                "\n[[packages]]\n",
+                f'package_ref = "{_toml_escape(artifact.package_ref)}"\n',
+            ]
+        )
     for artifact in artifacts:
         source = _lock_source_path(artifact.cache_path)
         lines.extend(
             [
                 "\n[[artifacts]]\n",
-                f'pack_ref = "{_toml_escape(artifact.pack_ref)}"\n',
+                f'package_ref = "{_toml_escape(artifact.package_ref)}"\n',
                 f'path = "{_toml_escape(artifact.path)}"\n',
                 f'target_path = "{_toml_escape(artifact.target_path)}"\n',
                 f'checksum = "{_toml_escape(artifact.checksum)}"\n',
@@ -1172,8 +1197,8 @@ def _lockfile_toml(*, manifest: dict, artifacts: list[CachedArtifact]) -> str:
 
 def _lock_source_path(cache_path: Path) -> str:
     parts = cache_path.parts
-    if len(parts) < 3 or parts[0] != ".agh-cache" or parts[1] != "packs":
-        raise WorkspacePullError("cache path is not under .agh-cache/packs", code=2)
+    if len(parts) < 3 or parts[0] != ".agh-cache" or parts[1] != "packages":
+        raise WorkspacePullError("cache path is not under .agh-cache/packages", code=2)
     return cache_path.as_posix()
 
 
@@ -1203,19 +1228,19 @@ def _safe_relative_path(path: str) -> Path:
     return candidate
 
 
-def _manifest_packs(manifest: dict) -> list[dict]:
-    packs = manifest.get("packs")
-    if not isinstance(packs, list):
-        raise WorkspacePullError("pull manifest missing packs", code=2)
-    if not all(isinstance(pack, dict) for pack in packs):
-        raise WorkspacePullError("pull manifest packs must be objects", code=2)
-    return packs
+def _manifest_packages(manifest: dict) -> list[dict]:
+    packages = manifest.get("packages")
+    if not isinstance(packages, list):
+        raise WorkspacePullError("pull manifest missing packages", code=2)
+    if not all(isinstance(package, dict) for package in packages):
+        raise WorkspacePullError("pull manifest packages must be objects", code=2)
+    return packages
 
 
-def _pack_artifacts(pack: dict) -> list[dict]:
-    artifacts = pack.get("artifacts")
+def _package_artifacts(package: dict) -> list[dict]:
+    artifacts = package.get("artifacts")
     if not isinstance(artifacts, list):
-        raise WorkspacePullError("pull manifest pack missing artifacts", code=2)
+        raise WorkspacePullError("pull manifest package missing artifacts", code=2)
     if not all(isinstance(artifact, dict) for artifact in artifacts):
         raise WorkspacePullError("pull manifest artifacts must be objects", code=2)
     return artifacts
@@ -1230,16 +1255,16 @@ def _required_string(mapping: dict, key: str, label: str) -> str:
     return value
 
 
-def _pack_id(pack: dict) -> str:
-    return _required_string(pack, "id", "pack id")
+def _package_id(package: dict) -> str:
+    return _required_string(package, "id", "package id")
 
 
-def _parse_resolved_pack_ref(pack_ref: str) -> tuple[str, str, str]:
+def _parse_resolved_package_ref(package_ref: str) -> tuple[str, str, str]:
     try:
-        parsed = parse_pack_ref(pack_ref, allow_latest=False)
+        parsed = parse_package_ref(package_ref, allow_latest=False)
     except ValueError as exc:
         raise WorkspacePullError(
-            f"invalid resolved pack ref: {pack_ref}", code=2
+            f"invalid resolved package ref: {package_ref}", code=2
         ) from exc
     return parsed.domain, parsed.name, parsed.version
 

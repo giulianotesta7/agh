@@ -20,7 +20,7 @@ from pydantic import BaseModel  # pyright: ignore[reportMissingImports]
 from agh.common.checksums import managed_payload_checksum
 from agh.common.ids import generate_prefixed_id, is_valid_prefixed_id
 from agh.common.repo_url import normalize_repo_url
-from agh.common.validation import PackRef, parse_pack_ref, validate_project_name
+from agh.common.validation import PackageRef, parse_package_ref, validate_project_name
 from agh.server.auth import CurrentUser, get_current_user
 from agh.server.db import connect_database
 
@@ -38,13 +38,13 @@ class ProjectUpdate(BaseModel):
     active: bool | None = None
 
 
-class ProjectPackAssign(BaseModel):
-    pack_ref: str
+class ProjectPackageAssign(BaseModel):
+    package_ref: str
     position: int = 0
 
 
-class ProjectPackUpdate(BaseModel):
-    pack_ref: str | None = None
+class ProjectPackageUpdate(BaseModel):
+    package_ref: str | None = None
     position: int | None = None
     active: bool | None = None
 
@@ -176,105 +176,99 @@ def _get_active_user(connection: sqlite3.Connection, user_id: str) -> sqlite3.Ro
 def _validate_assignment_id(assignment_id: str) -> None:
     if not is_valid_prefixed_id(assignment_id, "asn"):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="project pack not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="project package not found"
         )
 
 
-def _parse_pack_ref_or_400(pack_ref: str) -> PackRef:
+def _parse_package_ref_or_400(package_ref: str) -> PackageRef:
     try:
-        return parse_pack_ref(pack_ref, allow_latest=True)
+        return parse_package_ref(package_ref, allow_latest=True)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
 
-def _pack_row_or_404(connection: sqlite3.Connection, pack_ref: PackRef) -> sqlite3.Row:
+def _package_row_or_404(
+    connection: sqlite3.Connection, package_ref: PackageRef
+) -> sqlite3.Row:
     row = connection.execute(
-        "SELECT id, domain, name FROM packs WHERE domain = ? AND name = ?",
-        (pack_ref.domain, pack_ref.name),
+        "SELECT id, domain, name FROM packages WHERE domain = ? AND name = ?",
+        (package_ref.domain, package_ref.name),
     ).fetchone()
     if row is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="pack not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="package not found"
         )
     return row
 
 
-def _resolve_pack_version(
-    connection: sqlite3.Connection, pack_id: str, version_ref: str
-) -> str:
-    if version_ref == "latest":
-        rows = connection.execute(
-            "SELECT version FROM pack_versions WHERE pack_id = ?",
-            (pack_id,),
-        ).fetchall()
-        if not rows:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="pack version not found"
-            )
-        versions = [str(row["version"]) for row in rows]
-        return max(
-            versions,
-            key=lambda version: tuple(int(part) for part in version.split(".")),
-        )
-    row = connection.execute(
-        "SELECT version FROM pack_versions WHERE pack_id = ? AND version = ?",
-        (pack_id, version_ref),
-    ).fetchone()
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="pack version not found"
-        )
-    return str(row["version"])
+def _raise_package_version_not_found() -> NoReturn:
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="package version not found",
+    )
 
 
-def _resolved_pack_version_row(
-    connection: sqlite3.Connection, pack_id: str, version_ref: str
+def _package_version_row_or_404(
+    connection: sqlite3.Connection,
+    package_id: str,
+    version_ref: str,
+    *,
+    columns: str,
 ) -> sqlite3.Row:
     if version_ref == "latest":
         rows = connection.execute(
-            """
-            SELECT id, version, manifest_json, storage_path, checksum
-            FROM pack_versions
-            WHERE pack_id = ?
-            """,
-            (pack_id,),
+            f"SELECT {columns} FROM package_versions WHERE package_id = ?",
+            (package_id,),
         ).fetchall()
         if not rows:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="pack version not found"
-            )
-        return max(
-            rows,
-            key=lambda row: tuple(int(part) for part in str(row["version"]).split(".")),
-        )
+            _raise_package_version_not_found()
+        return max(rows, key=lambda row: _semver_key(str(row["version"])))
     row = connection.execute(
-        """
-        SELECT id, version, manifest_json, storage_path, checksum
-        FROM pack_versions
-        WHERE pack_id = ? AND version = ?
+        f"""
+        SELECT {columns}
+        FROM package_versions
+        WHERE package_id = ? AND version = ?
         """,
-        (pack_id, version_ref),
+        (package_id, version_ref),
     ).fetchone()
     if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="pack version not found"
-        )
+        _raise_package_version_not_found()
     return row
 
 
-def _project_pack_response(
+def _resolve_package_version(
+    connection: sqlite3.Connection, package_id: str, version_ref: str
+) -> str:
+    row = _package_version_row_or_404(
+        connection, package_id, version_ref, columns="version"
+    )
+    return str(row["version"])
+
+
+def _resolved_package_version_row(
+    connection: sqlite3.Connection, package_id: str, version_ref: str
+) -> sqlite3.Row:
+    return _package_version_row_or_404(
+        connection,
+        package_id,
+        version_ref,
+        columns="id, version, manifest_json, storage_path, checksum",
+    )
+
+
+def _project_package_response(
     connection: sqlite3.Connection, row: sqlite3.Row
 ) -> dict[str, str | int | bool]:
-    resolved_version = _resolve_pack_version(
-        connection, str(row["pack_id"]), str(row["version_ref"])
+    resolved_version = _resolve_package_version(
+        connection, str(row["package_id"]), str(row["version_ref"])
     )
     return {
         "id": row["id"],
         "project_id": row["project_id"],
-        "pack_id": row["pack_id"],
-        "pack_ref": f"{row['domain']}/{row['name']}@{row['version_ref']}",
+        "package_id": row["package_id"],
+        "package_ref": f"{row['domain']}/{row['name']}@{row['version_ref']}",
         "resolved_ref": f"{row['domain']}/{row['name']}@{resolved_version}",
         "domain": row["domain"],
         "name": row["name"],
@@ -291,67 +285,67 @@ def _assignment_row(
     _validate_assignment_id(assignment_id)
     row = connection.execute(
         """
-        SELECT project_packs.id, project_packs.project_id, project_packs.pack_id,
-               project_packs.version_ref, project_packs.position, project_packs.active,
-               packs.domain, packs.name
-        FROM project_packs
-        JOIN packs ON packs.id = project_packs.pack_id
-        WHERE project_packs.project_id = ? AND project_packs.id = ?
+        SELECT project_packages.id, project_packages.project_id, project_packages.package_id,
+               project_packages.version_ref, project_packages.position, project_packages.active,
+               packages.domain, packages.name
+        FROM project_packages
+        JOIN packages ON packages.id = project_packages.package_id
+        WHERE project_packages.project_id = ? AND project_packages.id = ?
         """,
         (project_id, assignment_id),
     ).fetchone()
     if row is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="project pack not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="project package not found"
         )
     return row
 
 
-def _active_project_pack_rows(
+def _active_project_package_rows(
     connection: sqlite3.Connection, project_id: str
 ) -> list[sqlite3.Row]:
     return connection.execute(
         """
-        SELECT project_packs.id, project_packs.project_id, project_packs.pack_id,
-               project_packs.version_ref, project_packs.position,
-               packs.domain, packs.name
-        FROM project_packs
-        JOIN packs ON packs.id = project_packs.pack_id
-        WHERE project_packs.project_id = ? AND project_packs.active = 1
-        ORDER BY project_packs.position ASC, packs.domain ASC, packs.name ASC
+        SELECT project_packages.id, project_packages.project_id, project_packages.package_id,
+               project_packages.version_ref, project_packages.position,
+               packages.domain, packages.name
+        FROM project_packages
+        JOIN packages ON packages.id = project_packages.package_id
+        WHERE project_packages.project_id = ? AND project_packages.active = 1
+        ORDER BY project_packages.position ASC, packages.domain ASC, packages.name ASC
         """,
         (project_id,),
     ).fetchall()
 
 
-def _pack_file_download_url(domain: str, name: str, version: str, path: str) -> str:
+def _package_file_download_url(domain: str, name: str, version: str, path: str) -> str:
     quoted_path = quote(path, safe="/")
-    return f"/api/v1/packs/{domain}/{name}/versions/{version}/files/{quoted_path}"
+    return f"/api/v1/packages/{domain}/{name}/versions/{version}/files/{quoted_path}"
 
 
-def _raise_pack_artifact_missing() -> NoReturn:
+def _raise_package_artifact_missing() -> NoReturn:
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        detail="pack file not found",
+        detail="package file not found",
     )
 
 
-def _raise_pack_artifact_storage_unavailable(
+def _raise_package_artifact_storage_unavailable(
     exc: OSError | UnicodeDecodeError,
 ) -> NoReturn:
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="pack artifact storage unavailable",
+        detail="package artifact storage unavailable",
     ) from exc
 
 
-def _missing_pack_artifact_or_none(required: bool) -> None:
+def _missing_package_artifact_or_none(required: bool) -> None:
     if required:
-        _raise_pack_artifact_missing()
+        _raise_package_artifact_missing()
     return None
 
 
-def _read_pack_file(
+def _read_package_file(
     storage_dir: Path, relative_path: str, *, required: bool
 ) -> str | None:
     candidate = storage_dir / relative_path
@@ -360,22 +354,22 @@ def _read_pack_file(
         resolved_candidate = candidate.resolve(strict=True)
         resolved_candidate.relative_to(resolved_root)
     except ValueError:
-        return _missing_pack_artifact_or_none(required)
+        return _missing_package_artifact_or_none(required)
     except (FileNotFoundError, NotADirectoryError):
-        return _missing_pack_artifact_or_none(required)
+        return _missing_package_artifact_or_none(required)
     except OSError as exc:
-        _raise_pack_artifact_storage_unavailable(exc)
+        _raise_package_artifact_storage_unavailable(exc)
     if not resolved_candidate.is_file():
-        return _missing_pack_artifact_or_none(required)
-    if _pack_artifact_path_has_symlink_component(storage_dir, candidate):
-        return _missing_pack_artifact_or_none(required)
+        return _missing_package_artifact_or_none(required)
+    if _package_artifact_path_has_symlink_component(storage_dir, candidate):
+        return _missing_package_artifact_or_none(required)
     try:
         return resolved_candidate.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        _raise_pack_artifact_storage_unavailable(exc)
+        _raise_package_artifact_storage_unavailable(exc)
 
 
-def _pack_artifact_path_has_symlink_component(
+def _package_artifact_path_has_symlink_component(
     storage_dir: Path, candidate: Path
 ) -> bool:
     current = candidate
@@ -383,7 +377,7 @@ def _pack_artifact_path_has_symlink_component(
         try:
             is_symlink = current.is_symlink()
         except OSError as exc:
-            _raise_pack_artifact_storage_unavailable(exc)
+            _raise_package_artifact_storage_unavailable(exc)
         if is_symlink:
             return True
         if current == storage_dir:
@@ -400,7 +394,7 @@ def _instruction_artifact(
     path: str,
     required: bool,
 ) -> dict[str, str] | None:
-    content = _read_pack_file(storage_dir, path, required=required)
+    content = _read_package_file(storage_dir, path, required=required)
     if content is None:
         return None
     target_agent = "opencode" if path.endswith("AGENTS.md") else "claude"
@@ -411,7 +405,7 @@ def _instruction_artifact(
         "target_agent": target_agent,
         "target_path": target_path,
         "checksum": managed_payload_checksum(content),
-        "download_url": _pack_file_download_url(domain, name, version, path),
+        "download_url": _package_file_download_url(domain, name, version, path),
     }
 
 
@@ -469,11 +463,11 @@ def _skill_artifacts_for_path(
     skill_name = _skill_name_from_artifact_path(path)
     if skill_name is None:
         return []
-    content = _read_pack_file(storage_dir, path, required=required)
+    content = _read_package_file(storage_dir, path, required=required)
     if content is None:
         return []
     checksum = managed_payload_checksum(content)
-    download_url = _pack_file_download_url(domain, name, version, path)
+    download_url = _package_file_download_url(domain, name, version, path)
     return [
         {
             "kind": "skill",
@@ -519,11 +513,11 @@ def _expected_artifact_paths(manifest: dict[str, Any]) -> set[str] | None:
     return set(raw_paths)
 
 
-def _pull_manifest_pack(
+def _pull_manifest_package(
     connection: sqlite3.Connection, row: sqlite3.Row
 ) -> dict[str, Any]:
-    version_row = _resolved_pack_version_row(
-        connection, str(row["pack_id"]), str(row["version_ref"])
+    version_row = _resolved_package_version_row(
+        connection, str(row["package_id"]), str(row["version_ref"])
     )
     version = str(version_row["version"])
     domain = str(row["domain"])
@@ -637,8 +631,8 @@ def get_project_by_name(
         connection.close()
 
 
-@router.get("/{project_id}/packs")
-def list_project_packs(
+@router.get("/{project_id}/packages")
+def list_project_packages(
     project_id: str,
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
@@ -651,22 +645,24 @@ def list_project_packs(
             parameters: tuple[str, ...] = (project_id,)
         else:
             _ensure_member_can_read_project(connection, project_id, current_user.id)
-            active_filter = "AND project_packs.active = 1"
+            active_filter = "AND project_packages.active = 1"
             parameters = (project_id,)
         rows = connection.execute(
             f"""
-            SELECT project_packs.id, project_packs.project_id, project_packs.pack_id,
-                   project_packs.version_ref, project_packs.position,
-                   project_packs.active, packs.domain, packs.name
-            FROM project_packs
-            JOIN packs ON packs.id = project_packs.pack_id
-            WHERE project_packs.project_id = ? {active_filter}
-            ORDER BY project_packs.position ASC, packs.domain ASC, packs.name ASC
+            SELECT project_packages.id, project_packages.project_id, project_packages.package_id,
+                   project_packages.version_ref, project_packages.position,
+                   project_packages.active, packages.domain, packages.name
+            FROM project_packages
+            JOIN packages ON packages.id = project_packages.package_id
+            WHERE project_packages.project_id = ? {active_filter}
+            ORDER BY project_packages.position ASC, packages.domain ASC, packages.name ASC
             """,
             parameters,
         ).fetchall()
         return {
-            "project_packs": [_project_pack_response(connection, row) for row in rows]
+            "project_packages": [
+                _project_package_response(connection, row) for row in rows
+            ]
         }
     finally:
         connection.close()
@@ -686,60 +682,120 @@ def get_pull_manifest(
             project = _ensure_member_can_read_project(
                 connection, project_id, current_user.id
             )
-        rows = _active_project_pack_rows(connection, project_id)
+        rows = _active_project_package_rows(connection, project_id)
         return {
             "project": {
                 "id": project["id"],
                 "name": project["name"],
                 "repo_url_normalized": project["repo_url_normalized"],
             },
-            "packs": [_pull_manifest_pack(connection, row) for row in rows],
+            "packages": [_pull_manifest_package(connection, row) for row in rows],
         }
     finally:
         connection.close()
 
 
-@router.post("/{project_id}/packs", status_code=status.HTTP_201_CREATED)
-def assign_project_pack(
+@router.get("/{project_id}/packages:available")
+def list_available_project_packages(
     project_id: str,
-    payload: ProjectPackAssign,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, list[dict[str, str]]]:
+    _require_project_admin(current_user)
+    connection = _connect(request)
+    try:
+        _get_active_project(connection, project_id)
+        rows = connection.execute(
+            """
+            SELECT packages.id AS package_id, packages.domain, packages.name,
+                   package_versions.version, package_versions.manifest_json
+            FROM packages
+            JOIN package_versions ON package_versions.package_id = packages.id
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM project_packages
+                WHERE project_packages.project_id = ?
+                  AND project_packages.package_id = packages.id
+                  AND project_packages.active = 1
+            )
+            ORDER BY packages.domain ASC, packages.name ASC, package_versions.version ASC
+            """,
+            (project_id,),
+        ).fetchall()
+        latest_by_package: dict[str, sqlite3.Row] = {}
+        for row in rows:
+            package_id = str(row["package_id"])
+            current = latest_by_package.get(package_id)
+            if current is None or _semver_key(str(row["version"])) > _semver_key(
+                str(current["version"])
+            ):
+                latest_by_package[package_id] = row
+        packages = []
+        for row in sorted(
+            latest_by_package.values(), key=lambda item: (item["domain"], item["name"])
+        ):
+            manifest = json.loads(str(row["manifest_json"]))
+            packages.append(
+                {
+                    "package_ref": f"{row['domain']}/{row['name']}@{row['version']}",
+                    "domain": str(row["domain"]),
+                    "name": str(row["name"]),
+                    "version": str(row["version"]),
+                    "description": str(manifest.get("description", "")),
+                }
+            )
+        return {"packages": packages}
+    finally:
+        connection.close()
+
+
+def _semver_key(version: str) -> tuple[int, int, int]:
+    return tuple(int(part) for part in version.split("."))  # type: ignore[return-value]
+
+
+@router.post("/{project_id}/packages", status_code=status.HTTP_201_CREATED)
+def assign_project_package(
+    project_id: str,
+    payload: ProjectPackageAssign,
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, str | int | bool]:
     _require_project_admin(current_user)
-    pack_ref = _parse_pack_ref_or_400(payload.pack_ref)
+    package_ref = _parse_package_ref_or_400(payload.package_ref)
     connection = _connect(request)
     try:
         connection.execute("BEGIN IMMEDIATE")
         try:
             _get_active_project(connection, project_id)
-            pack_row = _pack_row_or_404(connection, pack_ref)
-            _resolve_pack_version(connection, str(pack_row["id"]), pack_ref.version)
+            package_row = _package_row_or_404(connection, package_ref)
+            _resolve_package_version(
+                connection, str(package_row["id"]), package_ref.version
+            )
             existing = connection.execute(
                 """
-                SELECT id, active FROM project_packs
-                WHERE project_id = ? AND pack_id = ?
+                SELECT id, active FROM project_packages
+                WHERE project_id = ? AND package_id = ?
                 """,
-                (project_id, pack_row["id"]),
+                (project_id, package_row["id"]),
             ).fetchone()
             if existing is not None and existing["active"] == 1:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="project pack assignment already exists",
+                    detail="project package assignment already exists",
                 )
             if existing is None:
                 assignment_id = generate_prefixed_id("asn")
                 connection.execute(
                     """
-                    INSERT INTO project_packs
-                        (id, project_id, pack_id, version_ref, position, active)
+                    INSERT INTO project_packages
+                        (id, project_id, package_id, version_ref, position, active)
                     VALUES (?, ?, ?, ?, ?, 1)
                     """,
                     (
                         assignment_id,
                         project_id,
-                        pack_row["id"],
-                        pack_ref.version,
+                        package_row["id"],
+                        package_ref.version,
                         payload.position,
                     ),
                 )
@@ -747,18 +803,18 @@ def assign_project_pack(
                 assignment_id = str(existing["id"])
                 connection.execute(
                     """
-                    UPDATE project_packs
+                    UPDATE project_packages
                     SET version_ref = ?, position = ?, active = 1,
                         updated_at = datetime('now')
                     WHERE id = ?
                     """,
-                    (pack_ref.version, payload.position, assignment_id),
+                    (package_ref.version, payload.position, assignment_id),
                 )
         except sqlite3.IntegrityError as exc:
             connection.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="project pack assignment already exists",
+                detail="project package assignment already exists",
             ) from exc
         except Exception:
             connection.rollback()
@@ -766,16 +822,16 @@ def assign_project_pack(
         else:
             connection.commit()
         row = _assignment_row(connection, project_id, assignment_id)
-        return _project_pack_response(connection, row)
+        return _project_package_response(connection, row)
     finally:
         connection.close()
 
 
-@router.patch("/{project_id}/packs/{assignment_id}")
-def update_project_pack(
+@router.patch("/{project_id}/packages/{assignment_id}")
+def update_project_package(
     project_id: str,
     assignment_id: str,
-    payload: ProjectPackUpdate,
+    payload: ProjectPackageUpdate,
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, str | int | bool]:
@@ -787,12 +843,14 @@ def update_project_pack(
             _get_active_project(connection, project_id)
             current = _assignment_row(connection, project_id, assignment_id)
             fields: dict[str, Any] = {}
-            if payload.pack_ref is not None:
-                pack_ref = _parse_pack_ref_or_400(payload.pack_ref)
-                pack_row = _pack_row_or_404(connection, pack_ref)
-                _resolve_pack_version(connection, str(pack_row["id"]), pack_ref.version)
-                fields["pack_id"] = str(pack_row["id"])
-                fields["version_ref"] = pack_ref.version
+            if payload.package_ref is not None:
+                package_ref = _parse_package_ref_or_400(payload.package_ref)
+                package_row = _package_row_or_404(connection, package_ref)
+                _resolve_package_version(
+                    connection, str(package_row["id"]), package_ref.version
+                )
+                fields["package_id"] = str(package_row["id"])
+                fields["version_ref"] = package_ref.version
             if payload.position is not None:
                 fields["position"] = payload.position
             if payload.active is not None:
@@ -801,7 +859,7 @@ def update_project_pack(
                 assignments = ", ".join(f"{field} = ?" for field in fields)
                 values = list(fields.values()) + [current["id"]]
                 sql = (
-                    f"UPDATE project_packs SET {assignments}, "
+                    f"UPDATE project_packages SET {assignments}, "
                     "updated_at = datetime('now') WHERE id = ?"
                 )
                 connection.execute(sql, values)
@@ -809,7 +867,7 @@ def update_project_pack(
             connection.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="project pack assignment already exists",
+                detail="project package assignment already exists",
             ) from exc
         except Exception:
             connection.rollback()
@@ -817,13 +875,13 @@ def update_project_pack(
         else:
             connection.commit()
         row = _assignment_row(connection, project_id, assignment_id)
-        return _project_pack_response(connection, row)
+        return _project_package_response(connection, row)
     finally:
         connection.close()
 
 
-@router.delete("/{project_id}/packs/{assignment_id}")
-def deactivate_project_pack(
+@router.delete("/{project_id}/packages/{assignment_id}")
+def deactivate_project_package(
     project_id: str,
     assignment_id: str,
     request: Request,
@@ -838,7 +896,7 @@ def deactivate_project_pack(
             _assignment_row(connection, project_id, assignment_id)
             connection.execute(
                 """
-                UPDATE project_packs
+                UPDATE project_packages
                 SET active = 0, updated_at = datetime('now')
                 WHERE id = ?
                 """,
@@ -850,7 +908,7 @@ def deactivate_project_pack(
         else:
             connection.commit()
         row = _assignment_row(connection, project_id, assignment_id)
-        return _project_pack_response(connection, row)
+        return _project_package_response(connection, row)
     finally:
         connection.close()
 

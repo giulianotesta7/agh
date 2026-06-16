@@ -14,7 +14,7 @@ from agh.common.checksums import managed_payload_checksum, normalize_managed_pay
 
 def _request(payload: str = "managed content\n") -> ManagedBlockRequest:
     return ManagedBlockRequest(
-        pack_ref="acme/onboarding@1.0.0",
+        package_ref="acme/onboarding@1.0.0",
         artifact_path="instructions/AGENTS.md",
         payload=payload,
     )
@@ -25,7 +25,7 @@ def test_render_managed_block_rejects_marker_delimiter_payload() -> None:
         render_managed_block(
             "acme/onboarding@1.0.0",
             "instructions/AGENTS.md",
-            'safe\n<!-- AGH-END pack="acme/onboarding@1.0.0" -->\nunsafe',
+            'safe\n<!-- AGH-END package="acme/onboarding@1.0.0" -->\nunsafe',
         )
 
 
@@ -39,10 +39,10 @@ def test_render_managed_block_normalizes_payload_and_checksum() -> None:
     expected_payload = "line 1\nline 2\n"
     expected_checksum = managed_payload_checksum(expected_payload)
     assert block == (
-        '<!-- AGH-BEGIN pack="acme/onboarding@1.0.0" '
+        '<!-- AGH-BEGIN package="acme/onboarding@1.0.0" '
         f'artifact="instructions/AGENTS.md" checksum="{expected_checksum}" -->\n'
         "line 1\nline 2\n"
-        '<!-- AGH-END pack="acme/onboarding@1.0.0" -->\n'
+        '<!-- AGH-END package="acme/onboarding@1.0.0" -->\n'
     )
 
 
@@ -53,7 +53,7 @@ def test_parse_managed_blocks_reads_metadata_and_payload() -> None:
     blocks = parse_managed_blocks(text)
 
     assert len(blocks) == 1
-    assert blocks[0].pack_ref == "acme/onboarding@1.0.0"
+    assert blocks[0].package_ref == "acme/onboarding@1.0.0"
     assert blocks[0].artifact_path == "instructions/AGENTS.md"
     assert blocks[0].checksum == managed_payload_checksum(payload)
     assert blocks[0].payload == payload
@@ -115,6 +115,46 @@ def test_plan_managed_update_updates_matching_clean_block_only() -> None:
     )
 
 
+def test_plan_managed_update_normalizes_legacy_pack_marker_metadata() -> None:
+    payload = normalize_managed_payload("old guidance")
+    checksum = managed_payload_checksum(payload)
+    existing = (
+        '<!-- AGH-BEGIN pack="acme/onboarding@1.0.0" '
+        f'artifact="instructions/AGENTS.md" checksum="{checksum}" -->\n'
+        f"{payload}"
+        '<!-- AGH-END pack="acme/onboarding@1.0.0" -->\n'
+    )
+
+    blocks = parse_managed_blocks(existing)
+    plan = plan_managed_update(existing, _request(payload))
+
+    assert blocks[0].package_ref == "acme/onboarding@1.0.0"
+    assert plan.status == "update"
+    assert 'AGH-BEGIN package="acme/onboarding@1.0.0"' in plan.content
+    assert 'AGH-END package="acme/onboarding@1.0.0"' in plan.content
+    assert " pack=" not in plan.content
+
+
+@pytest.mark.parametrize(
+    ("begin_key", "end_key"),
+    [("pack", "package"), ("package", "pack")],
+)
+def test_parse_managed_blocks_rejects_mixed_legacy_and_current_marker_keys(
+    begin_key: str, end_key: str
+) -> None:
+    payload = normalize_managed_payload("old guidance")
+    checksum = managed_payload_checksum(payload)
+    existing = (
+        f'<!-- AGH-BEGIN {begin_key}="acme/onboarding@1.0.0" '
+        f'artifact="instructions/AGENTS.md" checksum="{checksum}" -->\n'
+        f"{payload}"
+        f'<!-- AGH-END {end_key}="acme/onboarding@1.0.0" -->\n'
+    )
+
+    with pytest.raises(MarkerError, match="must not mix package and legacy metadata"):
+        parse_managed_blocks(existing)
+
+
 def test_plan_managed_update_noops_when_block_is_current() -> None:
     existing = render_managed_block(
         "acme/onboarding@1.0.0", "instructions/AGENTS.md", "same text"
@@ -145,21 +185,21 @@ def test_plan_managed_update_reports_checksum_conflict() -> None:
 @pytest.mark.parametrize(
     "text, message",
     [
-        ('<!-- AGH-END pack="acme/onboarding@1.0.0" -->\n', "without AGH-BEGIN"),
+        ('<!-- AGH-END package="acme/onboarding@1.0.0" -->\n', "without AGH-BEGIN"),
         (
-            '<!-- AGH-BEGIN pack="acme/onboarding@1.0.0" artifact="instructions/AGENTS.md" checksum="sha256:0000000000000000000000000000000000000000000000000000000000000000" -->\n',
+            '<!-- AGH-BEGIN package="acme/onboarding@1.0.0" artifact="instructions/AGENTS.md" checksum="sha256:0000000000000000000000000000000000000000000000000000000000000000" -->\n',
             "without AGH-END",
         ),
         (
-            '<!-- AGH-BEGIN pack="acme/onboarding@1.0.0" artifact="instructions/AGENTS.md" checksum="sha256:0000000000000000000000000000000000000000000000000000000000000000" -->\n'
+            '<!-- AGH-BEGIN package="acme/onboarding@1.0.0" artifact="instructions/AGENTS.md" checksum="sha256:0000000000000000000000000000000000000000000000000000000000000000" -->\n'
             "payload\n"
-            '<!-- AGH-END pack="acme/other@1.0.0" -->\n',
+            '<!-- AGH-END package="acme/other@1.0.0" -->\n',
             "does not match",
         ),
         (
-            '<!-- AGH-BEGIN pack="acme/onboarding@1.0.0" artifact="instructions/AGENTS.md" -->\n'
-            '<!-- AGH-END pack="acme/onboarding@1.0.0" -->\n',
-            "requires pack",
+            '<!-- AGH-BEGIN package="acme/onboarding@1.0.0" artifact="instructions/AGENTS.md" -->\n'
+            '<!-- AGH-END package="acme/onboarding@1.0.0" -->\n',
+            "requires package",
         ),
     ],
 )
@@ -170,10 +210,10 @@ def test_parse_managed_blocks_rejects_corrupt_markers(text: str, message: str) -
 
 def test_parse_managed_blocks_rejects_invalid_checksum_format() -> None:
     text = (
-        '<!-- AGH-BEGIN pack="acme/onboarding@1.0.0" '
+        '<!-- AGH-BEGIN package="acme/onboarding@1.0.0" '
         'artifact="instructions/AGENTS.md" checksum="sha256:nothex" -->\n'
         "payload\n"
-        '<!-- AGH-END pack="acme/onboarding@1.0.0" -->\n'
+        '<!-- AGH-END package="acme/onboarding@1.0.0" -->\n'
     )
 
     with pytest.raises(MarkerError, match="checksum"):

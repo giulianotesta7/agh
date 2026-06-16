@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS project_members (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS packs (
+CREATE TABLE IF NOT EXISTS packages (
     id TEXT PRIMARY KEY,
     domain TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -52,28 +52,28 @@ CREATE TABLE IF NOT EXISTS packs (
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
 );
 
-CREATE TABLE IF NOT EXISTS pack_versions (
+CREATE TABLE IF NOT EXISTS package_versions (
     id TEXT PRIMARY KEY,
-    pack_id TEXT NOT NULL,
+    package_id TEXT NOT NULL,
     version TEXT NOT NULL,
     manifest_json TEXT NOT NULL,
     storage_path TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     checksum TEXT NOT NULL,
-    UNIQUE (pack_id, version),
-    FOREIGN KEY (pack_id) REFERENCES packs(id) ON DELETE CASCADE
+    UNIQUE (package_id, version),
+    FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS project_packs (
+CREATE TABLE IF NOT EXISTS project_packages (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
-    pack_id TEXT NOT NULL,
+    package_id TEXT NOT NULL,
     version_ref TEXT NOT NULL,
     position INTEGER NOT NULL DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (project_id, pack_id),
+    UNIQUE (project_id, package_id),
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (pack_id) REFERENCES packs(id) ON DELETE CASCADE
+    FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE
 );

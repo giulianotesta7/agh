@@ -45,9 +45,9 @@ def _request_json(
         return response.status, json.loads(response.read().decode("utf-8"))
 
 
-def _pack_files() -> dict[str, str]:
+def _package_files() -> dict[str, str]:
     return {
-        "agh.pack.toml": (
+        "agh.package.toml": (
             'domain = "acme"\n'
             'name = "onboarding"\n'
             'version = "1.0.0"\n'
@@ -166,22 +166,22 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
         assert status == 201
         assert project["repo_url_normalized"] == "github.com/acme/app"
 
-        status, pack = _request_json(
+        status, package = _request_json(
             base_url,
             "POST",
-            "/api/v1/packs",
+            "/api/v1/packages",
             token=owner_token,
-            body={"files": _pack_files()},
+            body={"files": _package_files()},
         )
         assert status == 201
-        assert pack["id"] == "acme/onboarding@1.0.0"
+        assert package["id"] == "acme/onboarding@1.0.0"
 
         status, assignment = _request_json(
             base_url,
             "POST",
-            f"/api/v1/projects/{project['id']}/packs",
+            f"/api/v1/projects/{project['id']}/packages",
             token=owner_token,
-            body={"pack_ref": "acme/onboarding@latest", "position": 0},
+            body={"package_ref": "acme/onboarding@latest", "position": 0},
         )
         assert status == 201
         assert assignment["resolved_ref"] == "acme/onboarding@1.0.0"
@@ -194,9 +194,9 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
         )
         assert status == 200
         assert manifest["project"]["id"] == project["id"]
-        assert manifest["packs"][0]["id"] == "acme/onboarding@1.0.0"
+        assert manifest["packages"][0]["id"] == "acme/onboarding@1.0.0"
         assert {
-            artifact["target_path"] for artifact in manifest["packs"][0]["artifacts"]
+            artifact["target_path"] for artifact in manifest["packages"][0]["artifacts"]
         } == {
             "AGENTS.md",
             "CLAUDE.md",
@@ -240,7 +240,7 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
         assert not (repo / "AGENTS.md").exists()
         assert not (repo / "CLAUDE.md").exists()
         assert (repo / ".agh-cache" / "preferences.toml").exists()
-        assert not (repo / ".agh-cache" / "packs").exists()
+        assert not (repo / ".agh-cache" / "packages").exists()
         assert not (repo / ".agh" / "lock.toml").exists()
 
         pull = runner.invoke(cli_app, ["pull"], env=env)
@@ -261,7 +261,7 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
         assert (
             repo
             / ".agh-cache"
-            / "packs"
+            / "packages"
             / "acme"
             / "onboarding"
             / "1.0.0"
@@ -275,9 +275,11 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
 
         lock = tomllib.loads((repo / ".agh" / "lock.toml").read_text(encoding="utf-8"))
         assert lock["project"]["id"] == project["id"]
-        assert [pack["ref"] for pack in lock["packs"]] == ["acme/onboarding@1.0.0"]
+        assert [package["package_ref"] for package in lock["packages"]] == [
+            "acme/onboarding@1.0.0"
+        ]
         sources = {artifact["source"] for artifact in lock["artifacts"]}
-        assert all(source.startswith(".agh-cache/packs/") for source in sources)
+        assert all(source.startswith(".agh-cache/packages/") for source in sources)
         assert any(
             artifact["mode"] in {"symlink", "copy"} for artifact in lock["artifacts"]
         )

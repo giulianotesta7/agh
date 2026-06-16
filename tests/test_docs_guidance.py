@@ -5,6 +5,34 @@ def _read(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
+def _lockfile_snippet(path: str) -> str:
+    readme = _read(path)
+    mode_line = readme.index('mode = "symlink"')
+    start = readme.rindex("```toml", 0, mode_line) + len("```toml")
+    end = readme.index("```", start)
+    return readme[start:end].strip()
+
+
+def _first_line_index(lines: list[str], prefix: str) -> int:
+    return next(index for index, line in enumerate(lines) if line.startswith(prefix))
+
+
+def test_readme_lockfile_snippets_put_mode_under_artifacts() -> None:
+    for path in ["README.md", "README.es.md"]:
+        snippet = _lockfile_snippet(path)
+        lines = snippet.splitlines()
+
+        assert _first_line_index(lines, "[[packages]]") < _first_line_index(
+            lines, 'package_ref = "acme/onboarding@1.0.0"'
+        )
+        assert _first_line_index(lines, "[[artifacts]]") < _first_line_index(
+            lines, 'mode = "symlink"'
+        )
+        assert _first_line_index(
+            lines, 'package_ref = "acme/onboarding@1.0.0"'
+        ) < _first_line_index(lines, "[[artifacts]]")
+
+
 def test_readme_consolidates_guides_and_bookmarks() -> None:
     readme = _read("README.md")
 
@@ -48,38 +76,41 @@ def test_readme_consolidates_guides_and_bookmarks() -> None:
         "agh pull --dry-run",
         "agh pull",
         "agh agent show",
-        "Pack authoring",
+        "Package authoring",
         "Project assignment",
         "Workspace pull and Git state",
-        "agh.pack.toml",
+        "agh.package.toml",
         'version = "1.0.0"',
         'description = "TODO"',
         "instructions/AGENTS.md",
         "instructions/CLAUDE.md",
         "skills/<name>/SKILL.md",
-        "A pack can contain instructions, skills, or both",
+        "A package can contain instructions, skills, or both",
         "at least one instruction file or skill",
         "Published versions are immutable",
         "Do not publish `latest`",
         "Use UTF-8 text files",
         "Do not include symlinks",
-        "agh pack init ./my-pack --domain acme --name onboarding --version 1.0.0",
+        "agh package init ./my-package --domain acme --name onboarding --version 1.0.0",
         "--with-skill NAME",
-        "agh pack publish",
-        "agh pack list",
+        "agh package publish",
+        "agh package list",
         "Published acme/onboarding@1.0.0.",
-        "agh project pack add",
-        "agh project pack update",
-        "agh project pack remove",
+        "agh project package add",
+        "guides you through project selection, unassigned package selection, and confirmation",
+        "shows unassigned packages for that project",
+        "assigns directly without prompts",
+        "agh project package update",
+        "agh project package remove",
         "asn_...",
-        "packv_...",
+        "pkgv_...",
         "name@version",
-        "No-domain refs must match a single pack domain",
+        "No-domain refs must match a single package domain",
         "latest",
         ".agh/project.toml",
         ".agh/lock.toml",
         ".agh-cache/preferences.toml",
-        ".agh-cache/packs/",
+        ".agh-cache/packages/",
         ".agh-cache/",
         "agh pull --force",
         "agh agent clear",
@@ -96,7 +127,7 @@ def test_readme_consolidates_guides_and_bookmarks() -> None:
         "agh token rotate",
         "agh token reset",
         "/data/agh.sqlite3",
-        "/data/packs/",
+        "/data/packages/",
         "/data/logs/agh.log",
         "The image owns `/data` as `agh:agh` (`10001:10001`) at build time.",
         "Named Docker volumes are initialized from that image-owned `/data` tree.",
@@ -116,14 +147,14 @@ def test_readme_consolidates_guides_and_bookmarks() -> None:
     for removed_link_or_heading in [
         "docs/installation.md",
         "docs/quickstart.md",
-        "docs/packs.md",
+        "docs/packages.md",
         "docs/projects.md",
         "docs/workspace.md",
         "docs/admin.md",
         "docs/operations.md",
         "docs/assets/",
         "## Core concepts",
-        "## Packs",
+        "## Packages",
         "## Projects",
         "## Workspace",
         "## Git state",
@@ -175,32 +206,35 @@ def test_spanish_readme_mirrors_consolidated_guides() -> None:
         "agh pull --dry-run",
         "agh pull",
         "agh agent show",
-        "Autoría de packs",
+        "Autoría de packages",
         "Asignación a proyectos",
         "Pull del workspace y estado en Git",
-        "agh.pack.toml",
+        "agh.package.toml",
         'version = "1.0.0"',
         'description = "TODO"',
-        "Un pack puede contener instrucciones, skills o ambas",
+        "Un package puede contener instrucciones, skills o ambas",
         "al menos un archivo de instrucciones o una skill",
         "Las versiones publicadas son inmutables",
         "No publiques `latest`",
         "Usá archivos UTF-8",
         "No incluyas symlinks",
-        "agh pack init ./my-pack --domain acme --name onboarding --version 1.0.0",
+        "agh package init ./my-package --domain acme --name onboarding --version 1.0.0",
         "--with-skill NAME",
-        "agh pack publish",
-        "agh pack list",
+        "agh package publish",
+        "agh package list",
         "Published acme/onboarding@1.0.0.",
-        "agh project pack add",
-        "agh project pack update",
-        "agh project pack remove",
+        "agh project package add",
+        "guía la selección del proyecto, la selección de un package sin asignar y la confirmación",
+        "muestra packages sin asignar para ese proyecto",
+        "asigna directamente sin prompts",
+        "agh project package update",
+        "agh project package remove",
         "asn_...",
         "latest",
         ".agh/project.toml",
         ".agh/lock.toml",
         ".agh-cache/preferences.toml",
-        ".agh-cache/packs/",
+        ".agh-cache/packages/",
         ".agh-cache/",
         "agh pull --force",
         "agh agent clear",
@@ -215,7 +249,7 @@ def test_spanish_readme_mirrors_consolidated_guides() -> None:
         "agh token rotate",
         "agh token reset",
         "/data/agh.sqlite3",
-        "/data/packs/",
+        "/data/packages/",
         "/data/logs/agh.log",
         "La imagen deja `/data` como `agh:agh` (`10001:10001`) durante el build.",
         "Los named volumes de Docker se inicializan desde ese árbol `/data` ya preparado en la imagen.",
@@ -235,14 +269,14 @@ def test_spanish_readme_mirrors_consolidated_guides() -> None:
     for removed_link_or_heading in [
         "docs/es/installation.md",
         "docs/es/quickstart.md",
-        "docs/es/packs.md",
+        "docs/es/packages.md",
         "docs/es/projects.md",
         "docs/es/workspace.md",
         "docs/es/admin.md",
         "docs/es/operations.md",
         "docs/assets/",
         "## Conceptos",
-        "## Packs",
+        "## Packages",
         "## Proyectos",
         "## Workspace",
         "## Estado en Git",
@@ -497,7 +531,7 @@ def test_dockerfile_documents_data_dirs_and_healthcheck() -> None:
     )
     assert "groupadd --gid 10001 agh" in dockerfile
     assert "useradd --uid 10001 --gid 10001" in dockerfile
-    assert "mkdir -p /data/logs /data/secrets /data/packs" in dockerfile
+    assert "mkdir -p /data/logs /data/secrets /data/packages" in dockerfile
     assert "touch /data/agh.sqlite3" in dockerfile
     assert "chown -R agh:agh /data" in dockerfile
     assert "USER 10001:10001" in dockerfile

@@ -22,7 +22,7 @@ The CLI MUST preserve the current help-first visible output for unknown root com
 
 ### Requirement: Applicability covers routed command groups
 
-The CLI MUST apply unknown-command usage-error behavior to root and applicable nested groups, including config, user, token, project, project member, project pack, pack, and agent.
+The CLI MUST apply unknown-command usage-error behavior to root and applicable nested groups, including config, user, token, project, project member, project package, package, and agent.
 
 #### Scenario: Nested group typo in project member path
 

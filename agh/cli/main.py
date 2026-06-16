@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import json
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -34,9 +35,15 @@ from agh.cli.config import (
     save_config,
     validate_login,
 )
-from agh.cli.pack_init import PackInitError, init_pack_template
-from agh.cli.pack_publish import PackPublishBuildError, build_pack_publish_payload
-from agh.cli.pack_refs import PackVersionRefResolutionError, resolve_pack_version_ref
+from agh.cli.package_init import PackageInitError, init_package_template
+from agh.cli.package_publish import (
+    PackagePublishBuildError,
+    build_package_publish_payload,
+)
+from agh.cli.package_refs import (
+    PackageVersionRefResolutionError,
+    resolve_package_version_ref,
+)
 from agh.cli.project_refs import ProjectRefResolutionError, resolve_project_ref
 from agh.cli.user_refs import UserRefResolutionError, resolve_user_ref
 from agh.cli.workspace_pull import (
@@ -47,7 +54,7 @@ from agh.cli.workspace_pull import (
 from agh.cli.workspace_sync import SyncResult, WorkspaceSyncError, sync_workspace
 from agh.common.validation import validate_project_name
 
-APP_HELP = """Agent Guidance Hub — manage and distribute agent guidance packs.
+APP_HELP = """Agent Guidance Hub — manage and distribute agent guidance packages.
 
 Usage:
   agh [OPTIONS] COMMAND [ARGS]...
@@ -58,9 +65,9 @@ Commands:
   user         Manage users.
   token        Rotate or reset user API tokens.
   project      Manage projects and developer memberships.
-  pack         Create, publish, and list guidance packs.
+  package         Create, publish, and list guidance packages.
   sync         Link this git repository to its matching AGH project.
-  pull         Pull assigned guidance packs into this repository.
+  pull         Pull assigned guidance packages into this repository.
   agent        Show and manage local agent selection.
 
 Global options:
@@ -70,9 +77,12 @@ Arguments:
   Run `agh <command> --help` for command-specific options and arguments.
 """
 USAGE_ERROR_EXIT_CODE = 2
+COMMAND_CANCELLED_EXIT_CODE = 130
 PROJECT_REF_HELP = "Project id or exact name. Numeric refs are treated as ids."
 USER_REF_HELP = "User id or exact email."
-PACK_VERSION_REF_HELP = "Pack ref: packv_..., domain/name@version, or name@version."
+PACKAGE_VERSION_REF_HELP = (
+    "Package ref: pkgv_..., domain/name@version, or name@version."
+)
 
 
 def _exit_on_unknown_command(group: TyperGroup, ctx: Any, args: list[str]) -> None:
@@ -117,7 +127,7 @@ _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 app = typer.Typer(
     name="agh",
     cls=AghHelpGroup,
-    help="Agent Guidance Hub — manage and distribute agent guidance packs.",
+    help="Agent Guidance Hub — manage and distribute agent guidance packages.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
@@ -151,15 +161,15 @@ project_member_app = typer.Typer(
     no_args_is_help=False,
     rich_markup_mode=None,
 )
-project_pack_app = typer.Typer(
+project_package_app = typer.Typer(
     cls=AghSubcommandGroup,
-    help="Manage project pack assignments.",
+    help="Manage project package assignments.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
-pack_app = typer.Typer(
+package_app = typer.Typer(
     cls=AghSubcommandGroup,
-    help="Create, publish, and list AGH packs.",
+    help="Create, publish, and list guidance packages.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
@@ -173,10 +183,10 @@ app.add_typer(config_app, name="config")
 app.add_typer(user_app, name="user")
 app.add_typer(token_app, name="token")
 app.add_typer(project_app, name="project")
-app.add_typer(pack_app, name="pack")
+app.add_typer(package_app, name="package")
 app.add_typer(agent_app, name="agent")
 project_app.add_typer(project_member_app, name="member")
-project_app.add_typer(project_pack_app, name="pack")
+project_app.add_typer(project_package_app, name="package")
 
 
 def _fail(message: str, *, code: int = 1) -> NoReturn:
@@ -294,14 +304,14 @@ def _resolve_user_ref(user_ref: str) -> str:
         _fail(str(exc), code=exc.code)
 
 
-def _resolve_pack_version_ref(pack_ref: str) -> str:
+def _resolve_package_version_ref(package_ref: str) -> str:
     try:
-        return resolve_pack_version_ref(pack_ref, _api_request)
-    except PackVersionRefResolutionError as exc:
+        return resolve_package_version_ref(package_ref, _api_request)
+    except PackageVersionRefResolutionError as exc:
         _fail(str(exc), code=exc.code)
 
 
-@app.command("pull", help="Pull assigned guidance packs into this repository.")
+@app.command("pull", help="Pull assigned guidance packages into this repository.")
 def pull(
     dry_run: Annotated[
         bool,
@@ -658,45 +668,50 @@ def _echo_project_list(payload: dict[str, Any]) -> None:
     )
 
 
-def _echo_pack_list(payload: dict[str, Any]) -> None:
-    packs = payload.get("packs", [])
-    if not packs:
-        typer.echo("No packs found.")
+def _echo_package_list(payload: dict[str, Any]) -> None:
+    packages = payload.get("packages", [])
+    if not packages:
+        typer.echo("No packages found.")
         return
     _echo_table(
-        ["PACK_REF", "DESCRIPTION"],
-        [[_pack_ref(pack), str(pack.get("description", ""))] for pack in packs],
+        ["PACKAGE_REF", "DESCRIPTION"],
+        [
+            [_package_ref(package), str(package.get("description", ""))]
+            for package in packages
+        ],
     )
 
 
-def _pack_ref(pack: dict[str, Any]) -> str:
-    if pack.get("id"):
-        return str(pack["id"])
-    return f"{pack.get('domain', '')}/{pack.get('name', '')}@{pack.get('version', '')}"
+def _package_ref(package: dict[str, Any]) -> str:
+    if package.get("id"):
+        return str(package["id"])
+    return f"{package.get('domain', '')}/{package.get('name', '')}@{package.get('version', '')}"
 
 
-def _echo_pack_published(pack: dict[str, Any]) -> None:
-    typer.echo(f"Published {_pack_ref(pack)}.")
-    if pack.get("pack_id"):
-        typer.echo(f"Pack ID: {pack.get('pack_id')}")
-    if pack.get("description"):
-        typer.echo(f"Description: {pack.get('description')}")
-    if pack.get("checksum"):
-        typer.echo(f"Checksum: {pack.get('checksum')}")
+def _echo_package_published(package: dict[str, Any]) -> None:
+    typer.echo(f"Published {_package_ref(package)}.")
+    if package.get("package_id"):
+        typer.echo(f"Package ID: {package.get('package_id')}")
+    if package.get("description"):
+        typer.echo(f"Description: {package.get('description')}")
+    if package.get("checksum"):
+        typer.echo(f"Checksum: {package.get('checksum')}")
 
 
-def _echo_project_pack_list(payload: dict[str, Any]) -> None:
-    assignments = payload.get("project_packs", [])
+def _echo_project_package_list(payload: dict[str, Any]) -> None:
+    assignments = payload.get("project_packages", [])
     if not assignments:
-        typer.echo("No assigned packs found.")
+        typer.echo("No assigned packages found.")
         return
     _echo_table(
-        ["ASSIGNMENT_ID", "PACK_REF", "RESOLVED", "POSITION", "STATUS"],
+        ["ASSIGNMENT_ID", "PACKAGE_REF", "RESOLVED", "POSITION", "STATUS"],
         [
             [
                 str(assignment.get("id", "")),
-                str(assignment.get("pack_ref", "")),
-                str(assignment.get("resolved_ref") or assignment.get("pack_ref", "")),
+                str(assignment.get("package_ref", "")),
+                str(
+                    assignment.get("resolved_ref") or assignment.get("package_ref", "")
+                ),
                 str(assignment.get("position", 0)),
                 _status_label(assignment),
             ]
@@ -734,31 +749,112 @@ def _echo_project_member_success(
     )
 
 
-def _echo_project_pack_assigned(payload: dict[str, Any], *, project_id: str) -> None:
-    pack_ref = str(payload.get("pack_ref", ""))
-    typer.echo(f"Assigned {pack_ref} to project {project_id}.")
-    typer.echo(f"Resolved: {payload.get('resolved_ref') or pack_ref}")
+def _echo_project_package_assigned(payload: dict[str, Any], *, project_id: str) -> None:
+    package_ref = str(payload.get("package_ref", ""))
+    typer.echo(f"Assigned {package_ref} to project {project_id}.")
+    typer.echo(f"Resolved: {payload.get('resolved_ref') or package_ref}")
     typer.echo(f"Assignment: {payload.get('id', '')}")
 
 
-def _echo_project_pack_updated(
+def _echo_project_package_updated(
     payload: dict[str, Any], *, project_id: str, assignment_id: str
 ) -> None:
     returned_assignment_id = str(payload.get("id") or assignment_id)
-    pack_ref = str(payload.get("pack_ref", ""))
+    package_ref = str(payload.get("package_ref", ""))
     typer.echo(f"Updated assignment {returned_assignment_id} on project {project_id}.")
-    typer.echo(f"Pack: {pack_ref}")
-    typer.echo(f"Resolved: {payload.get('resolved_ref') or pack_ref}")
+    typer.echo(f"Package: {package_ref}")
+    typer.echo(f"Resolved: {payload.get('resolved_ref') or package_ref}")
     typer.echo(f"Position: {payload.get('position', 0)}")
     typer.echo(f"Status: {_status_label(payload)}")
 
 
-def _echo_project_pack_removed(
+def _echo_project_package_removed(
     payload: dict[str, Any], *, project_id: str, assignment_id: str
 ) -> None:
     returned_assignment_id = str(payload.get("id") or assignment_id)
     typer.echo(
         f"Removed assignment {returned_assignment_id} from project {project_id}."
+    )
+
+
+def _stdin_is_interactive() -> bool:
+    return sys.stdin.isatty()
+
+
+def _prompt_selection_index(label: str, *, count: int) -> int:
+    try:
+        raw_choice = input(f"{label}: ").strip()
+    except EOFError:
+        _fail("selection requires input", code=USAGE_ERROR_EXIT_CODE)
+    if not raw_choice:
+        _fail("selection requires input", code=USAGE_ERROR_EXIT_CODE)
+    try:
+        choice = int(raw_choice)
+    except ValueError:
+        _fail("selection must be a number", code=USAGE_ERROR_EXIT_CODE)
+    if choice < 1 or choice > count:
+        _fail("selection is out of range", code=USAGE_ERROR_EXIT_CODE)
+    return choice - 1
+
+
+def _select_available_package_ref(project_id: str) -> str | None:
+    if not _stdin_is_interactive():
+        _fail_omitted_package_ref_requires_tty()
+    payload = _api_request("GET", f"/projects/{project_id}/packages:available")
+    packages = payload.get("packages", []) if isinstance(payload, dict) else []
+    if not packages:
+        typer.echo(f"No unassigned packages are available for project {project_id}.")
+        typer.echo(
+            f"Run `agh project package list {project_id}` to review assignments or "
+            "`agh project package update` to change an existing assignment."
+        )
+        return None
+    typer.echo("Available packages:")
+    for index, package in enumerate(packages, start=1):
+        package_ref = str(package.get("package_ref", ""))
+        description = str(package.get("description", ""))
+        suffix = f" - {description}" if description else ""
+        typer.echo(f"{index}. {package_ref}{suffix}")
+
+    choice_index = _prompt_selection_index("Select a package", count=len(packages))
+    package_ref = str(packages[choice_index].get("package_ref", ""))
+    if not package_ref:
+        _fail("available package response did not include package_ref")
+    if not typer.confirm(f"Assign {package_ref} to project {project_id}?"):
+        typer.echo("Cancelled.")
+        raise typer.Exit(COMMAND_CANCELLED_EXIT_CODE)
+    return package_ref
+
+
+def _select_visible_project_id() -> str | None:
+    if not _stdin_is_interactive():
+        _fail_omitted_package_ref_requires_tty()
+    payload = _api_request("GET", "/projects")
+    projects = payload.get("projects", []) if isinstance(payload, dict) else []
+    if not projects:
+        typer.echo("No projects found.")
+        return None
+
+    typer.echo("Visible projects:")
+    for index, project in enumerate(projects, start=1):
+        project_id = str(project.get("id", ""))
+        name = str(project.get("name", ""))
+        repo_url = str(project.get("repo_url_normalized", ""))
+        suffix = f" - {repo_url}" if repo_url else ""
+        typer.echo(f"{index}. {name} ({project_id}){suffix}")
+
+    choice_index = _prompt_selection_index("Select a project", count=len(projects))
+    project_id = str(projects[choice_index].get("id", ""))
+    if not project_id:
+        _fail("project response did not include project id")
+    return project_id
+
+
+def _fail_omitted_package_ref_requires_tty() -> None:
+    _fail(
+        "agh project package add without a package ref requires an "
+        "interactive terminal",
+        code=USAGE_ERROR_EXIT_CODE,
     )
 
 
@@ -945,24 +1041,24 @@ def project_path(project_id: str) -> str:
     return f"/projects/{project_id}"
 
 
-@pack_app.callback(invoke_without_command=True)
-def pack_main(ctx: typer.Context) -> None:
-    """Pack init/publish/list commands."""
+@package_app.callback(invoke_without_command=True)
+def package_main(ctx: typer.Context) -> None:
+    """Package init/publish/list commands."""
     if ctx.invoked_subcommand is None:
         typer.echo(APP_HELP)
         raise typer.Exit(0)
 
 
-@pack_app.command("list", help="List published pack versions.")
-def pack_list() -> None:
-    _echo_pack_list(_api_request("GET", "/packs"))
+@package_app.command("list", help="List published package versions.")
+def package_list() -> None:
+    _echo_package_list(_api_request("GET", "/packages"))
 
 
-@pack_app.command("init", help="Create a local pack template.")
-def pack_init(
-    path: Annotated[Path, typer.Argument(help="Directory to create for the pack.")],
-    domain: Annotated[str, typer.Option("--domain", help="Pack domain slug.")],
-    name: Annotated[str, typer.Option("--name", help="Pack name slug.")],
+@package_app.command("init", help="Create a local package template.")
+def package_init(
+    path: Annotated[Path, typer.Argument(help="Directory to create for the package.")],
+    domain: Annotated[str, typer.Option("--domain", help="Package domain slug.")],
+    name: Annotated[str, typer.Option("--name", help="Package name slug.")],
     version: Annotated[str, typer.Option("--version", help="Initial SemVer version.")],
     description: Annotated[
         str, typer.Option("--description", help="Manifest description.")
@@ -979,7 +1075,7 @@ def pack_init(
     ] = None,
 ) -> None:
     try:
-        result = init_pack_template(
+        result = init_package_template(
             path,
             domain=domain,
             name=name,
@@ -989,24 +1085,26 @@ def pack_init(
             with_claude=with_claude,
             skills=with_skill,
         )
-    except PackInitError as exc:
+    except PackageInitError as exc:
         _fail(str(exc), code=2)
-    typer.echo(f"Initialized pack template at {result.root}")
+    typer.echo(f"Initialized package template at {result.root}")
     typer.echo(f"Manifest: {result.manifest}")
     typer.echo(
-        f"Next: add instructions or skills, then run agh pack publish {result.root}"
+        f"Next: add instructions or skills, then run agh package publish {result.root}"
     )
 
 
-@pack_app.command("publish", help="Publish a local pack directory.")
-def pack_publish(
-    path: Annotated[Path, typer.Argument(help="Directory containing agh.pack.toml.")],
+@package_app.command("publish", help="Publish a local package directory.")
+def package_publish(
+    path: Annotated[
+        Path, typer.Argument(help="Directory containing agh.package.toml.")
+    ],
 ) -> None:
     try:
-        body = build_pack_publish_payload(path)
-    except PackPublishBuildError as exc:
+        body = build_package_publish_payload(path)
+    except PackagePublishBuildError as exc:
         _fail(str(exc), code=2)
-    _echo_pack_published(_api_request("POST", "/packs", body=body))
+    _echo_package_published(_api_request("POST", "/packages", body=body))
 
 
 @project_member_app.callback(invoke_without_command=True)
@@ -1051,48 +1149,62 @@ def project_member_remove(
     )
 
 
-@project_pack_app.callback(invoke_without_command=True)
-def project_pack_main(ctx: typer.Context) -> None:
-    """Project pack assignment commands."""
+@project_package_app.callback(invoke_without_command=True)
+def project_package_main(ctx: typer.Context) -> None:
+    """Project package assignment commands."""
     if ctx.invoked_subcommand is None:
         typer.echo(APP_HELP)
         raise typer.Exit(0)
 
 
-@project_pack_app.command("list", help="List project pack assignments.")
-def project_pack_list(
+@project_package_app.command("list", help="List project package assignments.")
+def project_package_list(
     project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
 ) -> None:
     resolved_project_id = _resolve_project_ref(project_id)
-    _echo_project_pack_list(
-        _api_request("GET", f"/projects/{resolved_project_id}/packs")
+    _echo_project_package_list(
+        _api_request("GET", f"/projects/{resolved_project_id}/packages")
     )
 
 
-@project_pack_app.command("add", help="Assign a pack to a project.")
-def project_pack_add(
-    project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
-    pack_ref: Annotated[str, typer.Argument(help=PACK_VERSION_REF_HELP)],
+@project_package_app.command("add", help="Assign a package to a project.")
+def project_package_add(
+    project_id: Annotated[str | None, typer.Argument(help=PROJECT_REF_HELP)] = None,
+    package_ref: Annotated[
+        str | None, typer.Argument(help=PACKAGE_VERSION_REF_HELP)
+    ] = None,
     position: Annotated[int, typer.Option("--position", help="Assignment order.")] = 0,
 ) -> None:
-    resolved_project_id = _resolve_project_ref(project_id)
-    resolved_pack_ref = _resolve_pack_version_ref(pack_ref)
-    _echo_project_pack_assigned(
+    if package_ref is None and not _stdin_is_interactive():
+        _fail_omitted_package_ref_requires_tty()
+    if project_id is None:
+        resolved_project_id = _select_visible_project_id()
+        if resolved_project_id is None:
+            return
+    else:
+        resolved_project_id = _resolve_project_ref(project_id)
+    if package_ref is None:
+        resolved_package_ref = _select_available_package_ref(resolved_project_id)
+        if resolved_package_ref is None:
+            return
+    else:
+        resolved_package_ref = _resolve_package_version_ref(package_ref)
+    _echo_project_package_assigned(
         _api_request(
             "POST",
-            f"/projects/{resolved_project_id}/packs",
-            body={"pack_ref": resolved_pack_ref, "position": position},
+            f"/projects/{resolved_project_id}/packages",
+            body={"package_ref": resolved_package_ref, "position": position},
         ),
         project_id=resolved_project_id,
     )
 
 
-@project_pack_app.command("update", help="Update a project pack assignment.")
-def project_pack_update(
+@project_package_app.command("update", help="Update a project package assignment.")
+def project_package_update(
     project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
     assignment_id: Annotated[str, typer.Argument(help="Assignment id, e.g. asn_...")],
-    pack_ref: Annotated[
-        str | None, typer.Option("--pack-ref", help=PACK_VERSION_REF_HELP)
+    package_ref: Annotated[
+        str | None, typer.Option("--package-ref", help=PACKAGE_VERSION_REF_HELP)
     ] = None,
     position: Annotated[
         int | None, typer.Option("--position", help="New order.")
@@ -1103,15 +1215,15 @@ def project_pack_update(
     ] = None,
 ) -> None:
     resolved_project_id = _resolve_project_ref(project_id)
-    resolved_pack_ref = (
-        _resolve_pack_version_ref(pack_ref) if pack_ref is not None else None
+    resolved_package_ref = (
+        _resolve_package_version_ref(package_ref) if package_ref is not None else None
     )
-    _echo_project_pack_updated(
+    _echo_project_package_updated(
         _api_request(
             "PATCH",
-            f"/projects/{resolved_project_id}/packs/{assignment_id}",
+            f"/projects/{resolved_project_id}/packages/{assignment_id}",
             body=_body_without_none(
-                pack_ref=resolved_pack_ref, position=position, active=active
+                package_ref=resolved_package_ref, position=position, active=active
             ),
         ),
         project_id=resolved_project_id,
@@ -1119,15 +1231,15 @@ def project_pack_update(
     )
 
 
-@project_pack_app.command("remove", help="Deactivate a project pack assignment.")
-def project_pack_remove(
+@project_package_app.command("remove", help="Deactivate a project package assignment.")
+def project_package_remove(
     project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
     assignment_id: Annotated[str, typer.Argument(help="Assignment id, e.g. asn_...")],
 ) -> None:
     resolved_project_id = _resolve_project_ref(project_id)
-    _echo_project_pack_removed(
+    _echo_project_package_removed(
         _api_request(
-            "DELETE", f"/projects/{resolved_project_id}/packs/{assignment_id}"
+            "DELETE", f"/projects/{resolved_project_id}/packages/{assignment_id}"
         ),
         project_id=resolved_project_id,
         assignment_id=assignment_id,

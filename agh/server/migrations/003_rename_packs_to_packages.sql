@@ -1,0 +1,2 @@
+-- Python migration hook in agh.server.db performs the conditional legacy
+-- packs -> packages table/data rename and storage path repair.

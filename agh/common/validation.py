@@ -12,14 +12,14 @@ _TAG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 @dataclass(frozen=True)
-class PackRef:
+class PackageRef:
     domain: str
     name: str
     version: str
 
 
 @dataclass(frozen=True)
-class PackVersionRef:
+class PackageVersionRef:
     kind: str
     value: str
     domain: str | None = None
@@ -62,9 +62,9 @@ def compare_semver(left: str, right: str) -> int:
     return (left_parts > right_parts) - (left_parts < right_parts)
 
 
-def parse_pack_ref(value: str, *, allow_latest: bool) -> PackRef:
+def parse_package_ref(value: str, *, allow_latest: bool) -> PackageRef:
     if "@" not in value or "/" not in value:
-        raise ValueError(f"invalid pack ref: {value}")
+        raise ValueError(f"invalid package ref: {value}")
 
     pair, version = value.rsplit("@", 1)
     domain, name = pair.split("/", 1)
@@ -75,31 +75,31 @@ def parse_pack_ref(value: str, *, allow_latest: bool) -> PackRef:
         if not allow_latest:
             raise ValueError("latest is not allowed here")
     elif not is_semver(version):
-        raise ValueError(f"invalid pack version: {version}")
+        raise ValueError(f"invalid package version: {version}")
 
-    return PackRef(domain=domain, name=name, version=version)
+    return PackageRef(domain=domain, name=name, version=version)
 
 
-def parse_pack_version_ref(value: str, *, allow_latest: bool) -> PackVersionRef:
+def parse_package_version_ref(value: str, *, allow_latest: bool) -> PackageVersionRef:
     if not value:
-        raise ValueError("pack version ref is required")
+        raise ValueError("package version ref is required")
 
-    if value.startswith("packv_"):
-        if not is_valid_prefixed_id(value, "packv"):
-            raise ValueError(f"invalid pack version id: {value}")
-        return PackVersionRef(kind="id", value=value)
+    if value.startswith("pkgv_"):
+        if not is_valid_prefixed_id(value, "pkgv"):
+            raise ValueError(f"invalid package version id: {value}")
+        return PackageVersionRef(kind="id", value=value)
 
     if "@" not in value:
-        raise ValueError(f"invalid pack version ref: {value}")
+        raise ValueError(f"invalid package version ref: {value}")
 
     if "/" in value.rsplit("@", 1)[0]:
-        pack_ref = parse_pack_ref(value, allow_latest=allow_latest)
-        return PackVersionRef(
+        package_ref = parse_package_ref(value, allow_latest=allow_latest)
+        return PackageVersionRef(
             kind="canonical",
             value=value,
-            domain=pack_ref.domain,
-            name=pack_ref.name,
-            version=pack_ref.version,
+            domain=package_ref.domain,
+            name=package_ref.name,
+            version=package_ref.version,
         )
 
     name, version = value.rsplit("@", 1)
@@ -108,9 +108,9 @@ def parse_pack_version_ref(value: str, *, allow_latest: bool) -> PackVersionRef:
         if not allow_latest:
             raise ValueError("latest is not allowed here")
     elif not is_semver(version):
-        raise ValueError(f"invalid pack version: {version}")
+        raise ValueError(f"invalid package version: {version}")
 
-    return PackVersionRef(
+    return PackageVersionRef(
         kind="name_version",
         value=value,
         name=name,
@@ -118,8 +118,8 @@ def parse_pack_version_ref(value: str, *, allow_latest: bool) -> PackVersionRef:
     )
 
 
-def validate_pack_publish_ref(value: str) -> PackRef:
-    return parse_pack_ref(value, allow_latest=False)
+def validate_package_publish_ref(value: str) -> PackageRef:
+    return parse_package_ref(value, allow_latest=False)
 
 
 def is_valid_tag(value: str) -> bool:

@@ -15,6 +15,7 @@ from agh.cli.workspace_pull import (
     _cleanup_cache_stage_dirs,
     _cleanup_stale_cache_staging_dirs,
     _commit_pull_writes,
+    _plan_skill_placements,
     _stage_cache_artifacts,
     populate_cache_and_write_lock,
 )
@@ -59,7 +60,7 @@ def _config(url: str) -> AghConfig:
 def _manifest(*, content: str = "Use AGH.\n") -> dict[str, Any]:
     return {
         "project": {"id": "prj_1", "name": "Demo"},
-        "packs": [
+        "packages": [
             {
                 "id": "acme/onboarding@1.0.0",
                 "assignment_id": "asn_1",
@@ -77,7 +78,7 @@ def _manifest(*, content: str = "Use AGH.\n") -> dict[str, Any]:
                         "target_agent": "opencode",
                         "target_path": "AGENTS.md",
                         "checksum": managed_payload_checksum(content),
-                        "download_url": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+                        "download_url": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
                     }
                 ],
             }
@@ -87,7 +88,7 @@ def _manifest(*, content: str = "Use AGH.\n") -> dict[str, Any]:
 
 def _downloaded_artifact(*, content: str = "Use AGH.\n") -> DownloadedArtifact:
     return DownloadedArtifact(
-        pack_ref="acme/onboarding@1.0.0",
+        package_ref="acme/onboarding@1.0.0",
         path="instructions/AGENTS.md",
         target_path="AGENTS.md",
         checksum=managed_payload_checksum(content),
@@ -102,7 +103,7 @@ def _downloaded_artifact(*, content: str = "Use AGH.\n") -> DownloadedArtifact:
 
 def _downloaded_extra_artifact(*, content: str = "Use Claude.\n") -> DownloadedArtifact:
     return DownloadedArtifact(
-        pack_ref="acme/onboarding@1.0.0",
+        package_ref="acme/onboarding@1.0.0",
         path="instructions/CLAUDE.md",
         target_path="CLAUDE.md",
         checksum=managed_payload_checksum(content),
@@ -116,14 +117,16 @@ def _downloaded_extra_artifact(*, content: str = "Use Claude.\n") -> DownloadedA
 
 
 def _committed_cache_artifact(workspace: Path) -> Path:
-    return workspace / ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+    return (
+        workspace / ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
+    )
 
 
 def _downloaded_skill_artifact(
     *, name: str = "reviewer", content: str = "Review carefully.\n"
 ) -> DownloadedArtifact:
     return DownloadedArtifact(
-        pack_ref="acme/onboarding@1.0.0",
+        package_ref="acme/onboarding@1.0.0",
         path=f"skills/{name}/SKILL.md",
         target_path=f".opencode/skills/{name}/SKILL.md",
         checksum=managed_payload_checksum(content),
@@ -271,24 +274,102 @@ def test_commit_pull_writes_lock_failure_restores_promoted_outputs(
     assert not skill.exists()
 
 
+def _create_legacy_skill_symlink(
+    tmp_path: Path, legacy_root: Path
+) -> tuple[Path, Path]:
+    legacy_cache = (
+        tmp_path
+        / legacy_root
+        / "acme"
+        / "onboarding"
+        / "1.0.0"
+        / "skills"
+        / "reviewer"
+        / "SKILL.md"
+    )
+    legacy_cache.parent.mkdir(parents=True)
+    legacy_cache.write_text("legacy skill\n", encoding="utf-8")
+    skill_target = tmp_path / ".opencode" / "skills" / "reviewer" / "SKILL.md"
+    skill_target.parent.mkdir(parents=True)
+    skill_target.symlink_to(
+        workspace_pull.relative_symlink_target(source=legacy_cache, target=skill_target)
+    )
+    return legacy_cache, skill_target
+
+
+@pytest.mark.parametrize(
+    "legacy_root",
+    [Path(".agh-cache/packs"), Path(".agh/packs")],
+    ids=["agh-cache-packs", "agh-packs"],
+)
+def test_plan_skill_placement_updates_legacy_pack_symlink(
+    tmp_path: Path, legacy_root: Path
+) -> None:
+    _create_legacy_skill_symlink(tmp_path, legacy_root)
+
+    changes = _plan_skill_placements(
+        tmp_path, [_downloaded_skill_artifact()], force=False
+    )
+
+    assert len(changes) == 1
+    assert changes[0].status == "update"
+    assert changes[0].conflicts == []
+
+
+@pytest.mark.parametrize(
+    "legacy_root",
+    [Path(".agh-cache/packs"), Path(".agh/packs")],
+    ids=["agh-cache-packs", "agh-packs"],
+)
+def test_commit_pull_writes_replaces_legacy_pack_skill_symlink(
+    tmp_path: Path, legacy_root: Path
+) -> None:
+    _, skill_target = _create_legacy_skill_symlink(tmp_path, legacy_root)
+
+    _commit_pull_writes(
+        tmp_path,
+        manifest=_manifest(),
+        artifacts=[_downloaded_artifact(), _downloaded_skill_artifact()],
+        instruction_plan=PullPlan(
+            status="noop", exit_code=0, dry_run=False, changes=[]
+        ),
+        skill_artifacts=[_downloaded_skill_artifact()],
+    )
+
+    canonical_cache = (
+        tmp_path
+        / ".agh-cache"
+        / "packages"
+        / "acme"
+        / "onboarding"
+        / "1.0.0"
+        / "skills"
+        / "reviewer"
+        / "SKILL.md"
+    )
+    assert canonical_cache.read_text(encoding="utf-8") == "Review carefully.\n"
+    assert skill_target.is_symlink()
+    assert workspace_pull.symlink_points_to(skill_target, canonical_cache)
+
+
 def test_stage_cache_artifacts_writes_sibling_stage_dir_only(tmp_path: Path) -> None:
     staged = _stage_cache_artifacts(tmp_path, artifacts=[_downloaded_artifact()])
 
     stage_dir = staged.stage_dirs[0]
     assert stage_dir.parent == (
-        tmp_path / ".agh-cache" / "packs" / "acme" / "onboarding"
+        tmp_path / ".agh-cache" / "packages" / "acme" / "onboarding"
     )
     assert stage_dir.name.startswith(".agh-pull-stage-1.0.0-")
     assert (stage_dir / "instructions" / "AGENTS.md").read_text(
         encoding="utf-8"
     ) == "Use AGH.\n"
     assert staged.artifacts[0].cache_path == Path(
-        ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+        ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
     assert not (
         tmp_path
         / ".agh-cache"
-        / "packs"
+        / "packages"
         / "acme"
         / "onboarding"
         / "1.0.0"
@@ -297,13 +378,70 @@ def test_stage_cache_artifacts_writes_sibling_stage_dir_only(tmp_path: Path) -> 
     ).exists()
 
 
+def test_populate_cache_and_write_lock_replaces_legacy_pack_cache_metadata(
+    tmp_path: Path,
+) -> None:
+    legacy_cache = (
+        tmp_path
+        / ".agh-cache"
+        / "packs"
+        / "acme"
+        / "onboarding"
+        / "1.0.0"
+        / "instructions"
+        / "AGENTS.md"
+    )
+    legacy_cache.parent.mkdir(parents=True)
+    legacy_cache.write_text("legacy cache\n", encoding="utf-8")
+    legacy_lock = tmp_path / ".agh" / "lock.toml"
+    legacy_lock.parent.mkdir()
+    legacy_lock.write_text(
+        'version = 1\n\n[[packs]]\npack_ref = "acme/onboarding@1.0.0"\n',
+        encoding="utf-8",
+    )
+    server, handler, url = _serve_artifacts(
+        {
+            "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md": (  # noqa: E501
+                200,
+                "Use AGH.\n",
+            )
+        }
+    )
+    try:
+        result = populate_cache_and_write_lock(
+            tmp_path,
+            config=_config(url),
+            manifest=_manifest(),
+        )
+    finally:
+        server.shutdown()
+
+    assert handler.requests == [
+        {
+            "path": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",  # noqa: E501
+            "authorization": "Bearer pull-token",
+        }
+    ]
+    assert result.artifacts[0].cache_path == Path(
+        ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
+    )
+    assert (
+        tmp_path / ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
+    ).read_text(encoding="utf-8") == "Use AGH.\n"
+    lock_text = legacy_lock.read_text(encoding="utf-8")
+    assert "[[packages]]" in lock_text
+    assert 'package_ref = "acme/onboarding@1.0.0"' in lock_text
+    assert "[[packs]]" not in lock_text
+    assert "pack_ref" not in lock_text
+
+
 def test_stage_cache_artifacts_failure_preserves_committed_cache_and_lock(
     tmp_path: Path, monkeypatch
 ) -> None:
     committed = (
         tmp_path
         / ".agh-cache"
-        / "packs"
+        / "packages"
         / "acme"
         / "onboarding"
         / "1.0.0"
@@ -337,7 +475,7 @@ def test_stage_cache_artifacts_second_write_failure_cleans_partial_stage(
     committed = (
         tmp_path
         / ".agh-cache"
-        / "packs"
+        / "packages"
         / "acme"
         / "onboarding"
         / "1.0.0"
@@ -375,14 +513,14 @@ def test_stage_cache_artifacts_second_write_failure_cleans_partial_stage(
 def test_cleanup_stale_cache_staging_dirs_removes_only_agh_stage_siblings(
     tmp_path: Path,
 ) -> None:
-    pack_parent = tmp_path / ".agh-cache" / "packs" / "acme" / "onboarding"
-    stale = pack_parent / ".agh-pull-stage-1.0.0-old"
+    package_parent = tmp_path / ".agh-cache" / "packages" / "acme" / "onboarding"
+    stale = package_parent / ".agh-pull-stage-1.0.0-old"
     stale_file = stale / "instructions" / "AGENTS.md"
     stale_file.parent.mkdir(parents=True)
     stale_file.write_text("stale\n", encoding="utf-8")
-    committed = pack_parent / "1.0.0"
+    committed = package_parent / "1.0.0"
     committed.mkdir()
-    unrelated = pack_parent / "manual-stage"
+    unrelated = package_parent / "manual-stage"
     unrelated.mkdir()
 
     _cleanup_stale_cache_staging_dirs(tmp_path, manifest=_manifest())
@@ -395,7 +533,7 @@ def test_cleanup_stale_cache_staging_dirs_removes_only_agh_stage_siblings(
 def test_cleanup_cache_stage_dirs_rejects_stage_like_path_outside_cache(
     tmp_path: Path,
 ) -> None:
-    cache_dir = tmp_path / "workspace" / ".agh-cache" / "packs"
+    cache_dir = tmp_path / "workspace" / ".agh-cache" / "packages"
     outside_stage = tmp_path / "outside" / ".agh-pull-stage-1.0.0-evil"
     outside_stage.mkdir(parents=True)
 
@@ -408,13 +546,13 @@ def test_cleanup_cache_stage_dirs_rejects_stage_like_path_outside_cache(
 def test_cleanup_stale_cache_staging_dirs_unlinks_stage_symlink_without_target_delete(
     tmp_path: Path,
 ) -> None:
-    pack_parent = tmp_path / ".agh-cache" / "packs" / "acme" / "onboarding"
-    pack_parent.mkdir(parents=True)
+    package_parent = tmp_path / ".agh-cache" / "packages" / "acme" / "onboarding"
+    package_parent.mkdir(parents=True)
     outside = tmp_path / "outside"
     outside.mkdir()
     outside_file = outside / "keep.txt"
     outside_file.write_text("keep\n", encoding="utf-8")
-    stage_link = pack_parent / ".agh-pull-stage-1.0.0-link"
+    stage_link = package_parent / ".agh-pull-stage-1.0.0-link"
     stage_link.symlink_to(outside, target_is_directory=True)
 
     _cleanup_stale_cache_staging_dirs(tmp_path, manifest=_manifest())
@@ -427,7 +565,7 @@ def test_populate_cache_downloads_artifacts_and_writes_lock(tmp_path: Path) -> N
     content = "Use AGH.\n"
     server, handler, url = _serve_artifacts(
         {
-            "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md": (
+            "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md": (
                 200,
                 content,
             )
@@ -443,7 +581,7 @@ def test_populate_cache_downloads_artifacts_and_writes_lock(tmp_path: Path) -> N
     cached = (
         tmp_path
         / ".agh-cache"
-        / "packs"
+        / "packages"
         / "acme"
         / "onboarding"
         / "1.0.0"
@@ -451,28 +589,28 @@ def test_populate_cache_downloads_artifacts_and_writes_lock(tmp_path: Path) -> N
         / "AGENTS.md"
     )
     lock_path = tmp_path / ".agh" / "lock.toml"
-    assert result.cache_dir == tmp_path / ".agh-cache" / "packs"
+    assert result.cache_dir == tmp_path / ".agh-cache" / "packages"
     assert result.lock_path == lock_path
     assert cached.read_text(encoding="utf-8") == content
     assert result.artifacts[0].cache_path == Path(
-        ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"
+        ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"
     )
     assert handler.requests == [
         {
-            "path": "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
+            "path": "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md",
             "authorization": "Bearer pull-token",
         }
     ]
     lock = lock_path.read_text(encoding="utf-8")
     assert "version = 1" in lock
     assert 'id = "prj_1"' in lock
-    assert 'ref = "acme/onboarding@1.0.0"' in lock
+    assert 'package_ref = "acme/onboarding@1.0.0"' in lock
     assert 'path = "instructions/AGENTS.md"' in lock
     assert 'target_path = "AGENTS.md"' in lock
     assert f'checksum = "{managed_payload_checksum(content)}"' in lock
     assert 'mode = "cache"' in lock
     assert (
-        'source = ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"'
+        'source = ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"'
         in lock
     )
     assert str(tmp_path) not in lock
@@ -481,7 +619,7 @@ def test_populate_cache_downloads_artifacts_and_writes_lock(tmp_path: Path) -> N
 def test_populate_cache_rejects_checksum_mismatch_without_lock(tmp_path: Path) -> None:
     server, _handler, url = _serve_artifacts(
         {
-            "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md": (
+            "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md": (
                 200,
                 "different\n",
             )
@@ -509,11 +647,11 @@ def test_populate_cache_rejects_checksum_mismatch_without_lock(tmp_path: Path) -
         {"download_url": "/api/v1/%2e%2e/admin"},
         {"download_url": "/api/v1/%2e%2e%2fadmin"},
         {"download_url": "/api/v1/%2e%2fadmin"},
-        {"download_url": "/api/v1/packs;param/bar"},
+        {"download_url": "/api/v1/packages;param/bar"},
         {"download_url": "/api/v1/..\\admin"},
         {"download_url": "/api/v1/%5c..%5cadmin"},
-        {"download_url": "%2fapi%2fv1/packs/acme/onboarding"},
-        {"download_url": "/api/v1/packs?x=1"},
+        {"download_url": "%2fapi%2fv1/packages/acme/onboarding"},
+        {"download_url": "/api/v1/packages?x=1"},
         {"path": "instructions/BAD\nNAME.md"},
         {"target_path": "BAD\nTARGET.md"},
         {"path": "bad\x01name.md"},
@@ -537,7 +675,7 @@ def test_populate_cache_rejects_unsafe_manifest_values(
     tmp_path: Path, artifact_update: dict[str, object]
 ) -> None:
     manifest = _manifest()
-    manifest["packs"][0]["artifacts"][0].update(artifact_update)
+    manifest["packages"][0]["artifacts"][0].update(artifact_update)
 
     with pytest.raises(WorkspacePullError) as exc_info:
         populate_cache_and_write_lock(
@@ -596,7 +734,7 @@ def test_populate_cache_rejects_symlinked_cache_dir(tmp_path: Path) -> None:
     outside.mkdir()
     cache_dir = tmp_path / ".agh-cache"
     cache_dir.mkdir()
-    (cache_dir / "packs").symlink_to(outside, target_is_directory=True)
+    (cache_dir / "packages").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(WorkspacePullError, match="symlinked"):
         populate_cache_and_write_lock(
@@ -609,7 +747,7 @@ def test_populate_cache_rejects_symlinked_intermediate_cache_dir(
 ) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
-    cache_root = tmp_path / ".agh-cache" / "packs" / "acme"
+    cache_root = tmp_path / ".agh-cache" / "packages" / "acme"
     cache_root.parent.mkdir(parents=True)
     cache_root.symlink_to(outside, target_is_directory=True)
 
@@ -621,15 +759,15 @@ def test_populate_cache_rejects_symlinked_intermediate_cache_dir(
 
 def test_populate_cache_rejects_non_object_manifest_entries(tmp_path: Path) -> None:
     manifest = _manifest()
-    manifest["packs"].append("bad")
+    manifest["packages"].append("bad")
 
-    with pytest.raises(WorkspacePullError, match="packs must be objects"):
+    with pytest.raises(WorkspacePullError, match="packages must be objects"):
         populate_cache_and_write_lock(
             tmp_path, config=_config("http://127.0.0.1:9"), manifest=manifest
         )
 
     manifest = _manifest()
-    manifest["packs"][0]["artifacts"].append("bad")
+    manifest["packages"][0]["artifacts"].append("bad")
 
     with pytest.raises(WorkspacePullError, match="artifacts must be objects"):
         populate_cache_and_write_lock(
@@ -656,7 +794,7 @@ def test_lock_source_is_workspace_relative_even_under_dot_agh_parent(
     content = "Use AGH.\n"
     server, _handler, url = _serve_artifacts(
         {
-            "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md": (
+            "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md": (
                 200,
                 content,
             )
@@ -671,10 +809,10 @@ def test_lock_source_is_workspace_relative_even_under_dot_agh_parent(
 
     lock = (workspace / ".agh" / "lock.toml").read_text(encoding="utf-8")
     assert (
-        'source = ".agh-cache/packs/acme/onboarding/1.0.0/instructions/AGENTS.md"'
+        'source = ".agh-cache/packages/acme/onboarding/1.0.0/instructions/AGENTS.md"'
         in lock
     )
-    assert ".agh/nested-workspace/.agh-cache/packs" not in lock
+    assert ".agh/nested-workspace/.agh-cache/packages" not in lock
 
 
 def test_lockfile_rejects_project_id_control_characters(tmp_path: Path) -> None:
@@ -691,7 +829,7 @@ def test_lockfile_is_valid_toml(tmp_path: Path) -> None:
     content = "Use AGH.\n"
     server, _handler, url = _serve_artifacts(
         {
-            "/api/v1/packs/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md": (
+            "/api/v1/packages/acme/onboarding/versions/1.0.0/files/instructions/AGENTS.md": (
                 200,
                 content,
             )
@@ -709,5 +847,5 @@ def test_lockfile_is_valid_toml(tmp_path: Path) -> None:
     parsed = tomllib.loads((tmp_path / ".agh" / "lock.toml").read_text())
     assert parsed["version"] == 1
     assert parsed["project"]["id"] == "prj_1"
-    assert parsed["packs"][0]["ref"] == "acme/onboarding@1.0.0"
+    assert parsed["packages"][0]["package_ref"] == "acme/onboarding@1.0.0"
     assert parsed["artifacts"][0]["path"] == "instructions/AGENTS.md"

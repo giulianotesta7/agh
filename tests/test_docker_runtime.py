@@ -166,7 +166,7 @@ def test_runtime_user_can_write_required_data_paths(running_container: str) -> N
         "touch /data/.pytest-runtime "
         "/data/logs/.pytest-runtime "
         "/data/secrets/.pytest-runtime "
-        "/data/packs/.pytest-runtime"
+        "/data/packages/.pytest-runtime"
     )
 
     _run(
@@ -183,7 +183,7 @@ def test_named_volume_is_initialized_from_image_owned_data_tree(
         running_container,
         "sh",
         "-c",
-        "stat -c '%u:%g %F' /data /data/logs /data/secrets /data/packs /data/agh.sqlite3",
+        "stat -c '%u:%g %F' /data /data/logs /data/secrets /data/packages /data/agh.sqlite3",
     ).stdout.splitlines()
 
     assert ownership == [
@@ -208,7 +208,7 @@ def _prepare_bind_mount(image: str, bind_mount: Path, owner: str) -> None:
         f"{bind_mount}:/data",
         image,
         "-c",
-        "mkdir -p /data/logs /data/secrets /data/packs && "
+        "mkdir -p /data/logs /data/secrets /data/packages && "
         "touch /data/agh.sqlite3 && "
         f"chown -R {owner} /data && chmod -R u+rwX,g+rwX /data",
     )
@@ -254,7 +254,7 @@ def test_pre_owned_bind_mount_is_operator_responsibility(
             "sh",
             "-c",
             "touch /data/.pytest-bind /data/logs/.pytest-bind "
-            "/data/secrets/.pytest-bind /data/packs/.pytest-bind",
+            "/data/secrets/.pytest-bind /data/packages/.pytest-bind",
         )
     finally:
         _run("docker", "rm", "-f", container, check=False)
@@ -267,7 +267,7 @@ def test_root_owned_bind_mount_is_not_repaired_by_container(
     bind_mount = tmp_path / "root-owned-data"
     (bind_mount / "logs").mkdir(parents=True)
     (bind_mount / "secrets").mkdir()
-    (bind_mount / "packs").mkdir()
+    (bind_mount / "packages").mkdir()
     (bind_mount / "agh.sqlite3").touch()
     if os.getuid() == 10001:
         _skip_or_fail("Host user already matches the container runtime UID")

@@ -7,12 +7,12 @@ import tomllib
 from agh.common.validation import is_semver, is_valid_slug, is_valid_tag
 
 
-class PackManifestError(ValueError):
+class PackageManifestError(ValueError):
     pass
 
 
 @dataclass(frozen=True)
-class PackManifest:
+class PackageManifest:
     domain: str
     name: str
     version: str
@@ -22,18 +22,18 @@ class PackManifest:
 
 def _as_non_empty_string(value: object, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise PackManifestError(f"{field} is required")
+        raise PackageManifestError(f"{field} is required")
     return value.strip()
 
 
-def load_pack_manifest(path: Path) -> PackManifest:
+def load_package_manifest(path: Path) -> PackageManifest:
     if not path.is_file():
-        raise PackManifestError("agh.pack.toml is required")
+        raise PackageManifestError("agh.package.toml is required")
 
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as exc:
-        raise PackManifestError(f"invalid agh.pack.toml: {exc}") from exc
+        raise PackageManifestError(f"invalid agh.package.toml: {exc}") from exc
 
     domain = _as_non_empty_string(data.get("domain"), "domain")
     name = _as_non_empty_string(data.get("name"), "name")
@@ -41,23 +41,23 @@ def load_pack_manifest(path: Path) -> PackManifest:
     description = _as_non_empty_string(data.get("description"), "description")
 
     if not is_valid_slug(domain):
-        raise PackManifestError(f"invalid domain: {domain}")
+        raise PackageManifestError(f"invalid domain: {domain}")
     if not is_valid_slug(name):
-        raise PackManifestError(f"invalid name: {name}")
+        raise PackageManifestError(f"invalid name: {name}")
     if not is_semver(version):
-        raise PackManifestError(f"invalid version: {version}")
+        raise PackageManifestError(f"invalid version: {version}")
 
     raw_tags = data.get("tags", [])
     if not isinstance(raw_tags, list):
-        raise PackManifestError("tags must be a list")
+        raise PackageManifestError("tags must be a list")
 
     tags: list[str] = []
     for tag in raw_tags:
         if not isinstance(tag, str) or not is_valid_tag(tag):
-            raise PackManifestError(f"invalid tag: {tag}")
+            raise PackageManifestError(f"invalid tag: {tag}")
         tags.append(tag)
 
-    return PackManifest(
+    return PackageManifest(
         domain=domain,
         name=name,
         version=version,

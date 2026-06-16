@@ -54,7 +54,7 @@ def _create_project(
     return response.json()
 
 
-def _pack_files(
+def _package_files(
     domain: str,
     name: str,
     version: str,
@@ -64,7 +64,7 @@ def _pack_files(
     skill: str | None = None,
 ) -> dict[str, str]:
     files = {
-        "agh.pack.toml": (
+        "agh.package.toml": (
             f'domain = "{domain}"\n'
             f'name = "{name}"\n'
             f'version = "{version}"\n'
@@ -81,7 +81,7 @@ def _pack_files(
     return files
 
 
-def _publish_pack(
+def _publish_package(
     client: TestClient,
     token: str,
     ref: str,
@@ -93,9 +93,9 @@ def _publish_pack(
     pair, version = ref.split("@", 1)
     domain, name = pair.split("/", 1)
     response = client.post(
-        "/api/v1/packs",
+        "/api/v1/packages",
         json={
-            "files": _pack_files(
+            "files": _package_files(
                 domain, name, version, agents=agents, claude=claude, skill=skill
             )
         },
@@ -105,17 +105,17 @@ def _publish_pack(
     return response.json()
 
 
-def _assign_pack(
+def _assign_package(
     client: TestClient,
     token: str,
     project_id: str,
-    pack_ref: str,
+    package_ref: str,
     *,
     position: int = 0,
 ):
     response = client.post(
-        f"/api/v1/projects/{project_id}/packs",
-        json={"pack_ref": pack_ref, "position": position},
+        f"/api/v1/projects/{project_id}/packages",
+        json={"package_ref": package_ref, "position": position},
         headers=_auth(token),
     )
     assert response.status_code == 201, response.text
@@ -127,8 +127,8 @@ def _publish_and_assign(
 ) -> tuple[TestClient, str, dict[str, Any]]:
     client, owner_token = _client_with_owner(tmp_path, monkeypatch)
     project = _create_project(client, owner_token)
-    _publish_pack(client, owner_token, ref, **files)
-    _assign_pack(client, owner_token, project["id"], ref)
+    _publish_package(client, owner_token, ref, **files)
+    _assign_package(client, owner_token, project["id"], ref)
     return client, owner_token, project
 
 
@@ -154,12 +154,12 @@ def _store_manifest_artifact_paths(tmp_path: Path, artifact_paths: Any) -> None:
     connection = connect_database(get_database_path(tmp_path))
     try:
         row = connection.execute(
-            "SELECT id, manifest_json FROM pack_versions"
+            "SELECT id, manifest_json FROM package_versions"
         ).fetchone()
         manifest = json.loads(row["manifest_json"])
         manifest["artifact_paths"] = artifact_paths
         connection.execute(
-            "UPDATE pack_versions SET manifest_json = ? WHERE id = ?",
+            "UPDATE package_versions SET manifest_json = ? WHERE id = ?",
             (json.dumps(manifest, sort_keys=True), row["id"]),
         )
         connection.commit()
@@ -167,10 +167,10 @@ def _store_manifest_artifact_paths(tmp_path: Path, artifact_paths: Any) -> None:
         connection.close()
 
 
-def _stored_pack_path(tmp_path: Path, ref: str, relative_path: str) -> Path:
+def _stored_package_path(tmp_path: Path, ref: str, relative_path: str) -> Path:
     pair, version = ref.split("@", 1)
     domain, name = pair.split("/", 1)
-    return tmp_path / "packs" / domain / name / version / relative_path
+    return tmp_path / "packages" / domain / name / version / relative_path
 
 
 def test_pull_manifest_resolves_latest_orders_assignments_and_builds_artifacts(
@@ -182,13 +182,13 @@ def test_pull_manifest_resolves_latest_orders_assignments_and_builds_artifacts(
     onboarding_agents = "# Onboarding\nUse onboarding.\n"
     onboarding_claude = "# Claude\nUse Claude.\n"
     skill_content = "# Lint\nRun lint.\n"
-    _publish_pack(
+    _publish_package(
         client,
         owner_token,
         "acme/onboarding@1.0.0",
         agents="# Old\n",
     )
-    _publish_pack(
+    _publish_package(
         client,
         owner_token,
         "acme/onboarding@1.2.0",
@@ -196,16 +196,18 @@ def test_pull_manifest_resolves_latest_orders_assignments_and_builds_artifacts(
         claude=onboarding_claude,
         skill=skill_content,
     )
-    _publish_pack(
+    _publish_package(
         client,
         owner_token,
         "acme/baseline@1.0.0",
         agents=baseline_agents,
     )
-    _assign_pack(
+    _assign_package(
         client, owner_token, project["id"], "acme/onboarding@latest", position=20
     )
-    _assign_pack(client, owner_token, project["id"], "acme/baseline@1.0.0", position=20)
+    _assign_package(
+        client, owner_token, project["id"], "acme/baseline@1.0.0", position=20
+    )
 
     response = client.get(
         f"/api/v1/projects/{project['id']}/pull-manifest", headers=_auth(owner_token)
@@ -218,12 +220,12 @@ def test_pull_manifest_resolves_latest_orders_assignments_and_builds_artifacts(
         "name": "App",
         "repo_url_normalized": "github.com/org/app",
     }
-    assert [pack["id"] for pack in body["packs"]] == [
+    assert [package["id"] for package in body["packages"]] == [
         "acme/baseline@1.0.0",
         "acme/onboarding@1.2.0",
     ]
-    assert [pack["position"] for pack in body["packs"]] == [20, 20]
-    baseline, onboarding = body["packs"]
+    assert [package["position"] for package in body["packages"]] == [20, 20]
+    baseline, onboarding = body["packages"]
     assert baseline["manifest"]["description"] == "acme/baseline 1.0.0"
     assert onboarding["assignment_id"].startswith("asn_")
     assert onboarding["manifest"]["version"] == "1.2.0"
@@ -239,7 +241,7 @@ def test_pull_manifest_resolves_latest_orders_assignments_and_builds_artifacts(
     assert agents_artifact["path"] == "instructions/AGENTS.md"
     assert agents_artifact["checksum"] == managed_payload_checksum(onboarding_agents)
     assert agents_artifact["download_url"].endswith(
-        "/api/v1/packs/acme/onboarding/versions/1.2.0/files/instructions/AGENTS.md"
+        "/api/v1/packages/acme/onboarding/versions/1.2.0/files/instructions/AGENTS.md"
     )
     assert claude_artifact["checksum"] == managed_payload_checksum(onboarding_claude)
     assert opencode_skill["kind"] == "skill"
@@ -249,21 +251,21 @@ def test_pull_manifest_resolves_latest_orders_assignments_and_builds_artifacts(
     assert baseline_artifact["checksum"] == managed_payload_checksum(baseline_agents)
 
 
-def test_pull_manifest_includes_skill_only_pack_artifacts(
+def test_pull_manifest_includes_skill_only_package_artifacts(
     tmp_path: Path, monkeypatch
 ) -> None:
     client, owner_token = _client_with_owner(tmp_path, monkeypatch)
     project = _create_project(client, owner_token)
     skill_content = "# Lint\nUse lint skill.\n"
-    _publish_pack(client, owner_token, "acme/skills@1.0.0", skill=skill_content)
-    _assign_pack(client, owner_token, project["id"], "acme/skills@1.0.0")
+    _publish_package(client, owner_token, "acme/skills@1.0.0", skill=skill_content)
+    _assign_package(client, owner_token, project["id"], "acme/skills@1.0.0")
 
     response = client.get(
         f"/api/v1/projects/{project['id']}/pull-manifest", headers=_auth(owner_token)
     )
 
     assert response.status_code == 200, response.text
-    artifacts = response.json()["packs"][0]["artifacts"]
+    artifacts = response.json()["packages"][0]["artifacts"]
     assert {artifact["kind"] for artifact in artifacts} == {"skill"}
     assert {artifact["target_path"] for artifact in artifacts} == {
         ".opencode/skills/lint/SKILL.md",
@@ -287,7 +289,7 @@ def test_pull_manifest_legacy_missing_discovered_skill_file_is_skipped(
         agents=agents,
         skill="# Lint\n",
     )
-    stored_skill = _stored_pack_path(
+    stored_skill = _stored_package_path(
         tmp_path, "acme/legacy@1.0.0", "skills/lint/SKILL.md"
     )
     stored_skill.unlink()
@@ -295,7 +297,7 @@ def test_pull_manifest_legacy_missing_discovered_skill_file_is_skipped(
     response = _pull_manifest(client, owner_token, project)
 
     assert response.status_code == 200, response.text
-    artifacts = response.json()["packs"][0]["artifacts"]
+    artifacts = response.json()["packages"][0]["artifacts"]
     assert [artifact["path"] for artifact in artifacts] == ["instructions/AGENTS.md"]
     assert artifacts[0]["checksum"] == managed_payload_checksum(agents)
 
@@ -312,7 +314,7 @@ def test_pull_manifest_legacy_missing_optional_instruction_file_is_skipped(
         claude="# Claude Guide\n",
         skill=None,
     )
-    stored_claude = _stored_pack_path(
+    stored_claude = _stored_package_path(
         tmp_path, "acme/legacy@1.0.0", "instructions/CLAUDE.md"
     )
     stored_claude.unlink()
@@ -320,7 +322,7 @@ def test_pull_manifest_legacy_missing_optional_instruction_file_is_skipped(
     response = _pull_manifest(client, owner_token, project)
 
     assert response.status_code == 200, response.text
-    artifacts = response.json()["packs"][0]["artifacts"]
+    artifacts = response.json()["packages"][0]["artifacts"]
     assert [artifact["path"] for artifact in artifacts] == ["instructions/AGENTS.md"]
     assert artifacts[0]["checksum"] == managed_payload_checksum(agents)
 
@@ -337,7 +339,7 @@ def test_pull_manifest_expected_instruction_read_oserror_returns_json_503(
         skill=None,
     )
     _store_manifest_artifact_paths(tmp_path, ["instructions/AGENTS.md"])
-    stored_agents = _stored_pack_path(
+    stored_agents = _stored_package_path(
         tmp_path, "acme/current@1.0.0", "instructions/AGENTS.md"
     )
     original_read_text = Path.read_text
@@ -352,7 +354,7 @@ def test_pull_manifest_expected_instruction_read_oserror_returns_json_503(
     response = _pull_manifest(client, owner_token, project)
 
     assert response.status_code == 503
-    assert response.json() == {"detail": "pack artifact storage unavailable"}
+    assert response.json() == {"detail": "package artifact storage unavailable"}
 
 
 @pytest.mark.parametrize("artifact_paths", ["skills/lint/SKILL.md", ["not/a/thing"]])
@@ -368,7 +370,7 @@ def test_pull_manifest_malformed_artifact_paths_uses_legacy_discovery(
     response = _pull_manifest(client, owner_token, project)
 
     assert response.status_code == 200, response.text
-    _assert_skill_artifacts(response.json()["packs"][0]["artifacts"], skill_content)
+    _assert_skill_artifacts(response.json()["packages"][0]["artifacts"], skill_content)
 
 
 @pytest.mark.parametrize(
@@ -403,13 +405,13 @@ def test_pull_manifest_expected_missing_storage_returns_json_404(
         tmp_path, monkeypatch, ref, **files
     )
     _store_manifest_artifact_paths(tmp_path, artifact_paths)
-    stored_path = _stored_pack_path(tmp_path, ref, missing_path)
+    stored_path = _stored_package_path(tmp_path, ref, missing_path)
     shutil.rmtree(stored_path) if remove_tree else stored_path.unlink()
 
     response = _pull_manifest(client, owner_token, project)
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "pack file not found"}
+    assert response.json() == {"detail": "package file not found"}
 
 
 def test_pull_manifest_expected_symlink_artifact_returns_json_404(
@@ -419,18 +421,18 @@ def test_pull_manifest_expected_symlink_artifact_returns_json_404(
         tmp_path, monkeypatch, "acme/skills@1.0.0", skill="# Lint\n"
     )
     _store_manifest_artifact_paths(tmp_path, ["skills/lint/SKILL.md"])
-    stored_skill = _stored_pack_path(
+    stored_skill = _stored_package_path(
         tmp_path, "acme/skills@1.0.0", "skills/lint/SKILL.md"
     )
     stored_skill.unlink()
     stored_skill.symlink_to(
-        _stored_pack_path(tmp_path, "acme/skills@1.0.0", "agh.pack.toml")
+        _stored_package_path(tmp_path, "acme/skills@1.0.0", "agh.package.toml")
     )
 
     response = _pull_manifest(client, owner_token, project)
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "pack file not found"}
+    assert response.json() == {"detail": "package file not found"}
 
 
 def test_pull_manifest_unreadable_expected_artifact_returns_json_503(
@@ -440,7 +442,7 @@ def test_pull_manifest_unreadable_expected_artifact_returns_json_503(
         tmp_path, monkeypatch, "acme/skills@1.0.0", skill="# Lint\n"
     )
     _store_manifest_artifact_paths(tmp_path, ["skills/lint/SKILL.md"])
-    stored_skill = _stored_pack_path(
+    stored_skill = _stored_package_path(
         tmp_path, "acme/skills@1.0.0", "skills/lint/SKILL.md"
     )
     stored_skill.write_bytes(b"\xff\xfe\x00")
@@ -448,7 +450,7 @@ def test_pull_manifest_unreadable_expected_artifact_returns_json_503(
     response = _pull_manifest(client, owner_token, project)
 
     assert response.status_code == 503
-    assert response.json() == {"detail": "pack artifact storage unavailable"}
+    assert response.json() == {"detail": "package artifact storage unavailable"}
 
 
 def test_pull_manifest_developer_access_and_non_member_denial(
@@ -458,8 +460,8 @@ def test_pull_manifest_developer_access_and_non_member_denial(
     developer, developer_token = _create_user(client, owner_token, "dev@example.com")
     _other, other_token = _create_user(client, owner_token, "other@example.com")
     project = _create_project(client, owner_token)
-    _publish_pack(client, owner_token, "acme/onboarding@1.0.0", agents="# Guide\n")
-    _assign_pack(client, owner_token, project["id"], "acme/onboarding@1.0.0")
+    _publish_package(client, owner_token, "acme/onboarding@1.0.0", agents="# Guide\n")
+    _assign_package(client, owner_token, project["id"], "acme/onboarding@1.0.0")
 
     non_member = client.get(
         f"/api/v1/projects/{project['id']}/pull-manifest", headers=_auth(other_token)
@@ -476,7 +478,7 @@ def test_pull_manifest_developer_access_and_non_member_denial(
         headers=_auth(developer_token),
     )
     assert developer_response.status_code == 200
-    assert developer_response.json()["packs"][0]["id"] == "acme/onboarding@1.0.0"
+    assert developer_response.json()["packages"][0]["id"] == "acme/onboarding@1.0.0"
 
 
 def test_pull_manifest_rejects_inactive_project_and_omits_inactive_assignments(
@@ -484,12 +486,14 @@ def test_pull_manifest_rejects_inactive_project_and_omits_inactive_assignments(
 ) -> None:
     client, owner_token = _client_with_owner(tmp_path, monkeypatch)
     project = _create_project(client, owner_token)
-    _publish_pack(client, owner_token, "acme/active@1.0.0", agents="# Active\n")
-    _publish_pack(client, owner_token, "acme/inactive@1.0.0", agents="# Inactive\n")
-    active = _assign_pack(client, owner_token, project["id"], "acme/active@1.0.0")
-    inactive = _assign_pack(client, owner_token, project["id"], "acme/inactive@1.0.0")
+    _publish_package(client, owner_token, "acme/active@1.0.0", agents="# Active\n")
+    _publish_package(client, owner_token, "acme/inactive@1.0.0", agents="# Inactive\n")
+    active = _assign_package(client, owner_token, project["id"], "acme/active@1.0.0")
+    inactive = _assign_package(
+        client, owner_token, project["id"], "acme/inactive@1.0.0"
+    )
     removed = client.delete(
-        f"/api/v1/projects/{project['id']}/packs/{inactive['id']}",
+        f"/api/v1/projects/{project['id']}/packages/{inactive['id']}",
         headers=_auth(owner_token),
     )
     assert removed.status_code == 200
@@ -498,7 +502,7 @@ def test_pull_manifest_rejects_inactive_project_and_omits_inactive_assignments(
         f"/api/v1/projects/{project['id']}/pull-manifest", headers=_auth(owner_token)
     )
     assert response.status_code == 200
-    assert [pack["assignment_id"] for pack in response.json()["packs"]] == [
+    assert [package["assignment_id"] for package in response.json()["packages"]] == [
         active["id"]
     ]
 

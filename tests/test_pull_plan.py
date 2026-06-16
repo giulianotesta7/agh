@@ -22,7 +22,7 @@ def _artifact(
     content: str = "Use AGH guidance.\n",
 ) -> PullArtifact:
     return PullArtifact(
-        pack_ref="acme/onboarding@1.0.0",
+        package_ref="acme/onboarding@1.0.0",
         artifact_path=artifact_path,
         target_path=target_path,
         content=content,
@@ -193,10 +193,10 @@ def test_plan_pull_rejects_symlinked_target(tmp_path: Path) -> None:
 
 def test_plan_pull_rejects_corrupt_existing_markers(tmp_path: Path) -> None:
     (tmp_path / "AGENTS.md").write_text(
-        '<!-- AGH-BEGIN pack="acme/onboarding@1.0.0" '
+        '<!-- AGH-BEGIN package="acme/onboarding@1.0.0" '
         'artifact="instructions/AGENTS.md" checksum="sha256:nothex" -->\n'
         "payload\n"
-        '<!-- AGH-END pack="acme/onboarding@1.0.0" -->\n',
+        '<!-- AGH-END package="acme/onboarding@1.0.0" -->\n',
         encoding="utf-8",
     )
 

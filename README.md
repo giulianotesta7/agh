@@ -28,7 +28,7 @@
 Use it when agent guidance needs the same discipline as infrastructure: reproducible changes, clear ownership, and self-hosted runtime. AGH is early, Docker-first, and published as a PyPI package, Homebrew formula, and GHCR server image.
 
 - **Centralize guidance**: publish shared `AGENTS.md`, `CLAUDE.md`, and skill files once.
-- **Version every change**: packs are immutable SemVer releases assigned to projects.
+- **Version every change**: packages are immutable SemVer releases assigned to projects.
 - **Keep repos deterministic**: each workspace records `.agh/lock.toml` and applies only the selected agent target.
 - **Run it yourself**: host the server with Docker, SQLite, and persistent `/data` storage.
 
@@ -132,7 +132,7 @@ agh agent show
 ## How AGH works
 
 ```text
-Pack author ── publish ──▶ AGH server ── assign ──▶ Project
+Package author ── publish ──▶ AGH server ── assign ──▶ Project
                               │                         │
                               │                         ▼
                          SQLite + /data          Repo workspace
@@ -143,18 +143,18 @@ Pack author ── publish ──▶ AGH server ── assign ──▶ Project
 
 | Piece | What it does |
 |-------|--------------|
-| Packs | Shared instructions, skills, or both. Published versions are immutable. |
-| Projects | One git repository plus the pack versions it should use. |
+| Packages | Shared instructions, skills, or both. Published versions are immutable. |
+| Projects | One git repository plus the package versions it should use. |
 | Workspaces | A local repo linked with `agh sync`, one selected agent, and a committed lockfile. |
 
 <details>
-<summary><strong>Pack authoring</strong></summary>
+<summary><strong>Package authoring</strong></summary>
 
-A pack starts with this shape:
+A package starts with this shape:
 
 ```text
-my-pack/
-├── agh.pack.toml
+my-package/
+├── agh.package.toml
 ├── instructions/
 │   ├── AGENTS.md
 │   └── CLAUDE.md
@@ -166,7 +166,7 @@ my-pack/
 Create a template:
 
 ```bash
-agh pack init ./my-pack --domain acme --name onboarding --version 1.0.0
+agh package init ./my-package --domain acme --name onboarding --version 1.0.0
 ```
 
 The manifest starts as:
@@ -186,32 +186,32 @@ Useful starter flags:
 
 Allowed files:
 
-- `agh.pack.toml`
+- `agh.package.toml`
 - `instructions/AGENTS.md`
 - `instructions/CLAUDE.md`
 - `skills/<name>/SKILL.md`
 
 Rules:
 
-- A pack can contain instructions, skills, or both.
+- A package can contain instructions, skills, or both.
 - It must include at least one instruction file or skill.
 - `version` must be exact SemVer, such as `1.0.0`.
 - Published versions are immutable. Publish `1.0.1` for changes.
-- Do not publish `latest`. Use `latest` only when assigning packs to projects.
+- Do not publish `latest`. Use `latest` only when assigning packages to projects.
 - Use UTF-8 text files. Do not include symlinks.
 
-Publish and list packs:
+Publish and list packages:
 
 ```bash
-agh pack publish ./my-pack
-agh pack list
+agh package publish ./my-package
+agh package list
 ```
 
 Example publish output:
 
 ```text
 Published acme/onboarding@1.0.0.
-Pack ID: pack_...
+Package ID: pkg_...
 Checksum: sha256:...
 ```
 
@@ -233,17 +233,23 @@ agh project delete prj_...
 
 Project commands that take a project reference accept `prj_...` ids or exact project names. All-digit values are treated as ids, and project names cannot contain only digits.
 
-Assign packs to a project:
+Assign packages interactively or directly:
 
 ```bash
-agh project pack add prj_... acme/onboarding@latest
-agh project pack add prj_... onboarding@1.0.0
-agh project pack list prj_...
-agh project pack update prj_... asn_... --pack-ref acme/onboarding@1.0.0
-agh project pack remove prj_... asn_...
+agh project package add
+agh project package add prj_...
+agh project package add prj_... acme/onboarding@latest
+agh project package add prj_... onboarding@1.0.0
+agh project package list prj_...
+agh project package update prj_... asn_... --package-ref acme/onboarding@1.0.0
+agh project package remove prj_... asn_...
 ```
 
-`asn_...` identifies the project-to-pack assignment. Pack inputs accept `packv_...`, `domain/name@version`, and exact `name@version` refs. No-domain refs must match a single pack domain, otherwise AGH reports a conflict. Use an exact version to pin the project. Use `latest` with domain-qualified refs when the project should resolve to the newest published version during pull.
+- `agh project package add` guides you through project selection, unassigned package selection, and confirmation.
+- `agh project package add <project>` skips project selection, shows unassigned packages for that project, and asks for confirmation.
+- `agh project package add <project> <package-ref>` assigns directly without prompts, which fits scripts and CI.
+
+`asn_...` identifies the project-to-package assignment. Package inputs accept `pkgv_...`, `domain/name@version`, and exact `name@version` refs. No-domain refs must match a single package domain, otherwise AGH reports a conflict. Use an exact version to pin the project. Use `latest` with domain-qualified refs when the project should resolve to the newest published version during pull.
 
 During workspace pull, AGH writes the resolved concrete version and checksum to `.agh/lock.toml`.
 
@@ -268,9 +274,9 @@ There is no `both` option. If no agent is selected, interactive `agh pull` asks 
 Instruction files use managed blocks:
 
 ```md
-<!-- AGH-BEGIN pack="<pack-ref>" artifact="instructions/AGENTS.md" checksum="sha256:..." -->
+<!-- AGH-BEGIN package="<package-ref>" artifact="instructions/AGENTS.md" checksum="sha256:..." -->
 Project instructions from AGH live here.
-<!-- AGH-END pack="<pack-ref>" -->
+<!-- AGH-END package="<package-ref>" -->
 ```
 
 If you edit inside the block, the next `agh pull` exits with conflict code `3`. Use `agh pull --force` when AGH should replace it.
@@ -282,10 +288,18 @@ Skills go where agents already look:
 .opencode/skills/<skill>/SKILL.md
 ```
 
-AGH tries a relative symlink to `.agh-cache/packs/...`. If the OS rejects symlinks, AGH copies the file. The lockfile records the mode:
+AGH tries a relative symlink to `.agh-cache/packages/...`. If the OS rejects symlinks, AGH copies the file. The lockfile records the mode:
 
 ```toml
+[[packages]]
+package_ref = "acme/onboarding@1.0.0"
+
+[[artifacts]]
+package_ref = "acme/onboarding@1.0.0"
+path = "skills/reviewer/SKILL.md"
+target_path = ".opencode/skills/reviewer/SKILL.md"
 mode = "symlink" # or mode = "copy"
+source = ".agh-cache/packages/acme/onboarding/1.0.0/skills/reviewer/SKILL.md"
 ```
 
 Commit shared workspace state:
@@ -301,7 +315,7 @@ Do not commit local cache state:
 .agh-cache/
 ```
 
-AGH downloads packs to `.agh-cache/packs/` and stores each developer's agent choice in `.agh-cache/preferences.toml`. If skill targets are symlinks, a fresh clone needs `agh pull` to rebuild the cache before those links resolve.
+AGH downloads packages to `.agh-cache/packages/` and stores each developer's agent choice in `.agh-cache/preferences.toml`. If skill targets are symlinks, a fresh clone needs `agh pull` to rebuild the cache before those links resolve.
 
 Exit codes:
 
@@ -329,7 +343,7 @@ Store it. AGH will not show it again. The server stores token hashes, not plaint
 | Role | Use |
 |------|-----|
 | `owner` | Full admin access, including bootstrap ownership. |
-| `admin` | Manage users, projects, packs, and assignments. |
+| `admin` | Manage users, projects, packages, and assignments. |
 | `member` | Day-to-day workspace access. |
 
 Admin commands:
@@ -354,7 +368,7 @@ Runtime state lives under `/data`:
 | Path | Purpose |
 |------|---------|
 | `/data/agh.sqlite3` | SQLite database. |
-| `/data/packs/` | Published pack payloads. |
+| `/data/packages/` | Published package payloads. |
 | `/data/logs/agh.log` | Server log. |
 | `/data/secrets/initial_owner_token` | First owner token, created once. |
 
@@ -380,7 +394,7 @@ Backup at least:
 
 ```text
 /data/agh.sqlite3
-/data/packs/
+/data/packages/
 /data/secrets/
 ```
 

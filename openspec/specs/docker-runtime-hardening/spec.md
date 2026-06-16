@@ -20,7 +20,7 @@ Docker runtime hardening MUST be represented by Dockerfile metadata, Docker Comp
 
 ### Requirement: Image-owned data tree
 
-The Dockerfile MUST create UID/GID `10001:10001`, prepare `/data`, `/data/logs`, `/data/secrets`, `/data/packs`, and `/data/agh.sqlite3`, chown them in the image, set `USER 10001:10001`, and use the direct exec-form `uvicorn` command.
+The Dockerfile MUST create UID/GID `10001:10001`, prepare `/data`, `/data/logs`, `/data/secrets`, `/data/packages`, and `/data/agh.sqlite3`, chown them in the image, set `USER 10001:10001`, and use the direct exec-form `uvicorn` command.
 
 #### Scenario: Named volume initialization
 - GIVEN an empty Docker named volume is mounted at `/data`

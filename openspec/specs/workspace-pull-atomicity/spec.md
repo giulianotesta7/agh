@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Local pull commit boundary
-`agh pull` MUST commit workspace targets, `.agh-cache/packs`, skill targets, and `.agh/lock.toml` consistently.
+`agh pull` MUST commit workspace targets, `.agh-cache/packages`, skill targets, and `.agh/lock.toml` consistently.
 
 #### Scenario: Successful local pull
 - GIVEN outputs can be staged

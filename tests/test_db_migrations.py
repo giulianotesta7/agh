@@ -43,9 +43,9 @@ def test_run_migrations_creates_initial_schema(tmp_path: Path) -> None:
             "tokens",
             "projects",
             "project_members",
-            "packs",
-            "pack_versions",
-            "project_packs",
+            "packages",
+            "package_versions",
+            "project_packages",
         }
         token_columns = column_names(connection, "tokens")
         assert "token_hash" in token_columns
@@ -57,6 +57,7 @@ def test_run_migrations_creates_initial_schema(tmp_path: Path) -> None:
         assert [row[0] for row in applied] == [
             "001_initial_schema",
             "002_unique_project_names",
+            "003_rename_packs_to_packages",
         ]
     finally:
         connection.close()
@@ -78,15 +79,16 @@ def test_run_migrations_is_safe_for_concurrent_startup(tmp_path: Path) -> None:
         assert [row[0] for row in rows] == [
             "001_initial_schema",
             "002_unique_project_names",
+            "003_rename_packs_to_packages",
         ]
         assert table_names(connection) >= {
             "users",
             "tokens",
             "projects",
             "project_members",
-            "packs",
-            "pack_versions",
-            "project_packs",
+            "packages",
+            "package_versions",
+            "project_packages",
         }
     finally:
         connection.close()
@@ -104,6 +106,7 @@ def test_run_migrations_is_idempotent_on_existing_connection() -> None:
         assert [row[0] for row in rows] == [
             "001_initial_schema",
             "002_unique_project_names",
+            "003_rename_packs_to_packages",
         ]
     finally:
         connection.close()
@@ -229,43 +232,45 @@ def test_schema_enforces_core_uniqueness_and_foreign_keys() -> None:
             raise AssertionError("active project repo uniqueness was not enforced")
 
         connection.execute(
-            "INSERT INTO packs (id, domain, name, created_by) VALUES (?, ?, ?, ?)",
-            ("pack_0000000000000001", "acme", "onboarding", "usr_0000000000000001"),
+            "INSERT INTO packages (id, domain, name, created_by) VALUES (?, ?, ?, ?)",
+            ("pkg_0000000000000001", "acme", "onboarding", "usr_0000000000000001"),
         )
         connection.execute(
             """
-            INSERT INTO pack_versions
-                (id, pack_id, version, manifest_json, storage_path, checksum)
+            INSERT INTO package_versions
+                (id, package_id, version, manifest_json, storage_path, checksum)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                "packv_0000000000000001",
-                "pack_0000000000000001",
+                "pkgv_0000000000000001",
+                "pkg_0000000000000001",
                 "1.0.0",
                 "{}",
-                "packs/acme/onboarding/1.0.0",
+                "packages/acme/onboarding/1.0.0",
                 "sha256:abc",
             ),
         )
         try:
             connection.execute(
                 """
-                INSERT INTO pack_versions
-                    (id, pack_id, version, manifest_json, storage_path, checksum)
+                INSERT INTO package_versions
+                    (id, package_id, version, manifest_json, storage_path, checksum)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    "packv_0000000000000002",
-                    "pack_missing000001",
+                    "pkgv_0000000000000002",
+                    "pkg_missing000001",
                     "1.0.0",
                     "{}",
-                    "packs/missing/pack/1.0.0",
+                    "packages/missing/package/1.0.0",
                     "sha256:def",
                 ),
             )
         except sqlite3.IntegrityError:
             pass
         else:  # pragma: no cover - assertion failure path
-            raise AssertionError("pack_versions.pack_id foreign key was not enforced")
+            raise AssertionError(
+                "package_versions.package_id foreign key was not enforced"
+            )
     finally:
         connection.close()

@@ -69,11 +69,9 @@ def create_app() -> FastAPI:
     db_path = get_database_path(data_dir)
     run_migrations(db_path)
 
+    from agh.common.package_limits import MAX_PACKAGE_PUBLISH_BODY_BYTES
     from agh.server.auth import CurrentUser, bootstrap_initial_owner, get_current_user
-    from agh.server.routes.packs import (
-        MAX_PACK_PUBLISH_BODY_BYTES,
-        router as packs_router,
-    )
+    from agh.server.routes.packages import router as packages_router
     from agh.server.routes.projects import router as projects_router
     from agh.server.routes.users import router as users_router
 
@@ -84,8 +82,8 @@ def create_app() -> FastAPI:
     application.state.db_path = db_path
 
     @application.middleware("http")
-    async def reject_oversized_pack_publish(request: Request, call_next):  # type: ignore[no-untyped-def]
-        if request.method == "POST" and request.url.path == "/api/v1/packs":
+    async def reject_oversized_package_publish(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if request.method == "POST" and request.url.path == "/api/v1/packages":
             content_length = request.headers.get("content-length")
             try:
                 parsed_content_length = _parse_content_length(content_length)
@@ -95,16 +93,16 @@ def create_app() -> FastAPI:
                 )
             if (
                 parsed_content_length is not None
-                and parsed_content_length > MAX_PACK_PUBLISH_BODY_BYTES
+                and parsed_content_length > MAX_PACKAGE_PUBLISH_BODY_BYTES
             ):
                 return JSONResponse(
-                    {"detail": "pack publish payload is too large"}, status_code=413
+                    {"detail": "package publish payload is too large"}, status_code=413
                 )
         return await call_next(request)
 
     application.include_router(users_router, prefix="/api/v1")
     application.include_router(projects_router, prefix="/api/v1")
-    application.include_router(packs_router, prefix="/api/v1")
+    application.include_router(packages_router, prefix="/api/v1")
 
     @application.get("/api/v1/health")
     def health() -> dict[str, str | int]:

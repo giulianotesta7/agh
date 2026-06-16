@@ -21,7 +21,7 @@ RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_AGH=${AGH_VERSION} uv sync --locked --no-
 # written once under /data/secrets/initial_owner_token.
 RUN groupadd --gid 10001 agh \
   && useradd --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin --no-create-home agh \
-  && mkdir -p /data/logs /data/secrets /data/packs \
+  && mkdir -p /data/logs /data/secrets /data/packages \
   && touch /data/agh.sqlite3 \
   && chown -R agh:agh /data
 
