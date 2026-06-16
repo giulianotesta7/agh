@@ -42,6 +42,20 @@ def _collection(
     return dict(response.json())
 
 
+def test_collection_routes_require_authentication(tmp_path: Path, monkeypatch) -> None:
+    client, owner = _client(tmp_path, monkeypatch)
+    collection = _collection(client, owner)
+
+    assert client.get("/api/v1/collections").status_code == 401
+    assert (
+        client.post("/api/v1/collections", json={"name": "No Auth"}).status_code == 401
+    )
+    assert client.get(f"/api/v1/collections/{collection['id']}").status_code == 401
+    assert client.patch(
+        f"/api/v1/collections/{collection['id']}", json={"description": "No Auth"}
+    ).status_code == 401
+
+
 def test_owner_and_admin_can_manage_collections(tmp_path: Path, monkeypatch) -> None:
     client, owner = _client(tmp_path, monkeypatch)
     admin = _user(client, owner, "admin@example.com", "admin")
@@ -94,6 +108,27 @@ def test_admins_can_list_inactive_collections(tmp_path: Path, monkeypatch) -> No
 
     assert client.get("/api/v1/collections", headers=_auth(owner)).json() == expected
     assert client.get("/api/v1/collections", headers=_auth(admin)).json() == expected
+
+
+def test_owner_and_admin_can_fetch_inactive_collection_directly(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner = _client(tmp_path, monkeypatch)
+    admin = _user(client, owner, "admin@example.com", "admin")
+    inactive = _collection(client, owner, name="Inactive Skills")
+
+    deleted = client.delete(f"/api/v1/collections/{inactive['id']}", headers=_auth(owner))
+    expected = {**inactive, "active": False}
+
+    assert deleted.status_code == 200
+    assert (
+        client.get(f"/api/v1/collections/{inactive['id']}", headers=_auth(owner)).json()
+        == expected
+    )
+    assert (
+        client.get(f"/api/v1/collections/{inactive['id']}", headers=_auth(admin)).json()
+        == expected
+    )
 
 
 def test_member_mutations_and_invalid_input_are_rejected(tmp_path: Path, monkeypatch) -> None:
