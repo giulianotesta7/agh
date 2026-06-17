@@ -247,6 +247,19 @@ def test_update_rejects_invalid_and_duplicate_collection_names(
     assert duplicate.status_code == status.HTTP_409_CONFLICT
 
 
+def test_create_rejects_oversized_description(tmp_path: Path, monkeypatch) -> None:
+    client, owner = _client(tmp_path, monkeypatch)
+    oversized_description = "x" * (MAX_COLLECTION_DESCRIPTION_LENGTH + 1)
+
+    response = client.post(
+        "/api/v1/collections",
+        json={"name": "Valid Name", "description": oversized_description},
+        headers=_auth(owner),
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 def test_collection_payload_lengths_are_bounded(tmp_path: Path, monkeypatch) -> None:
     client, owner = _client(tmp_path, monkeypatch)
     collection = _collection(client, owner)
