@@ -56,3 +56,30 @@ Review budget: maintainer-approved `size:exception` for PR 1A.3 after migration 
 - `uv run pytest -q` → 369 passed, 1 skipped.
 
 Remaining: PR 1B adds assignments/skill discovery; PR 2 adds CLI/global install.
+
+## PR 1B.1 Progress
+
+Collection package assignment foundation slice for issue #97. Base: `feat/global-skill-collections` / PR 1A. Scope: `casn_` ID prefix, `006_collection_packages` migration, collection package assignment CRUD/list endpoints under the collections router with owner/admin authorization, assignment response serialization with `@latest` resolution, and focused assignment tests. Excludes skill-only package validation, `GET /api/v1/skills`, `GET /api/v1/skills:resolve`, `@latest` fail-closed skill validation, CLI global skills, and workspace prompt wording. The full PR 1B implementation (including the excluded items) is preserved on branch `preserve/feat/global-skill-collections-skill-api-full` and in `/tmp/feat-global-skill-collections-skill-api-full-*.patch` for PR 1B.2.
+
+Completed tasks: 1.2, 2.1B, 4.1B.
+Review budget: target ≤400 changed lines; final diff will be reported after verification.
+
+## PR 1B.1 TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 1.2 `casn_` prefix + collection_packages storage | `tests/test_collection_package_assignments.py` | Integration | ✅ Existing migration/id tests passed | ✅ Prefix and migration-table tests failed before `casn`/`006_collection_packages` | ✅ Prefix/migration tests passed after implementation | ✅ Prefix validation, table columns, and migration version covered | ✅ Used existing migration/id conventions |
+| 2.1B Assignment endpoints | `tests/test_collection_package_assignments.py` | Integration | ✅ Existing collection route tests passed | ✅ Auth/validation/CRUD tests failed before endpoints | ✅ Focused assignment tests passed after routes | ✅ Owner/admin create, member rejection, invalid refs, duplicate, reactivation, update, deactivation covered | ✅ Extracted shared helpers (`_assignment_row`, `_collection_package_response`) |
+
+## PR 1B.1 Verification
+
+- `uv run pytest tests/test_collection_package_assignments.py -q` → 5 passed.
+- `uv run pytest tests/test_db_migrations.py -q` → 13 passed.
+- `uv run pytest tests/test_collection_routes.py -q` → 11 passed.
+- `git diff --check` → passed.
+- `uv run ruff format agh/server/routes/collections.py tests/test_collection_package_assignments.py tests/test_db_migrations.py agh/common/ids.py` → 1 file reformatted.
+- `uv run pytest -q` → 375 passed, 1 skipped.
+
+Review budget: maintainer-approved `size:exception` for PR 1B.1 at 716 changed lines vs `feat/global-skill-collections`; PR 1B.1 remains a focused assignment-foundation slice and is still significantly smaller than the original ~1,184-line PR 1B.
+
+Remaining: PR 1B.2 adds skill-only validation, `/skills`, `/skills:resolve`, and `@latest` fail-closed behavior from the preserved full implementation. PR 2 adds CLI/global install.

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import secrets
 
-_ALLOWED_PREFIXES = {"usr", "tok", "prj", "pkg", "pkgv", "asn", "col"}
+_ALLOWED_PREFIXES = {"usr", "tok", "prj", "pkg", "pkgv", "asn", "col", "casn"}
 _ID_RE = re.compile(r"^(?P<prefix>[a-z]+)_[a-z0-9]{16}$")
 
 
