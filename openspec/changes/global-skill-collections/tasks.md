@@ -61,4 +61,4 @@ Chain strategy: feature-branch-chain
 
 - [x] 6.1 Add bounded collection name and description validation in the API layer (`agh/server/routes/collections.py`).
 - [x] 6.2 Expand collection CRUD/update contract tests for admin create, name update, reactivation, invalid update names, duplicate update names, and unauthenticated DELETE.
-- [ ] 6.3 Add `005_collection_constraints` migration and direct migration/schema tests for collection length constraints. **Deferred to PR 1A.3.**
+- [x] 6.3 Add `005_collection_constraints` migration and direct migration/schema tests for collection length constraints.

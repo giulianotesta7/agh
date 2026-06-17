@@ -35,3 +35,24 @@ Review budget: within 400-line budget; no `size:exception` required for the API-
 - `uv run pytest -q` → 364 passed, 1 skipped.
 
 Remaining: PR 1A.3 adds migration/schema length constraints; PR 1B adds assignments/skill discovery; PR 2 adds CLI/global install.
+
+## PR 1A.3 Progress
+
+Migration-hardening slice for issue #97. Base: `feat/global-skill-collections-server-hardening` / PR 1A.2. Scope: SQLite `005_collection_constraints` migration, fail-fast diagnostics for legacy over-limit rows, and schema-level length constraint coverage. Excludes collection package assignments, skill discovery APIs, CLI global skills, and workspace prompt wording.
+
+Completed tasks: 6.3.
+Review budget: maintainer-approved `size:exception` for PR 1A.3 after migration hardening pushed the diff over 400 changed lines.
+
+## PR 1A.3 TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 6.3 Direct migration/schema coverage | `tests/test_db_migrations.py` | Integration | ✅ `uv run pytest tests/test_db_migrations.py -q` → passed | ✅ Added active default/check, name uniqueness, created_by FK, and length constraint assertions; length checks failed before migration update | ✅ Focused tests passed after migration CHECK constraints and fail-fast diagnostics | ✅ Default, valid insert, invalid active, duplicate name, invalid creator, long name, long description, idempotency, and legacy over-limit failure paths covered | ✅ Formatted touched Python files; focused tests still passed |
+
+## PR 1A.3 Verification
+
+- `uv run pytest tests/test_db_migrations.py -q` → 13 passed.
+- `git diff --check` → passed.
+- `uv run pytest -q` → 369 passed, 1 skipped.
+
+Remaining: PR 1B adds assignments/skill discovery; PR 2 adds CLI/global install.
