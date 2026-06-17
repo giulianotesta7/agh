@@ -280,6 +280,8 @@ def _apply_migration(
     try:
         if version == "003_rename_packs_to_packages":
             _apply_package_rename_migration(connection, data_dir=data_dir)
+        elif version == "005_collection_constraints":
+            _apply_collection_constraints_migration(connection)
         else:
             _execute_migration_sql(connection, sql)
         connection.execute(
@@ -307,6 +309,108 @@ def _execute_migration_sql(connection: sqlite3.Connection, sql: str) -> None:
 
     if pending_statement.strip():
         raise sqlite3.OperationalError("incomplete migration SQL statement")
+
+
+_MAX_COLLECTION_NAME_LENGTH = 80
+_MAX_COLLECTION_DESCRIPTION_LENGTH = 1000
+_COLLECTION_CONSTRAINTS_SQL = f"""
+    DROP TABLE IF EXISTS _collections_new;
+
+    CREATE TABLE _collections_new (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE CHECK (length(name) <= {_MAX_COLLECTION_NAME_LENGTH}),
+        description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= {_MAX_COLLECTION_DESCRIPTION_LENGTH}),
+        active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
+    );
+
+    INSERT INTO _collections_new
+        (id, name, description, active, created_by, created_at, updated_at)
+    SELECT
+        id, name, description, active, created_by, created_at, updated_at
+    FROM collections;
+
+    DROP TABLE collections;
+
+    ALTER TABLE _collections_new RENAME TO collections;
+"""
+
+
+def _apply_collection_constraints_migration(connection: sqlite3.Connection) -> None:
+    """Add length constraints to collections when the old schema lacks them.
+
+    SQLite cannot ALTER TABLE to add CHECK constraints, so we rebuild the
+    table. The operation is skipped when the constraints already exist, making
+    the migration safe to run against both pre-hardened and freshly-created
+    databases.
+
+    Before rebuilding, legacy rows that exceed the new length limits are
+    detected and reported so the migration fails fast instead of silently
+    truncating or bricking startup with a generic integrity error.
+    """
+    has_name_constraint = _table_has_check_constraint(
+        connection, "collections", f"length(name) <= {_MAX_COLLECTION_NAME_LENGTH}"
+    )
+    has_description_constraint = _table_has_check_constraint(
+        connection,
+        "collections",
+        f"length(description) <= {_MAX_COLLECTION_DESCRIPTION_LENGTH}",
+    )
+    if has_name_constraint and has_description_constraint:
+        return
+    if not _table_exists(connection, "collections"):
+        raise RuntimeError(
+            "collection constraints migration requires the collections table"
+        )
+    violations = _find_collection_constraint_violations(connection)
+    if violations:
+        raise RuntimeError(_format_collection_violations(violations))
+    _execute_migration_sql(connection, _COLLECTION_CONSTRAINTS_SQL)
+
+
+def _find_collection_constraint_violations(
+    connection: sqlite3.Connection,
+) -> list[sqlite3.Row]:
+    """Return collections rows that would violate the new length constraints."""
+    return connection.execute(
+        """
+        SELECT
+            id,
+            length(name) AS name_length,
+            length(description) AS description_length
+        FROM collections
+        WHERE length(name) > ? OR length(description) > ?
+        ORDER BY id
+        """,
+        (_MAX_COLLECTION_NAME_LENGTH, _MAX_COLLECTION_DESCRIPTION_LENGTH),
+    ).fetchall()
+
+
+def _format_collection_violations(violations: list[sqlite3.Row]) -> str:
+    """Build an actionable error message for legacy over-limit collections."""
+    lines = ["collection constraints migration would truncate legacy data:"]
+    displayed = violations[:10]
+    for row in displayed:
+        fields: list[str] = []
+        if row["name_length"] > _MAX_COLLECTION_NAME_LENGTH:
+            fields.append(
+                f"name ({row['name_length']} > {_MAX_COLLECTION_NAME_LENGTH})"
+            )
+        if row["description_length"] > _MAX_COLLECTION_DESCRIPTION_LENGTH:
+            fields.append(
+                f"description ({row['description_length']} > {_MAX_COLLECTION_DESCRIPTION_LENGTH})"
+            )
+        lines.append(f"  - {row['id']}: {', '.join(fields)}")
+    if len(violations) > len(displayed):
+        lines.append(f"  ... and {len(violations) - len(displayed)} more")
+    lines.append(
+        "Shorten the affected collection name(s) and/or description(s) before "
+        "restarting, or restore from a backup taken before this upgrade."
+    )
+    return "\n".join(lines)
 
 
 def _iter_migrations() -> Iterable[tuple[str, str]]:
@@ -338,6 +442,19 @@ def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
         (table,),
     ).fetchone()
     return row is not None
+
+
+def _table_has_check_constraint(
+    connection: sqlite3.Connection, table: str, substring: str
+) -> bool:
+    """Return True when ``table`` already has a CHECK constraint containing ``substring``."""
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    if row is None or row["sql"] is None:
+        return False
+    return substring in row["sql"]
 
 
 def _apply_package_rename_migration(

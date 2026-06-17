@@ -13,6 +13,8 @@ from agh.server.auth import CurrentUser, get_current_user
 from agh.server.db import connect_database
 
 router = APIRouter(tags=["collections"])
+MAX_COLLECTION_NAME_LENGTH = 80
+MAX_COLLECTION_DESCRIPTION_LENGTH = 1000
 
 
 class CollectionCreate(BaseModel):
@@ -31,15 +33,39 @@ def _connect(request: Request) -> sqlite3.Connection:
 
 
 def _require_admin(user: CurrentUser) -> None:
-    if user.role not in {"owner", "admin"}:
+    if not _is_collection_manager(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+
+
+def _is_collection_manager(user: CurrentUser) -> bool:
+    return user.role in {"owner", "admin"}
 
 
 def _clean_name(name: str) -> str:
     cleaned = name.strip()
     if not cleaned:
-        raise HTTPException(status_code=400, detail="collection name is required")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="collection name is required",
+        )
+    if len(cleaned) > MAX_COLLECTION_NAME_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"collection name must be at most {MAX_COLLECTION_NAME_LENGTH} characters",
+        )
     return cleaned
+
+
+def _clean_description(description: str) -> str:
+    if len(description) > MAX_COLLECTION_DESCRIPTION_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "collection description must be at most "
+                f"{MAX_COLLECTION_DESCRIPTION_LENGTH} characters"
+            ),
+        )
+    return description
 
 
 def _row_to_response(row: sqlite3.Row) -> dict[str, str | bool]:
@@ -53,13 +79,17 @@ def _row_to_response(row: sqlite3.Row) -> dict[str, str | bool]:
 
 def _collection(conn: sqlite3.Connection, collection_id: str) -> sqlite3.Row:
     if not is_valid_prefixed_id(collection_id, "col"):
-        raise HTTPException(status_code=404, detail="collection not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="collection not found"
+        )
     row = conn.execute(
         "SELECT id, name, description, active FROM collections WHERE id = ?",
         (collection_id,),
     ).fetchone()
     if row is None:
-        raise HTTPException(status_code=404, detail="collection not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="collection not found"
+        )
     return row
 
 
@@ -67,8 +97,10 @@ def _visible_collection(
     conn: sqlite3.Connection, collection_id: str, user: CurrentUser
 ) -> sqlite3.Row:
     row = _collection(conn, collection_id)
-    if user.role not in {"owner", "admin"} and row["active"] != 1:
-        raise HTTPException(status_code=404, detail="collection not found")
+    if not _is_collection_manager(user) and row["active"] != 1:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="collection not found"
+        )
     return row
 
 
@@ -78,7 +110,7 @@ def list_collections(
 ) -> dict[str, list[dict[str, str | bool]]]:
     conn = _connect(request)
     try:
-        where = "" if current_user.role in {"owner", "admin"} else "WHERE active = 1"
+        where = "" if _is_collection_manager(current_user) else "WHERE active = 1"
         rows = conn.execute(
             f"SELECT id, name, description, active FROM collections {where} ORDER BY name ASC"
         ).fetchall()
@@ -106,7 +138,7 @@ def create_collection(
                 (
                     collection_id,
                     _clean_name(payload.name),
-                    payload.description,
+                    _clean_description(payload.description),
                     current_user.id,
                 ),
             )
@@ -114,7 +146,8 @@ def create_collection(
         except sqlite3.IntegrityError as exc:
             conn.rollback()
             raise HTTPException(
-                status_code=409, detail="collection name already exists"
+                status_code=status.HTTP_409_CONFLICT,
+                detail="collection name already exists",
             ) from exc
         return _row_to_response(_collection(conn, collection_id))
     finally:
@@ -146,7 +179,7 @@ def update_collection(
     if payload.name is not None:
         fields["name"] = _clean_name(payload.name)
     if payload.description is not None:
-        fields["description"] = payload.description
+        fields["description"] = _clean_description(payload.description)
     if payload.active is not None:
         fields["active"] = 1 if payload.active else 0
 
@@ -165,7 +198,8 @@ def update_collection(
         except sqlite3.IntegrityError as exc:
             conn.rollback()
             raise HTTPException(
-                status_code=409, detail="collection name already exists"
+                status_code=status.HTTP_409_CONFLICT,
+                detail="collection name already exists",
             ) from exc
         except Exception:
             conn.rollback()

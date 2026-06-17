@@ -56,3 +56,9 @@ Chain strategy: feature-branch-chain
 
 - [ ] 5.1 Update CLI help/docs for global skill commands and agent-default behavior.
 - [ ] 5.2 Keep the workspace prompt wording cleanup as a separate follow-up PR; do not include it in core implementation.
+
+## Phase 6: PR 1A.2 Collection CRUD API Hardening
+
+- [x] 6.1 Add bounded collection name and description validation in the API layer (`agh/server/routes/collections.py`).
+- [x] 6.2 Expand collection CRUD/update contract tests for admin create, name update, reactivation, invalid update names, duplicate update names, and unauthenticated DELETE.
+- [x] 6.3 Add `005_collection_constraints` migration and direct migration/schema tests for collection length constraints.

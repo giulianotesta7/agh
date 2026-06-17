@@ -1,0 +1,2 @@
+-- Python migration hook in agh.server.db adds length constraints to the
+-- collections table when they are not already present.
