@@ -31,7 +31,10 @@ def _user(client: TestClient, token: str, email: str, role: str) -> str:
 
 
 def _collection(
-    client: TestClient, token: str, name: str = "Team Skills", description: str = "Curated"
+    client: TestClient,
+    token: str,
+    name: str = "Team Skills",
+    description: str = "Curated",
 ) -> dict[str, Any]:
     response = client.post(
         "/api/v1/collections",
@@ -51,9 +54,12 @@ def test_collection_routes_require_authentication(tmp_path: Path, monkeypatch) -
         client.post("/api/v1/collections", json={"name": "No Auth"}).status_code == 401
     )
     assert client.get(f"/api/v1/collections/{collection['id']}").status_code == 401
-    assert client.patch(
-        f"/api/v1/collections/{collection['id']}", json={"description": "No Auth"}
-    ).status_code == 401
+    assert (
+        client.patch(
+            f"/api/v1/collections/{collection['id']}", json={"description": "No Auth"}
+        ).status_code
+        == 401
+    )
 
 
 def test_owner_and_admin_can_manage_collections(tmp_path: Path, monkeypatch) -> None:
@@ -79,16 +85,24 @@ def test_owner_and_admin_can_manage_collections(tmp_path: Path, monkeypatch) -> 
     assert fetched.json()["description"] == "Updated"
 
 
-def test_members_read_and_list_active_collections_only(tmp_path: Path, monkeypatch) -> None:
+def test_members_read_and_list_active_collections_only(
+    tmp_path: Path, monkeypatch
+) -> None:
     client, owner = _client(tmp_path, monkeypatch)
     member = _user(client, owner, "dev@example.com", "member")
     active = _collection(client, owner, name="Active Skills")
     inactive = _collection(client, owner, name="Inactive Skills")
 
-    deleted = client.delete(f"/api/v1/collections/{inactive['id']}", headers=_auth(owner))
+    deleted = client.delete(
+        f"/api/v1/collections/{inactive['id']}", headers=_auth(owner)
+    )
     listed = client.get("/api/v1/collections", headers=_auth(member))
-    active_get = client.get(f"/api/v1/collections/{active['id']}", headers=_auth(member))
-    inactive_get = client.get(f"/api/v1/collections/{inactive['id']}", headers=_auth(member))
+    active_get = client.get(
+        f"/api/v1/collections/{active['id']}", headers=_auth(member)
+    )
+    inactive_get = client.get(
+        f"/api/v1/collections/{inactive['id']}", headers=_auth(member)
+    )
 
     assert deleted.status_code == 200
     assert deleted.json()["active"] is False
@@ -117,7 +131,9 @@ def test_owner_and_admin_can_fetch_inactive_collection_directly(
     admin = _user(client, owner, "admin@example.com", "admin")
     inactive = _collection(client, owner, name="Inactive Skills")
 
-    deleted = client.delete(f"/api/v1/collections/{inactive['id']}", headers=_auth(owner))
+    deleted = client.delete(
+        f"/api/v1/collections/{inactive['id']}", headers=_auth(owner)
+    )
     expected = {**inactive, "active": False}
 
     assert deleted.status_code == 200
@@ -131,22 +147,46 @@ def test_owner_and_admin_can_fetch_inactive_collection_directly(
     )
 
 
-def test_member_mutations_and_invalid_input_are_rejected(tmp_path: Path, monkeypatch) -> None:
+def test_member_mutations_and_invalid_input_are_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
     client, owner = _client(tmp_path, monkeypatch)
     member = _user(client, owner, "dev@example.com", "member")
     collection = _collection(client, owner)
 
-    assert client.post(
-        "/api/v1/collections", json={"name": "Member"}, headers=_auth(member)
-    ).status_code == 403
-    assert client.patch(
-        f"/api/v1/collections/{collection['id']}", json={"description": "No"}, headers=_auth(member)
-    ).status_code == 403
-    assert client.delete(f"/api/v1/collections/{collection['id']}", headers=_auth(member)).status_code == 403
-    assert client.post(
-        "/api/v1/collections", json={"name": "   "}, headers=_auth(owner)
-    ).status_code == 400
-    assert client.post(
-        "/api/v1/collections", json={"name": "Team Skills"}, headers=_auth(owner)
-    ).status_code == 409
-    assert client.get("/api/v1/collections/not-a-col", headers=_auth(owner)).status_code == 404
+    assert (
+        client.post(
+            "/api/v1/collections", json={"name": "Member"}, headers=_auth(member)
+        ).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/api/v1/collections/{collection['id']}",
+            json={"description": "No"},
+            headers=_auth(member),
+        ).status_code
+        == 403
+    )
+    assert (
+        client.delete(
+            f"/api/v1/collections/{collection['id']}", headers=_auth(member)
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/api/v1/collections", json={"name": "   "}, headers=_auth(owner)
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            "/api/v1/collections", json={"name": "Team Skills"}, headers=_auth(owner)
+        ).status_code
+        == 409
+    )
+    assert (
+        client.get("/api/v1/collections/not-a-col", headers=_auth(owner)).status_code
+        == 404
+    )

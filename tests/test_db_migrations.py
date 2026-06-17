@@ -280,7 +280,13 @@ def test_schema_enforces_core_uniqueness_and_foreign_keys() -> None:
             )
 
         collection_columns = column_names(connection, "collections")
-        assert {"id", "name", "description", "active", "created_by"} <= collection_columns
+        assert {
+            "id",
+            "name",
+            "description",
+            "active",
+            "created_by",
+        } <= collection_columns
     finally:
         connection.close()
 

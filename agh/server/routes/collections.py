@@ -103,12 +103,19 @@ def create_collection(
                 INSERT INTO collections (id, name, description, active, created_by)
                 VALUES (?, ?, ?, 1, ?)
                 """,
-                (collection_id, _clean_name(payload.name), payload.description, current_user.id),
+                (
+                    collection_id,
+                    _clean_name(payload.name),
+                    payload.description,
+                    current_user.id,
+                ),
             )
             conn.commit()
         except sqlite3.IntegrityError as exc:
             conn.rollback()
-            raise HTTPException(status_code=409, detail="collection name already exists") from exc
+            raise HTTPException(
+                status_code=409, detail="collection name already exists"
+            ) from exc
         return _row_to_response(_collection(conn, collection_id))
     finally:
         conn.close()
@@ -157,7 +164,9 @@ def update_collection(
                 )
         except sqlite3.IntegrityError as exc:
             conn.rollback()
-            raise HTTPException(status_code=409, detail="collection name already exists") from exc
+            raise HTTPException(
+                status_code=409, detail="collection name already exists"
+            ) from exc
         except Exception:
             conn.rollback()
             raise
@@ -173,4 +182,6 @@ def deactivate_collection(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> dict[str, str | bool]:
-    return update_collection(collection_id, CollectionUpdate(active=False), request, current_user)
+    return update_collection(
+        collection_id, CollectionUpdate(active=False), request, current_user
+    )

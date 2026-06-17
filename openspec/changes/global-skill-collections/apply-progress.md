@@ -1,6 +1,7 @@
 ## PR 1A Progress
 Foundation slice for issue #97 and tracker PR #98. Base: `feat/global-skill-collections`. Scope: collection table, `col_` IDs, router wiring, CRUD routes, and migration/auth/CRUD tests. Excludes package assignments, skill discovery APIs, CLI global skills, and workspace prompt wording.
 Completed tasks: 1.1, 1.3, 2.1A, 4.1A.
+Review budget: maintainer-approved `size:exception` for PR 1A after formatting pushed the final diff over 400 changed lines.
 
 ## TDD Cycle Evidence
 | Task | RED | GREEN | TRIANGULATE | SAFETY NET | REFACTOR |
