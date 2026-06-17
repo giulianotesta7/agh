@@ -48,6 +48,7 @@ def test_run_migrations_creates_initial_schema(tmp_path: Path) -> None:
             "package_versions",
             "project_packages",
             "collections",
+            "collection_packages",
         }
         token_columns = column_names(connection, "tokens")
         assert "token_hash" in token_columns
@@ -62,6 +63,7 @@ def test_run_migrations_creates_initial_schema(tmp_path: Path) -> None:
             "003_rename_packs_to_packages",
             "004_collections",
             "005_collection_constraints",
+            "006_collection_packages",
         ]
     finally:
         connection.close()
@@ -86,6 +88,7 @@ def test_run_migrations_is_safe_for_concurrent_startup(tmp_path: Path) -> None:
             "003_rename_packs_to_packages",
             "004_collections",
             "005_collection_constraints",
+            "006_collection_packages",
         ]
         assert table_names(connection) >= {
             "users",
@@ -96,6 +99,7 @@ def test_run_migrations_is_safe_for_concurrent_startup(tmp_path: Path) -> None:
             "package_versions",
             "project_packages",
             "collections",
+            "collection_packages",
         }
     finally:
         connection.close()
@@ -116,6 +120,7 @@ def test_run_migrations_is_idempotent_on_existing_connection() -> None:
             "003_rename_packs_to_packages",
             "004_collections",
             "005_collection_constraints",
+            "006_collection_packages",
         ]
     finally:
         connection.close()
@@ -479,6 +484,7 @@ def test_collection_constraints_migration_adds_missing_check_constraints() -> No
             "003_rename_packs_to_packages",
             "004_collections",
             "005_collection_constraints",
+            "006_collection_packages",
         ]
     finally:
         connection.close()
