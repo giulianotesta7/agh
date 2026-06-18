@@ -98,8 +98,6 @@ def _claude_instruction_package_files(
 def _publish_package(
     client: TestClient, token: str, ref: str, files: dict[str, str]
 ) -> dict[str, Any]:
-    pair, version = ref.split("@", 1)
-    domain, name = pair.split("/", 1)
     response = client.post(
         "/api/v1/packages",
         json={"files": files},
@@ -448,9 +446,43 @@ def test_skills_list_filters_by_collection_id(tmp_path: Path, monkeypatch) -> No
         f"/api/v1/skills?collection_id={first['id']}", headers=_auth(owner)
     )
     assert filtered.status_code == 200
-    assert all(
-        item["resolved_ref"] == "acme/a@1.0.0" for item in filtered.json()["skills"]
+    skills = filtered.json()["skills"]
+    assert len(skills) == 2
+    assert {item["resolved_ref"] for item in skills} == {"acme/a@1.0.0"}
+
+
+def test_skills_list_logs_suppressed_invalid_assignment(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from unittest.mock import patch
+
+    client, owner = _client_with_owner(tmp_path, monkeypatch)
+    collection = _collection(client, owner)
+    _publish_package(
+        client,
+        owner,
+        "acme/tool@1.0.0",
+        _skill_only_package_files("acme", "tool", "1.0.0"),
     )
+    _assign_package(client, owner, collection["id"], "acme/tool@latest")
+    _publish_package(
+        client,
+        owner,
+        "acme/tool@1.1.0",
+        _instruction_package_files("acme", "tool", "1.1.0"),
+    )
+
+    with patch("agh.server.routes.collections.LOGGER.warning") as mock_warning:
+        response = client.get("/api/v1/skills", headers=_auth(owner))
+    assert response.status_code == 200
+    assert response.json()["skills"] == []
+    mock_warning.assert_called_once()
+    args, _kwargs = mock_warning.call_args
+    log_message = args[0]
+    log_args = args[1:]
+    assert "Suppressed active collection assignment" in log_message
+    assert collection["id"] in log_args
+    assert "instructions" in str(log_args).lower()
 
 
 def test_skills_resolve_returns_concrete_version_and_download_url(
@@ -633,6 +665,29 @@ def test_skills_resolve_rejects_unassigned_inactive_or_missing_skill(
         headers=_auth(owner),
     )
     assert collection_inactive.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_skills_resolve_rejects_when_collection_is_inactive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner = _client_with_owner(tmp_path, monkeypatch)
+    collection = _collection(client, owner)
+    _publish_package(
+        client,
+        owner,
+        "acme/tool@1.0.0",
+        _skill_only_package_files("acme", "tool", "1.0.0"),
+    )
+    assignment = _assign_package(client, owner, collection["id"], "acme/tool@1.0.0")
+    assert assignment.status_code == 201
+
+    client.delete(f"/api/v1/collections/{collection['id']}", headers=_auth(owner))
+
+    response = client.get(
+        "/api/v1/skills:resolve?package_ref=acme/tool@1.0.0&skill_name=comment-writer",
+        headers=_auth(owner),
+    )
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 def test_collection_package_assignment_update_and_deactivation(

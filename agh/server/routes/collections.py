@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from agh.common.validation import PackageRef, parse_package_ref
 from agh.server.auth import CurrentUser, get_current_user
 from agh.server.db import connect_database
 
+LOGGER = logging.getLogger(__name__)
 router = APIRouter(tags=["collections"])
 MAX_COLLECTION_NAME_LENGTH = 80
 MAX_COLLECTION_DESCRIPTION_LENGTH = 1000
@@ -664,7 +666,17 @@ def list_skills(
                     str(version_row["version"]),
                     version_row,
                 )
-            except HTTPException:
+            except HTTPException as exc:
+                LOGGER.warning(
+                    "Suppressed active collection assignment: collection_id=%s "
+                    "assignment_id=%s package_id=%s version_ref=%s status=%s detail=%s",
+                    row["collection_id"],
+                    row["id"],
+                    row["package_id"],
+                    row["version_ref"],
+                    exc.status_code,
+                    exc.detail,
+                )
                 continue
             storage_dir = Path(str(version_row["storage_path"]))
             manifest = json.loads(str(version_row["manifest_json"]))

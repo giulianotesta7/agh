@@ -89,7 +89,7 @@ Remaining: PR 1B.2 adds skill-only validation, `/skills`, `/skills:resolve`, and
 Skill-only validation and skill discovery slice for issue #97. Base: PR 1B.1 / `feat/global-skill-collections-skill-api`. Scope: reject instruction-bearing collection packages, add `GET /api/v1/skills`, add `GET /api/v1/skills:resolve`, resolve concrete package versions, and fail closed when `@latest` resolves to instruction-bearing content. Excludes CLI global skills and workspace prompt wording.
 
 Completed tasks: 2.2, 2.3, 4.1B discovery coverage.
-Review budget: to be verified for PR 1B.2 against PR 1B.1 before opening the child PR.
+Review budget: maintainer-approved `size:exception` for PR 1B.2 after validation/discovery plus review fixes pushed the diff over 400 changed lines.
 
 ## PR 1B.2 TDD Cycle Evidence
 
@@ -129,3 +129,17 @@ Reliability blocker and contract warning fixes applied after formal verify passe
 - `uv run pytest -q` → 386 passed, 1 skipped.
 - `uv run ruff format agh/server/routes/collections.py tests/test_collection_package_assignments.py` → 2 files reformatted.
 - `uv run ruff check agh/server/routes/collections.py tests/test_collection_package_assignments.py` → All checks passed.
+
+## PR 1B.2 Final Review Fixes
+
+- Added warning-level logging when `GET /skills` suppresses an active assignment because the resolved package is no longer skill-only.
+- Hardened collection filter assertions to prove non-empty/cardinality behavior.
+- Added an isolated inactive-collection resolve test where the assignment remains active.
+- Removed dead parsing variables from the package publishing test helper.
+
+### Final Verification
+
+- `uv run pytest tests/test_collection_package_assignments.py -q` → 18 passed.
+- `uv run pytest -q` → 388 passed, 1 skipped.
+- `uv run ruff format agh/server/routes/collections.py tests/test_collection_package_assignments.py` → clean.
+- `uv run ruff check agh/server/routes/collections.py tests/test_collection_package_assignments.py` → clean.
