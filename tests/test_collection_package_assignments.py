@@ -690,6 +690,80 @@ def test_skills_resolve_rejects_when_collection_is_inactive(
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
+def test_skills_list_suppresses_unreadable_storage_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from unittest.mock import patch
+
+    client, owner = _client_with_owner(tmp_path, monkeypatch)
+    member = _create_user(client, owner, "dev@example.com", "member")[1]
+    collection = _collection(client, owner)
+    _publish_package(
+        client,
+        owner,
+        "acme/bad@1.0.0",
+        _skill_only_package_files("acme", "bad", "1.0.0"),
+    )
+    _assign_package(client, owner, collection["id"], "acme/bad@1.0.0")
+    _publish_package(
+        client,
+        owner,
+        "acme/good@1.0.0",
+        _skill_only_package_files("acme", "good", "1.0.0"),
+    )
+    _assign_package(client, owner, collection["id"], "acme/good@1.0.0", position=1)
+
+    bad_skills_dir = tmp_path / "packages" / "acme" / "bad" / "1.0.0" / "skills"
+    original_mode = bad_skills_dir.stat().st_mode
+    bad_skills_dir.chmod(0o000)
+    try:
+        with patch("agh.server.routes.collections.LOGGER.warning") as mock_warning:
+            response = client.get("/api/v1/skills", headers=_auth(member))
+    finally:
+        bad_skills_dir.chmod(original_mode)
+
+    assert response.status_code == status.HTTP_200_OK
+    refs = {item["resolved_ref"] for item in response.json()["skills"]}
+    assert refs == {"acme/good@1.0.0"}
+    mock_warning.assert_called_once()
+    args, _ = mock_warning.call_args
+    assert "Suppressed active collection assignment" in args[0]
+    assert collection["id"] in args[1:]
+
+
+def test_skills_resolve_fails_closed_on_unreadable_storage_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from unittest.mock import patch
+
+    client, owner = _client_with_owner(tmp_path, monkeypatch)
+    member = _create_user(client, owner, "dev@example.com", "member")[1]
+    collection = _collection(client, owner)
+    _publish_package(
+        client,
+        owner,
+        "acme/tool@1.0.0",
+        _skill_only_package_files("acme", "tool", "1.0.0"),
+    )
+    _assign_package(client, owner, collection["id"], "acme/tool@1.0.0")
+
+    skills_dir = tmp_path / "packages" / "acme" / "tool" / "1.0.0" / "skills"
+    original_mode = skills_dir.stat().st_mode
+    skills_dir.chmod(0o000)
+    try:
+        with patch("agh.server.routes.collections.LOGGER.warning") as mock_warning:
+            response = client.get(
+                "/api/v1/skills:resolve?package_ref=acme/tool@1.0.0&skill_name=comment-writer",
+                headers=_auth(member),
+            )
+    finally:
+        skills_dir.chmod(original_mode)
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "skill not found"
+    mock_warning.assert_called_once()
+
+
 def test_collection_package_assignment_update_and_deactivation(
     tmp_path: Path, monkeypatch
 ) -> None:

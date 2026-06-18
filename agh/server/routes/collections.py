@@ -656,6 +656,7 @@ def list_skills(
         rows = _active_collection_package_rows(conn, collection_id)
         skills: list[dict[str, str]] = []
         for row in rows:
+            version_row: sqlite3.Row | None = None
             try:
                 version_row = _resolve_package_version_row(
                     conn, str(row["package_id"]), str(row["version_ref"])
@@ -676,6 +677,20 @@ def list_skills(
                     row["version_ref"],
                     exc.status_code,
                     exc.detail,
+                )
+                continue
+            except OSError as exc:
+                LOGGER.warning(
+                    "Suppressed active collection assignment: collection_id=%s "
+                    "assignment_id=%s package_id=%s version_ref=%s storage_path=%s error=%s",
+                    row["collection_id"],
+                    row["id"],
+                    row["package_id"],
+                    row["version_ref"],
+                    str(version_row["storage_path"])
+                    if version_row is not None
+                    else "unknown",
+                    exc,
                 )
                 continue
             storage_dir = Path(str(version_row["storage_path"]))
@@ -755,5 +770,17 @@ def resolve_skill(
                 artifact_path,
             ),
         }
+    except OSError as exc:
+        LOGGER.warning(
+            "Suppressed skill resolve storage error: package_ref=%s skill_name=%s "
+            "collection_id=%s error=%s",
+            package_ref,
+            skill_name,
+            collection_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="skill not found"
+        ) from exc
     finally:
         conn.close()
