@@ -210,3 +210,25 @@ Remaining: PR 2A.2 adds CLI commands in `agh/cli/main.py` and CLI command tests.
 Focused remove/lock resilience hardening slice for issue #97. Completed tasks: 3.2c, 4.2c. Scope stays `agh/cli/global_skills.py`, `tests/test_global_skills.py`, and SDD artifacts; PR 2A.2 CLI commands remain out of scope.
 Evidence: native install/remove plus AGH state lock/cache writes/deletes reject symlinked existing ancestors (`~/.config/opencode`, `$XDG_STATE_HOME/agh`); failed updates restore previous target/cache content, and failed rollback now raises `GlobalSkillError` with restore failure plus manual recovery context. Tests cover both blockers and prior tampered-target/malformed-lock recovery.
 Verification is recorded in `verify-report-2A.1c.md`: diff 5 files, 363 insertions/37 deletions; focused tests 49 passed; full suite 441 passed, 1 skipped; ruff, format, pyright, and diff checks passed. Remaining: PR 2A.2 CLI commands.
+
+## PR 2A.2 Progress
+
+CLI command wiring slice for issue #97. Base: PR 2A.1c / `feat/global-skill-collections`. Scope: `agh skill list`, `agh skill install`, `agh skill remove`, `agh skill installed`, and global-skill-scoped `agh skill agent show/select/clear` in `agh/cli/main.py`, plus focused CLI tests in `tests/test_global_skills.py`. Excludes full CLI docs/help documentation beyond command registration/help text.
+
+Completed tasks: 3.3, 4.3.
+Review budget: within the 400-line target at implementation time; no `size:exception` required.
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.3 CLI skill commands | `tests/test_global_skills.py` | CLI/Integration | ✅ `uv run pytest tests/test_global_skills.py tests/test_agent_command.py tests/test_cli_package_commands.py -q` → 84 passed before modifying command wiring | ✅ Added failing tests for `skill list`, `skill install --agent --force`, `skill remove`, `skill installed`, and `skill agent show/select/clear` before commands existed | ✅ Focused tests passed after adding `skill_app`, `skill_agent_app`, API requester binding, and command handlers | ✅ Covered available-skill listing, install wiring, remove with default agent, installed lock output, default-agent roundtrip, prompt save path, and non-TTY failure | ✅ Reused existing `_echo_table`, `_fail`, `_prompt_selection_index`, and default-agent helpers; formatted and linted touched files |
+| 4.3 Prompt/default-agent CLI behavior | `tests/test_global_skills.py` | CLI/Integration | ✅ Included in CLI safety net above | ✅ Prompt wording/default-save/non-TTY tests failed before `_resolve_global_skill_agent()` and `_prompt_global_skill_agent()` existed | ✅ `uv run pytest tests/test_global_skills.py -q` → 56 passed after rebase onto PR 2A.1c | ✅ Covered exact `Select the agent for global skills:` wording, save-default confirmation, saved default usage for remove, and non-interactive failure | ✅ Kept prompt logic isolated in small helper functions |
+### Verification
+
+- `git diff --check feat/global-skill-collections...HEAD` → passed after rebase.
+- `uv run pytest tests/test_global_skills.py -q` → 56 passed after rebase onto PR 2A.1c.
+- `uv run pytest tests/test_global_skills.py tests/test_agent_command.py tests/test_cli_package_commands.py -q` → 99 passed after rebase onto PR 2A.1c.
+- `uv run pytest -q` → 448 passed, 1 skipped.
+- `uv run ruff check agh tests` → passed.
+- `uv run ruff format --check agh tests` → 61 files already formatted.
+- `uv run --with pyright pyright agh tests` → 0 errors, 0 warnings, 0 informations.

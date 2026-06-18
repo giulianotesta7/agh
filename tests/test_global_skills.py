@@ -8,8 +8,10 @@ from unittest.mock import MagicMock
 
 import pytest
 from pytest import MonkeyPatch
+from typer.testing import CliRunner
 
 from agh.cli import global_skills as gs
+from agh.cli.main import app as cli_app
 from agh.cli.agent_integrations import (
     AgentPreferenceError,
     clear_global_skill_default_agent,
@@ -896,3 +898,163 @@ def test_write_global_skill_default_rejects_symlinked_parent(agh_state: Path) ->
 
     with pytest.raises(AgentPreferenceError, match="symlinked"):
         write_global_skill_default_agent("opencode")
+
+
+def test_skill_list_shows_available_skills(monkeypatch: MonkeyPatch) -> None:
+    from agh.cli import main as cli_main
+
+    monkeypatch.setattr(
+        cli_main,
+        "_api_request",
+        lambda _method, _path: {
+            "skills": [
+                {
+                    "skill_name": "reviewer",
+                    "collection_name": "Acme Skills",
+                    "package_ref": "acme/commenting@latest",
+                    "resolved_ref": "acme/commenting@1.2.0",
+                    "description": "Review comments",
+                }
+            ]
+        },
+    )
+
+    result = CliRunner().invoke(cli_app, ["skill", "list"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "reviewer" in result.stdout
+    assert "Acme Skills" in result.stdout
+    assert "acme/commenting@latest" in result.stdout
+
+
+def test_skill_install_uses_agent_option(
+    agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
+) -> None:
+    from agh.cli import main as cli_main
+
+    target = agent_home / ".config" / "opencode" / "skills" / "reviewer" / "SKILL.md"
+    calls: list[tuple[str, str, str, bool]] = []
+
+    def fake_install(
+        agent: str, ref: str, name: str, *, force: bool
+    ) -> gs.InstallResult:
+        calls.append((agent, ref, name, force))
+        return gs.InstallResult(target_path=target, changed=True)
+
+    monkeypatch.setattr(
+        cli_main.global_skills_module,
+        "install_skill_global",
+        fake_install,
+    )
+
+    result = CliRunner().invoke(
+        cli_app,
+        [
+            "skill",
+            "install",
+            "acme/commenting@latest",
+            "reviewer",
+            "--agent",
+            "opencode",
+            "--force",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == [("opencode", "acme/commenting@latest", "reviewer", True)]
+    assert "Installed reviewer" in result.stdout
+    assert "OpenCode" in result.stdout
+
+
+def test_skill_remove_uses_default_agent(
+    agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
+) -> None:
+    from agh.cli import main as cli_main
+
+    write_global_skill_default_agent("claude")
+    removed: list[tuple[str, str]] = []
+
+    def fake_remove(agent: str, name: str) -> Path:
+        removed.append((agent, name))
+        return agent_home / ".claude" / "skills" / name / "SKILL.md"
+
+    monkeypatch.setattr(
+        cli_main.global_skills_module, "remove_skill_global", fake_remove
+    )
+
+    result = CliRunner().invoke(cli_app, ["skill", "remove", "reviewer"])
+
+    assert result.exit_code == 0, result.stdout
+    assert removed == [("claude", "reviewer")]
+    assert "Removed reviewer" in result.stdout
+
+
+def test_skill_installed_lists_lock_entries(monkeypatch: MonkeyPatch) -> None:
+    from agh.cli import main as cli_main
+
+    monkeypatch.setattr(
+        cli_main.global_skills_module,
+        "list_installed_skills",
+        lambda _agent: [
+            {
+                "name": "reviewer",
+                "package_ref_resolved": "acme/commenting@1.2.0",
+                "checksum": "sha256:abc",
+            }
+        ],
+    )
+
+    result = CliRunner().invoke(cli_app, ["skill", "installed", "--agent", "opencode"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "reviewer" in result.stdout
+    assert "acme/commenting@1.2.0" in result.stdout
+    assert "sha256:abc" in result.stdout
+
+
+def test_skill_agent_show_select_and_clear_roundtrip(agh_state: Path) -> None:
+    runner = CliRunner()
+
+    show_empty = runner.invoke(cli_app, ["skill", "agent", "show"])
+    assert show_empty.exit_code == 0, show_empty.stdout
+    assert "not set" in show_empty.stdout
+
+    select = runner.invoke(cli_app, ["skill", "agent", "select", "opencode"])
+    assert select.exit_code == 0, select.stdout
+    assert "OpenCode" in select.stdout
+
+    show_set = runner.invoke(cli_app, ["skill", "agent", "show"])
+    assert show_set.exit_code == 0, show_set.stdout
+    assert "OpenCode" in show_set.stdout
+
+    clear = runner.invoke(cli_app, ["skill", "agent", "clear"])
+    assert clear.exit_code == 0, clear.stdout
+    assert "Cleared" in clear.stdout
+
+
+def test_skill_agent_prompt_saves_default(
+    agh_state: Path, monkeypatch: MonkeyPatch
+) -> None:
+    from agh.cli import main as cli_main
+
+    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
+
+    result = CliRunner().invoke(cli_app, ["skill", "installed"], input="1\ny\n")
+
+    assert result.exit_code == 0, result.stdout
+    assert "Select the agent for global skills:" in result.stdout
+    assert "Save this as the default agent for global skills?" in result.stdout
+    assert read_global_skill_default_agent() == "claude"
+
+
+def test_skill_agent_prompt_rejects_non_tty(
+    agh_state: Path, monkeypatch: MonkeyPatch
+) -> None:
+    from agh.cli import main as cli_main
+
+    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: False)
+
+    result = CliRunner().invoke(cli_app, ["skill", "installed"])
+
+    assert result.exit_code == 2
+    assert "no default global skill agent" in result.stdout
