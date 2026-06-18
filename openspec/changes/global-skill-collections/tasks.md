@@ -43,7 +43,7 @@ Chain strategy: feature-branch-chain
 
 - [x] 3.1 Add `agh/cli/global_skills.py` for resolve/download/cache/target/lock/remove flow under user AGH state. _(PR 2A.1: core module)_
 - [x] 3.2a Add `global_skill_dir(agent)` to `agh/cli/agent_integrations.py` for native agent path resolution. _(PR 2A.1a: core module)_
-- [ ] 3.2b Add global default-agent read/write/clear helpers to `agh/cli/agent_integrations.py`. _(PR 2A.1b: agent integration)_
+- [x] 3.2b Add global default-agent read/write/clear helpers to `agh/cli/agent_integrations.py`. _(PR 2A.1b: agent integration)_
 - [ ] 3.3 Add CLI commands for `skill list/install/remove` plus global-skill-scoped agent defaults such as `skill agent show/select/clear` in `agh/cli/main.py`. _(PR 2A.2: CLI commands)_
 
 ## Phase 4: Strict TDD Verification

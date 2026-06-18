@@ -174,3 +174,34 @@ Review budget: `size:exception` required; the core module plus its tests exceed 
 - The full original PR 2A work (including CLI commands and CLI tests) remains on branch `preserve/feat/global-skill-collections-cli-full` at commit `3b5594e08cc61ddbf9f455b7782447cdc99c4e51`.
 
 Remaining: PR 2A.1b adds default-agent read/write/clear helpers and their tests; PR 2A.2 adds CLI commands in `agh/cli/main.py` and CLI command tests.
+
+## PR 2A.1b Progress
+
+Default global-skill agent helper slice for issue #97. Base: PR 2A.1a / `feat/global-skill-collections`. Scope: default agent read/write/clear helpers in `agh/cli/agent_integrations.py` and focused tests in `tests/test_global_skills.py`. Excludes CLI commands in `agh/cli/main.py` (PR 2A.2).
+
+Completed tasks: 3.2b.
+Review budget: within the 400-line budget; no `size:exception` required.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.2b Default-agent helpers | `tests/test_global_skills.py` | Unit | ✅ Existing global-skills tests remained green before this slice; post-review focused/full suites pass | ✅ Added default-agent roundtrip/idempotent/corrupt tests before helper implementation; review fixes added failing non-directory-parent and invalid UTF-8 tests before code changes | ✅ Focused tests passed after adding read/write/clear helpers and after post-review hardening | ✅ Covered no default, write/read, clear, idempotent clear, invalid agent write, corrupt TOML, invalid UTF-8, non-directory parent for read/clear, and symlinked defaults/parent for read/clear | ✅ Removed unused `monkeypatch` fixture from roundtrip test and kept helper changes minimal |
+
+### Post-Review Fixes
+
+- `read_global_skill_default_agent()` now rejects a non-directory `XDG_STATE_HOME/agh/global-skills` parent instead of treating the default as absent.
+- `clear_global_skill_default_agent()` now rejects the same non-directory parent instead of returning `False`.
+- Invalid UTF-8 while reading `defaults.toml` is wrapped in `AgentPreferenceError`.
+- Added behavior tests for non-directory parents, invalid UTF-8, symlinked defaults files, and symlinked defaults parents.
+
+### Verification
+
+- `uv run pytest tests/test_global_skills.py -q` → 41 passed.
+- `uv run pytest -q` → 433 passed, 1 skipped.
+- `uv run ruff check tests/test_global_skills.py agh/cli/agent_integrations.py` → All checks passed.
+- `uv run ruff format --check tests/test_global_skills.py agh/cli/agent_integrations.py` → 2 files already formatted.
+- `uv run --with pyright pyright agh tests` → 0 errors, 0 warnings, 0 informations.
+- `git diff --check feat/global-skill-collections...HEAD` → passed after final amend.
+
+Remaining: PR 2A.2 adds CLI commands in `agh/cli/main.py` and CLI command tests.

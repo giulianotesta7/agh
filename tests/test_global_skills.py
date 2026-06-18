@@ -10,7 +10,13 @@ import pytest
 from pytest import MonkeyPatch
 
 from agh.cli import global_skills as gs
-from agh.cli.agent_integrations import global_skill_dir
+from agh.cli.agent_integrations import (
+    AgentPreferenceError,
+    clear_global_skill_default_agent,
+    global_skill_dir,
+    read_global_skill_default_agent,
+    write_global_skill_default_agent,
+)
 from agh.cli.config import AghConfig
 
 
@@ -318,6 +324,21 @@ def test_global_skill_dir_maps_agents(agent_home: Path) -> None:
     assert global_skill_dir("claude") == agent_home / ".claude" / "skills"
 
 
+def test_global_skill_default_agent_roundtrip(agh_state: Path) -> None:
+    assert read_global_skill_default_agent() is None
+
+    write_global_skill_default_agent("claude")
+    assert read_global_skill_default_agent() == "claude"
+
+    clear_global_skill_default_agent()
+    assert read_global_skill_default_agent() is None
+
+
+def test_global_skill_default_clear_is_idempotent(agh_state: Path) -> None:
+    clear_global_skill_default_agent()
+    assert read_global_skill_default_agent() is None
+
+
 def test_untracked_target_with_force_overwrites(
     agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
 ) -> None:
@@ -563,3 +584,124 @@ def test_list_installed_skills_rejects_path_traversal_in_agent(
 ) -> None:
     with pytest.raises(gs.GlobalSkillError, match="invalid agent"):
         gs.list_installed_skills("../escape")
+
+
+def test_write_global_skill_default_rejects_invalid_agent() -> None:
+    with pytest.raises(AgentPreferenceError):
+        write_global_skill_default_agent("invalid-agent")
+
+
+def test_read_global_skill_default_rejects_corrupt_toml(agh_state: Path) -> None:
+    defaults = agh_state / "agh" / "global-skills" / "defaults.toml"
+    defaults.parent.mkdir(parents=True, exist_ok=True)
+    defaults.write_text("not valid toml [[[", encoding="utf-8")
+
+    with pytest.raises(AgentPreferenceError):
+        read_global_skill_default_agent()
+
+
+def test_read_global_skill_default_rejects_non_directory_parent(
+    agh_state: Path,
+) -> None:
+    defaults_parent = agh_state / "agh" / "global-skills"
+    defaults_parent.parent.mkdir(parents=True, exist_ok=True)
+    defaults_parent.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(AgentPreferenceError, match="non-directory"):
+        read_global_skill_default_agent()
+
+
+def test_clear_global_skill_default_rejects_non_directory_parent(
+    agh_state: Path,
+) -> None:
+    defaults_parent = agh_state / "agh" / "global-skills"
+    defaults_parent.parent.mkdir(parents=True, exist_ok=True)
+    defaults_parent.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(AgentPreferenceError, match="non-directory"):
+        clear_global_skill_default_agent()
+
+
+def test_read_global_skill_default_rejects_invalid_utf8(agh_state: Path) -> None:
+    defaults = agh_state / "agh" / "global-skills" / "defaults.toml"
+    defaults.parent.mkdir(parents=True, exist_ok=True)
+    defaults.write_bytes(b"[skills]\ndefault_agent = \xff\n")
+
+    with pytest.raises(AgentPreferenceError):
+        read_global_skill_default_agent()
+
+
+def test_read_global_skill_default_rejects_symlinked_defaults(
+    agh_state: Path,
+) -> None:
+    outside = agh_state / "outside-defaults.toml"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text('[skills]\ndefault_agent = "claude"\n', encoding="utf-8")
+    defaults = agh_state / "agh" / "global-skills" / "defaults.toml"
+    defaults.parent.mkdir(parents=True, exist_ok=True)
+    defaults.symlink_to(outside)
+
+    with pytest.raises(AgentPreferenceError, match="symlinked"):
+        read_global_skill_default_agent()
+
+
+def test_clear_global_skill_default_rejects_symlinked_defaults(
+    agh_state: Path,
+) -> None:
+    outside = agh_state / "outside-defaults.toml"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text('[skills]\ndefault_agent = "claude"\n', encoding="utf-8")
+    defaults = agh_state / "agh" / "global-skills" / "defaults.toml"
+    defaults.parent.mkdir(parents=True, exist_ok=True)
+    defaults.symlink_to(outside)
+
+    with pytest.raises(AgentPreferenceError, match="symlinked"):
+        clear_global_skill_default_agent()
+
+
+def test_read_global_skill_default_rejects_symlinked_parent(
+    agh_state: Path,
+) -> None:
+    outside_parent = agh_state / "outside-defaults"
+    outside_parent.mkdir(parents=True)
+    defaults_parent = agh_state / "agh" / "global-skills"
+    defaults_parent.parent.mkdir(parents=True, exist_ok=True)
+    defaults_parent.symlink_to(outside_parent, target_is_directory=True)
+
+    with pytest.raises(AgentPreferenceError, match="symlinked"):
+        read_global_skill_default_agent()
+
+
+def test_clear_global_skill_default_rejects_symlinked_parent(
+    agh_state: Path,
+) -> None:
+    outside_parent = agh_state / "outside-defaults"
+    outside_parent.mkdir(parents=True)
+    defaults_parent = agh_state / "agh" / "global-skills"
+    defaults_parent.parent.mkdir(parents=True, exist_ok=True)
+    defaults_parent.symlink_to(outside_parent, target_is_directory=True)
+
+    with pytest.raises(AgentPreferenceError, match="symlinked"):
+        clear_global_skill_default_agent()
+
+
+def test_write_global_skill_default_rejects_non_directory_parent(
+    agh_state: Path,
+) -> None:
+    defaults_parent = agh_state / "agh" / "global-skills"
+    defaults_parent.parent.mkdir(parents=True, exist_ok=True)
+    defaults_parent.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(AgentPreferenceError, match="non-directory"):
+        write_global_skill_default_agent("opencode")
+
+
+def test_write_global_skill_default_rejects_symlinked_parent(agh_state: Path) -> None:
+    defaults_parent = agh_state / "agh" / "global-skills"
+    defaults_parent.parent.mkdir(parents=True, exist_ok=True)
+    outside_parent = agh_state / "outside-defaults"
+    outside_parent.mkdir()
+    defaults_parent.symlink_to(outside_parent, target_is_directory=True)
+
+    with pytest.raises(AgentPreferenceError, match="symlinked"):
+        write_global_skill_default_agent("opencode")
