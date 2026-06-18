@@ -202,6 +202,17 @@ def symlink_points_to(path: Path, expected: Path) -> bool:
     return target.resolve(strict=False) == expected.resolve(strict=False)
 
 
+def global_skill_dir(agent: str) -> Path:
+    """Return the native global skill directory for the selected agent."""
+    if agent not in SUPPORTED_AGENT_TARGETS:
+        raise AgentPreferenceError(
+            "agent target must be 'claude' or 'opencode'", code=2
+        )
+    if agent == "opencode":
+        return Path.home() / ".config" / "opencode" / "skills"
+    return Path.home() / ".claude" / "skills"
+
+
 def _detect_agent(
     *,
     name: str,

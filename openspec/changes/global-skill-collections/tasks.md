@@ -41,16 +41,17 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: CLI Global Skills
 
-- [ ] 3.1 Add `agh/cli/global_skills.py` for resolve/download/cache/target/lock/remove flow under user AGH state.
-- [ ] 3.2 Extend `agh/cli/agent_integrations.py` with `global_skill_dir(agent)` and separate global default-agent selection.
-- [ ] 3.3 Add CLI commands for `skill list/install/remove` plus global-skill-scoped agent defaults such as `skill agent show/select/clear` in `agh/cli/main.py`.
+- [x] 3.1 Add `agh/cli/global_skills.py` for resolve/download/cache/target/lock/remove flow under user AGH state. _(PR 2A.1: core module)_
+- [x] 3.2a Add `global_skill_dir(agent)` to `agh/cli/agent_integrations.py` for native agent path resolution. _(PR 2A.1a: core module)_
+- [ ] 3.2b Add global default-agent read/write/clear helpers to `agh/cli/agent_integrations.py`. _(PR 2A.1b: agent integration)_
+- [ ] 3.3 Add CLI commands for `skill list/install/remove` plus global-skill-scoped agent defaults such as `skill agent show/select/clear` in `agh/cli/main.py`. _(PR 2A.2: CLI commands)_
 
 ## Phase 4: Strict TDD Verification
 
 - [x] 4.1A Write focused tests for collection migration, auth, CRUD/list/get/update/delete, and active/inactive behavior in `tests/`.
 - [x] 4.1B Write focused tests for collection package assignment, skill-only rejection, skill list, and resolve scenarios in `tests/`.
-- [ ] 4.2 Write failing tests for global install/remove, checksum no-op, AGH-owned update, and untracked target `--force` behavior.
-- [ ] 4.3 Verify CLI prompts and default-agent behavior, including `Select the agent for global skills:` wording.
+- [x] 4.2 Write failing tests for global install/remove, checksum no-op, AGH-owned update, and untracked target `--force` behavior. _(PR 2A.1: core tests)_
+- [ ] 4.3 Verify CLI prompts and default-agent behavior, including `Select the agent for global skills:` wording. _(PR 2A.2: CLI tests)_
 
 ## Phase 5: Cleanup / Documentation
 

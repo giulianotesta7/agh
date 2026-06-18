@@ -143,3 +143,34 @@ Reliability blocker and contract warning fixes applied after formal verify passe
 - `uv run pytest -q` → 388 passed, 1 skipped.
 - `uv run ruff format agh/server/routes/collections.py tests/test_collection_package_assignments.py` → clean.
 - `uv run ruff check agh/server/routes/collections.py tests/test_collection_package_assignments.py` → clean.
+
+## PR 2A.1a Progress
+
+Core global-skill module slice for issue #97. Base: PR 1B.2 / `feat/global-skill-collections`. Scope: `agh/cli/global_skills.py`, the `global_skill_dir(agent)` path helper in `agh/cli/agent_integrations.py`, and focused core tests in `tests/test_global_skills.py`. Excludes default-agent read/write/clear helpers (PR 2A.1b) and CLI commands in `agh/cli/main.py` (PR 2A.2).
+
+Completed tasks: 3.1, 3.2a (`global_skill_dir`), 4.2.
+Review budget: `size:exception` required; the core module plus its tests exceed the 400-line review budget.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.1 `agh/cli/global_skills.py` | `tests/test_global_skills.py` | Unit/Integration | ✅ Existing CLI tests passed before modifying CLI files | ✅ Core install/remove/lock/cache/resolve/download tests failed before `global_skills.py` | ✅ Focused core tests passed after implementing `global_skills.py` | ✅ Covered XDG/fallback paths, resolve URL, download auth, install target/lock/cache, same-checksum no-op, AGH-owned update, untracked + force, cross-package conflict, remove cleanup, list filtering | ✅ Extracted helpers (`_target_path`, `_cache_path`, `_find_entry`, `_write_lock`) |
+| 3.2a `agent_integrations.py` `global_skill_dir` | `tests/test_global_skills.py` | Unit | ✅ Included in CLI safety net above | ✅ Wrote failing tests for `global_skill_dir` paths and invalid-agent rejection before implementation | ✅ Focused tests passed after adding helper | ✅ Covered opencode/claude paths and invalid agent rejection | ✅ Reused existing `SUPPORTED_AGENT_TARGETS` constant |
+| 4.2 Install/remove/conflict tests | `tests/test_global_skills.py` | Unit/Integration | ✅ Existing global-skills core tests green before adding edge cases | ✅ Added failing conflict/untracked-force/remove-missing tests before production fixes | ✅ All edge-case tests passed | ✅ Added different-package-same-skill conflict and untracked-with-force tests | ✅ Cleaned assertions to verify real behavior |
+
+### Verification
+
+- `uv run pytest tests/test_global_skills.py -q` → 15 passed.
+- `uv run pytest tests/test_agent_command.py tests/test_cli_package_commands.py -q` → 43 passed.
+- `uv run ruff format agh/cli/global_skills.py agh/cli/agent_integrations.py tests/test_global_skills.py` → clean.
+- `uv run ruff check agh/cli/global_skills.py agh/cli/agent_integrations.py tests/test_global_skills.py` → clean.
+- `uv run pytest -q` → 407 passed, 1 skipped.
+- `git diff --check feat/global-skill-collections` → passed.
+
+### Preservation
+
+- The full PR 2A.1 work (core module + agent-integration helpers) before this split is preserved as tag `backup/pr2a1-full-6d3736c` and branch `preserve/feat/global-skill-collections-cli-2a1b` at commit `6d3736c`.
+- The full original PR 2A work (including CLI commands and CLI tests) remains on branch `preserve/feat/global-skill-collections-cli-full` at commit `3b5594e08cc61ddbf9f455b7782447cdc99c4e51`.
+
+Remaining: PR 2A.1b adds default-agent read/write/clear helpers and their tests; PR 2A.2 adds CLI commands in `agh/cli/main.py` and CLI command tests.
