@@ -13,7 +13,7 @@
 | Issue | #97 |
 | Tracker branch | `feat/global-skill-collections` |
 
-Decision needed before apply: No — user selected chained PRs with a feature-branch-chain/tracker PR strategy for issue #97, then split the oversized server slice into PR 1A, PR 1B.1, and PR 1B.2.
+Decision needed before apply: No — user selected chained PRs with a feature-branch-chain/tracker PR strategy for issue #97, then split the oversized server slice into PR 1A and PR 1B.
 Chained PRs recommended: Yes
 Chain strategy: feature-branch-chain
 400-line budget risk: High
@@ -23,8 +23,7 @@ Chain strategy: feature-branch-chain
 | Unit | Goal | Likely PR | Notes |
 |------|------|-----------|-------|
 | 1A | Collection migration/table foundation and collection CRUD routes | PR 1A | Base = tracker branch/PR; includes migration, `col_` ID prefix, router wiring, auth-aware collection CRUD tests |
-| 1B.1 | Collection package assignment foundation | PR 1B.1 | Base = PR 1A; includes `casn_` prefix, `006_collection_packages` migration, assignment CRUD/list endpoints, owner/admin auth, assignment response serialization with `@latest` resolution, and focused assignment tests |
-| 1B.2 | Skill-only validation and skill discovery APIs | PR 1B.2 | Base = PR 1B.1; includes skill-only package validation, `GET /api/v1/skills`, `GET /api/v1/skills:resolve`, `@latest` fail-closed behavior, and discovery tests |
+| 1B | Collection package assignments, skill-only validation, and skill list/resolve endpoints | PR 1B | Base = PR 1A; includes assignment/list/resolve route tests |
 | 2 | Global skill install/remove, agent default selection, native path resolver | PR 2 | Base = PR 1B; includes CLI/state tests and rollback |
 
 ## Phase 1: Foundation / Data Model
@@ -36,9 +35,9 @@ Chain strategy: feature-branch-chain
 ## Phase 2: Core Server Behavior
 
 - [x] 2.1A Implement collection CRUD endpoints with owner/admin mutation and member read/list behavior.
-- [x] 2.1B Implement collection package assignment endpoints with owner/admin authorization.
-- [ ] 2.2 Add skill-only validation that rejects package artifacts containing `instructions/AGENTS.md` or `instructions/CLAUDE.md`. *(deferred to PR 1B.2)*
-- [ ] 2.3 Implement `GET /skills` and `GET /skills:resolve` for collection-backed skill discovery and concrete version resolution. *(deferred to PR 1B.2)*
+- [x] 2.1B Implement collection package assignment endpoints with owner/admin authorization. _(PR 1B.1: assignment foundation)_
+- [x] 2.2 Add skill-only validation that rejects package artifacts containing `instructions/AGENTS.md` or `instructions/CLAUDE.md`. _(PR 1B.2: skill-only validation)_
+- [x] 2.3 Implement `GET /skills` and `GET /skills:resolve` for collection-backed skill discovery and concrete version resolution. _(PR 1B.2: skill discovery)_
 
 ## Phase 3: CLI Global Skills
 
@@ -49,7 +48,7 @@ Chain strategy: feature-branch-chain
 ## Phase 4: Strict TDD Verification
 
 - [x] 4.1A Write focused tests for collection migration, auth, CRUD/list/get/update/delete, and active/inactive behavior in `tests/`.
-- [x] 4.1B Write focused tests for collection package assignment auth, duplicate detection, update, deactivation, and `@latest` resolution in `tests/`.
+- [x] 4.1B Write focused tests for collection package assignment, skill-only rejection, skill list, and resolve scenarios in `tests/`.
 - [ ] 4.2 Write failing tests for global install/remove, checksum no-op, AGH-owned update, and untracked target `--force` behavior.
 - [ ] 4.3 Verify CLI prompts and default-agent behavior, including `Select the agent for global skills:` wording.
 

@@ -83,3 +83,63 @@ Review budget: target ≤400 changed lines; final diff will be reported after ve
 Review budget: maintainer-approved `size:exception` for PR 1B.1 at 716 changed lines vs `feat/global-skill-collections`; PR 1B.1 remains a focused assignment-foundation slice and is still significantly smaller than the original ~1,184-line PR 1B.
 
 Remaining: PR 1B.2 adds skill-only validation, `/skills`, `/skills:resolve`, and `@latest` fail-closed behavior from the preserved full implementation. PR 2 adds CLI/global install.
+
+## PR 1B.2 Progress
+
+Skill-only validation and skill discovery slice for issue #97. Base: PR 1B.1 / `feat/global-skill-collections-skill-api`. Scope: reject instruction-bearing collection packages, add `GET /api/v1/skills`, add `GET /api/v1/skills:resolve`, resolve concrete package versions, and fail closed when `@latest` resolves to instruction-bearing content. Excludes CLI global skills and workspace prompt wording.
+
+Completed tasks: 2.2, 2.3, 4.1B discovery coverage.
+Review budget: maintainer-approved `size:exception` for PR 1B.2 after validation/discovery plus review fixes pushed the diff over 400 changed lines.
+
+## PR 1B.2 TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 2.2 Skill-only validation | `tests/test_collection_package_assignments.py` | Integration | ✅ Assignment tests green | ✅ Instruction-bearing package tests failed before validation | ✅ Rejection tests passed after validation helper | ✅ AGENTS.md, CLAUDE.md, latest-resolving-to-instruction, and skill-only acceptance covered | ✅ Validation reused stored package artifacts |
+| 2.3 Skill list/resolve | `tests/test_collection_package_assignments.py` | Integration | ✅ Assignment tests green | ✅ List/resolve tests failed before endpoints | ✅ Discovery tests passed after `/skills` and `/skills:resolve` | ✅ Active/inactive filtering, latest resolution, fail-closed latest, collection filter, and download URL covered | ✅ Reused package artifact URL helper |
+
+## PR 1B.2 Verification
+
+- `uv run pytest tests/test_collection_package_assignments.py -q` → 14 passed.
+- `uv run ruff format --check agh/server/routes/collections.py tests/test_collection_package_assignments.py` → passed.
+- `uv run ruff check agh/server/routes/collections.py tests/test_collection_package_assignments.py` → passed.
+- `git diff --check feat/global-skill-collections...HEAD` → passed.
+- `uv run pytest -q` → 384 passed, 1 skipped.
+
+Remaining: PR 2 adds CLI global skills install/remove, agent default selection, and native path resolver.
+
+## PR 1B.2 Post-Verify Review Fixes
+
+Reliability blocker and contract warning fixes applied after formal verify passed.
+
+### Fixes Applied
+
+- `update_collection_package()` now revalidates the effective package/version for skill-only compliance whenever the assignment will remain/become active, even when `package_ref` is not supplied in the PATCH payload. This prevents a stored `@latest` assignment from being successfully patched (e.g., `position` or `active: true`) after `latest` drifts to an instruction-bearing package.
+- `GET /skills:resolve` now accepts either the stored requested ref (e.g., `acme/tool@latest`) or the concrete resolved ref returned by `GET /skills` (e.g., `acme/tool@1.2.0`), while still requiring the resolved package to be collection-authorized and skill-only.
+- `_validate_skill_only_package()` accepts an optional pre-resolved `version_row` to avoid redundant version resolution in `list_skills()` and `resolve_skill()`.
+
+### Tests Added
+
+- `test_patch_rejects_active_assignment_when_latest_resolves_to_instruction_package`
+- `test_skills_resolve_accepts_concrete_ref_from_skills_list`
+
+### Verification After Fixes
+
+- `uv run pytest tests/test_collection_package_assignments.py -q` → 16 passed.
+- `uv run pytest -q` → 386 passed, 1 skipped.
+- `uv run ruff format agh/server/routes/collections.py tests/test_collection_package_assignments.py` → 2 files reformatted.
+- `uv run ruff check agh/server/routes/collections.py tests/test_collection_package_assignments.py` → All checks passed.
+
+## PR 1B.2 Final Review Fixes
+
+- Added warning-level logging when `GET /skills` suppresses an active assignment because the resolved package is no longer skill-only.
+- Hardened collection filter assertions to prove non-empty/cardinality behavior.
+- Added an isolated inactive-collection resolve test where the assignment remains active.
+- Removed dead parsing variables from the package publishing test helper.
+
+### Final Verification
+
+- `uv run pytest tests/test_collection_package_assignments.py -q` → 18 passed.
+- `uv run pytest -q` → 388 passed, 1 skipped.
+- `uv run ruff format agh/server/routes/collections.py tests/test_collection_package_assignments.py` → clean.
+- `uv run ruff check agh/server/routes/collections.py tests/test_collection_package_assignments.py` → clean.
