@@ -256,3 +256,7 @@ Review budget: targeted under the 400-line review budget; no `size:exception` re
 - `uv run --with pyright pyright agh tests` → 0 errors, 0 warnings, 0 informations.
 
 Remaining: 5.2 workspace prompt wording cleanup remains an intentional follow-up PR.
+
+## Phase 5.2 Follow-up Deferral
+
+Workspace prompt wording cleanup is intentionally deferred to follow-up issue #109 so the global skill collections implementation stays focused. No workspace prompt wording changes were included in this change chain.

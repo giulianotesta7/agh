@@ -58,7 +58,7 @@ Chain strategy: feature-branch-chain
 ## Phase 5: Cleanup / Documentation
 
 - [x] 5.1 Update CLI help/docs for global skill commands and agent-default behavior.
-- [ ] 5.2 Keep the workspace prompt wording cleanup as a separate follow-up PR; do not include it in core implementation. _(Intentionally deferred follow-up; not part of Phase 5.1 docs/help.)_
+- [x] 5.2 Keep the workspace prompt wording cleanup as a separate follow-up PR; do not include it in core implementation. _(Deferred to follow-up issue #109; not part of core implementation.)_
 
 ## Phase 6: PR 1A.2 Collection CRUD API Hardening
 
