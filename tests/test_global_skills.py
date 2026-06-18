@@ -53,6 +53,31 @@ def _resolved(
     }
 
 
+def _write_installed_skill_lock(target: Path) -> None:
+    gs._write_lock(
+        [{"name": "reviewer", "agent": "opencode", "target_path": str(target)}]
+    )
+
+
+def _cache_file(agh_state: Path) -> Path:
+    return (
+        agh_state
+        / "agh/global-skills/cache/acme/commenting/1.2.0/skills/reviewer/SKILL.md"
+    )
+
+
+def _mock_skill_install(
+    monkeypatch: MonkeyPatch, content: str = "# Skill content\n"
+) -> None:
+    monkeypatch.setattr(
+        gs,
+        "load_config",
+        lambda: AghConfig("http://localhost:8912", "member@example.com", "t"),
+    )
+    monkeypatch.setattr(gs, "resolve_skill", lambda _api, _ref, _name: _resolved())
+    monkeypatch.setattr(gs, "download_skill", lambda _r: content)
+
+
 def test_global_skill_paths_use_xdg_state_home(agh_state: Path) -> None:
     assert gs.global_skill_cache_dir() == agh_state / "agh" / "global-skills" / "cache"
     assert (
@@ -296,6 +321,71 @@ def test_remove_deletes_target_and_lock(
     assert gs.read_lock() == []
 
 
+def test_remove_rejects_tampered_target_path_outside_agent_dir(
+    agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
+) -> None:
+    _mock_skill_install(monkeypatch)
+    gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
+
+    outside = agent_home / "outside" / "SKILL.md"
+    outside.parent.mkdir(parents=True)
+    outside.write_text("# Do not delete\n", encoding="utf-8")
+    entries = gs.read_lock()
+    entries[0]["target_path"] = str(outside)
+    gs._write_lock(entries)
+
+    with pytest.raises(gs.GlobalSkillError, match="does not match expected"):
+        gs.remove_skill_global("opencode", "reviewer")
+
+    assert outside.read_text(encoding="utf-8") == "# Do not delete\n"
+    expected = agent_home / ".config" / "opencode" / "skills" / "reviewer" / "SKILL.md"
+    assert expected.exists()
+
+
+def test_remove_keeps_target_when_lock_update_fails(
+    agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
+) -> None:
+    _mock_skill_install(monkeypatch)
+    gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
+
+    monkeypatch.setattr(
+        gs, "_write_lock", lambda _entries: (_ for _ in ()).throw(OSError("disk full"))
+    )
+
+    with pytest.raises(gs.GlobalSkillError, match="target was left untouched"):
+        gs.remove_skill_global("opencode", "reviewer")
+
+    target = agent_home / ".config" / "opencode" / "skills" / "reviewer" / "SKILL.md"
+    assert target.read_text(encoding="utf-8") == "# Skill content\n"
+    assert len(gs.read_lock()) == 1
+
+
+def test_remove_reports_recovery_when_delete_fails_after_lock_update(
+    agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
+) -> None:
+    _mock_skill_install(monkeypatch)
+    gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
+
+    target = agent_home / ".config" / "opencode" / "skills" / "reviewer" / "SKILL.md"
+    original_unlink = Path.unlink
+
+    def failing_target_unlink(self: Path, *args: Any, **kwargs: Any) -> None:
+        if self == target:
+            raise OSError("permission denied")
+        original_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", failing_target_unlink)
+
+    with pytest.raises(
+        gs.GlobalSkillError, match="lock updated, but failed to remove target"
+    ) as exc_info:
+        gs.remove_skill_global("opencode", "reviewer")
+
+    assert "delete it manually or reinstall with --force" in str(exc_info.value)
+    assert target.read_text(encoding="utf-8") == "# Skill content\n"
+    assert gs.read_lock() == []
+
+
 def test_list_installed_skills_filters_by_agent(
     agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
 ) -> None:
@@ -482,6 +572,25 @@ def test_install_rejects_symlinked_target(
         gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
 
 
+def test_install_rejects_symlinked_native_skill_ancestor_above_boundary(
+    agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
+) -> None:
+    _mock_skill_install(monkeypatch, "# content\n")
+
+    config_dir = agent_home / ".config"
+    config_dir.mkdir()
+    outside_opencode = agent_home / "outside-opencode"
+    outside_opencode.mkdir()
+    (config_dir / "opencode").symlink_to(outside_opencode, target_is_directory=True)
+
+    with pytest.raises(gs.GlobalSkillError, match="symlinked path component"):
+        gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
+
+    outside_target = outside_opencode / "skills" / "reviewer" / "SKILL.md"
+    assert not outside_target.exists()
+    assert gs.read_lock() == []
+
+
 def test_install_rejects_symlinked_cache_parent(
     agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
 ) -> None:
@@ -514,6 +623,23 @@ def test_install_rejects_symlinked_cache_parent(
         gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
 
 
+def test_install_rejects_symlinked_agh_state_ancestor(
+    agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
+) -> None:
+    _mock_skill_install(monkeypatch, "# content\n")
+    outside_state = agh_state / "outside-state"
+    outside_state.mkdir(parents=True)
+    (agh_state / "agh").symlink_to(outside_state, target_is_directory=True)
+
+    with pytest.raises(gs.GlobalSkillError, match="symlinked path component"):
+        gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
+
+    target = agent_home / ".config/opencode/skills/reviewer/SKILL.md"
+    assert not target.exists()
+    assert not (outside_state / "global-skills/cache").exists()
+    assert not (outside_state / "global-skills/lock.toml").exists()
+
+
 def test_remove_rejects_symlinked_target(
     agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
 ) -> None:
@@ -534,6 +660,27 @@ def test_remove_rejects_symlinked_target(
 
     with pytest.raises(gs.GlobalSkillError, match="symlinked"):
         gs.remove_skill_global("opencode", "reviewer")
+
+
+def test_remove_rejects_symlinked_native_skill_ancestor_above_boundary(
+    agh_state: Path, agent_home: Path
+) -> None:
+    config_dir = agent_home / ".config"
+    config_dir.mkdir()
+    outside_opencode = agent_home / "outside-opencode"
+    outside_target = outside_opencode / "skills" / "reviewer" / "SKILL.md"
+    outside_target.parent.mkdir(parents=True)
+    outside_target.write_text("# Do not delete\n", encoding="utf-8")
+    (config_dir / "opencode").symlink_to(outside_opencode, target_is_directory=True)
+
+    target = agent_home / ".config" / "opencode" / "skills" / "reviewer" / "SKILL.md"
+    _write_installed_skill_lock(target)
+
+    with pytest.raises(gs.GlobalSkillError, match="symlinked path component"):
+        gs.remove_skill_global("opencode", "reviewer")
+
+    assert outside_target.read_text(encoding="utf-8") == "# Do not delete\n"
+    assert len(gs.read_lock()) == 1
 
 
 def test_install_rolls_back_partial_writes_on_lock_failure(
@@ -562,21 +709,52 @@ def test_install_rolls_back_partial_writes_on_lock_failure(
         gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
 
     target = agent_home / ".config" / "opencode" / "skills" / "reviewer" / "SKILL.md"
-    cache = (
-        agh_state
-        / "agh"
-        / "global-skills"
-        / "cache"
-        / "acme"
-        / "commenting"
-        / "1.2.0"
-        / "skills"
-        / "reviewer"
-        / "SKILL.md"
-    )
+    cache = _cache_file(agh_state)
     assert not target.exists()
     assert not cache.exists()
     assert gs.read_lock() == []
+
+
+def test_update_restores_existing_skill_when_lock_write_fails(
+    agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
+) -> None:
+    _mock_skill_install(monkeypatch, "# v1\n")
+    gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
+    target = agent_home / ".config" / "opencode" / "skills" / "reviewer" / "SKILL.md"
+    cache = _cache_file(agh_state)
+
+    monkeypatch.setattr(
+        gs, "resolve_skill", lambda _api, _ref, _name: _resolved(checksum="sha256:def")
+    )
+    monkeypatch.setattr(gs, "download_skill", lambda _r: "# v2\n")
+
+    def failing_write_lock(_entries: list[dict[str, Any]]) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(gs, "_write_lock", failing_write_lock)
+
+    with pytest.raises(OSError, match="disk full"):
+        gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
+
+    assert target.read_text(encoding="utf-8") == "# v1\n"
+    assert cache.read_text(encoding="utf-8") == "# v1\n"
+    lock = gs.read_lock()
+    assert len(lock) == 1
+    assert lock[0]["checksum"] == "sha256:abc"
+
+    original_atomic_write = gs._atomic_write_text
+
+    def failing_restore(path: Path, content: str) -> None:
+        if path == target and content == "# v1\n":
+            raise OSError("restore denied")
+        original_atomic_write(path, content)
+
+    monkeypatch.setattr(gs, "_atomic_write_text", failing_restore)
+
+    with pytest.raises(
+        gs.GlobalSkillError, match="rollback restore failed.*reinstall with --force"
+    ):
+        gs.install_skill_global("opencode", "acme/commenting@latest", "reviewer")
 
 
 def test_list_installed_skills_rejects_path_traversal_in_agent(
@@ -584,6 +762,19 @@ def test_list_installed_skills_rejects_path_traversal_in_agent(
 ) -> None:
     with pytest.raises(gs.GlobalSkillError, match="invalid agent"):
         gs.list_installed_skills("../escape")
+
+
+def test_list_installed_skills_rejects_malformed_lock(agh_state: Path) -> None:
+    lock = agh_state / "agh" / "global-skills" / "lock.toml"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text('skills = "not a list"\n', encoding="utf-8")
+
+    with pytest.raises(
+        gs.GlobalSkillError, match=f"invalid lock file {lock}"
+    ) as exc_info:
+        gs.list_installed_skills("opencode")
+
+    assert f"Fix or delete {lock}" in str(exc_info.value)
 
 
 def test_write_global_skill_default_rejects_invalid_agent() -> None:

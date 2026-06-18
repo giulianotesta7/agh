@@ -205,3 +205,8 @@ Review budget: within the 400-line budget; no `size:exception` required.
 - `git diff --check feat/global-skill-collections...HEAD` → passed after final amend.
 
 Remaining: PR 2A.2 adds CLI commands in `agh/cli/main.py` and CLI command tests.
+
+## PR 2A.1c Progress
+Focused remove/lock resilience hardening slice for issue #97. Completed tasks: 3.2c, 4.2c. Scope stays `agh/cli/global_skills.py`, `tests/test_global_skills.py`, and SDD artifacts; PR 2A.2 CLI commands remain out of scope.
+Evidence: native install/remove plus AGH state lock/cache writes/deletes reject symlinked existing ancestors (`~/.config/opencode`, `$XDG_STATE_HOME/agh`); failed updates restore previous target/cache content, and failed rollback now raises `GlobalSkillError` with restore failure plus manual recovery context. Tests cover both blockers and prior tampered-target/malformed-lock recovery.
+Verification is recorded in `verify-report-2A.1c.md`: diff 5 files, 363 insertions/37 deletions; focused tests 49 passed; full suite 441 passed, 1 skipped; ruff, format, pyright, and diff checks passed. Remaining: PR 2A.2 CLI commands.

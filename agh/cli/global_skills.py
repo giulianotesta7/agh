@@ -105,22 +105,35 @@ def read_lock() -> list[dict[str, Any]]:
     path = global_skill_lock_path()
     if not path.exists():
         return []
+    recovery = f"Fix or delete {path}, then reinstall global skills."
     try:
         data = __import__("tomllib").loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
-        raise GlobalSkillError(f"failed to read lock file: {exc}") from exc
+        raise GlobalSkillError(
+            f"failed to read lock file {path}: {exc}. {recovery}"
+        ) from exc
     if not isinstance(data, dict):
         return []
     skills = data.get("skills")
-    if not isinstance(skills, list):
+    if skills is None:
         return []
-    return [dict(entry) for entry in skills if isinstance(entry, dict)]
+    if not isinstance(skills, list):
+        raise GlobalSkillError(
+            f"invalid lock file {path}: skills must be a list. {recovery}"
+        )
+    entries: list[dict[str, Any]] = []
+    for index, entry in enumerate(skills):
+        if not isinstance(entry, dict):
+            raise GlobalSkillError(
+                f"invalid lock file {path}: skills[{index}] must be a table. {recovery}"
+            )
+        entries.append(dict(entry))
+    return entries
 
 
 def _write_lock(entries: list[dict[str, Any]]) -> None:
     path = global_skill_lock_path()
-    if path.is_symlink() or path.parent.is_symlink():
-        raise GlobalSkillError(f"refusing to write lock through symlinked path: {path}")
+    _reject_symlinked_existing_prefixes(path, action="write lock")
     path.parent.mkdir(parents=True, exist_ok=True)
     lines: list[str] = []
     for entry in entries:
@@ -245,7 +258,11 @@ def _install_resolved(
     if not package_ref_resolved or not package_version_id or not checksum:
         raise GlobalSkillError("resolved skill missing required metadata")
 
-    target = _target_path(agent, skill_name)
+    native_skill_dir = global_skill_dir(agent)
+    target = native_skill_dir / skill_name / "SKILL.md"
+    _reject_symlinked_path_components(
+        target, boundary=native_skill_dir, action="install"
+    )
     entries = read_lock()
     existing = _find_entry(entries, agent, skill_name)
 
@@ -266,6 +283,13 @@ def _install_resolved(
 
     content = download_skill(resolved)
     cache = _cache_path(package_ref_resolved, skill_name)
+    previous_target_content = None
+    if existing is not None and target.exists() and not target.is_symlink():
+        previous_target_content = target.read_text(encoding="utf-8")
+    previous_cache_content = None
+    if existing is not None and cache.exists() and not cache.is_symlink():
+        _reject_symlinked_existing_prefixes(cache, action="read cache")
+        previous_cache_content = cache.read_text(encoding="utf-8")
     try:
         _write_skill_file(target, content)
         _write_cache_file(package_ref_resolved, skill_name, content)
@@ -285,17 +309,51 @@ def _install_resolved(
         else:
             entries.append(new_entry)
         _write_lock(entries)
-    except Exception:
-        _cleanup_partial_install(target, cache)
+    except Exception as exc:
+        if existing is None:
+            _cleanup_partial_install(target, cache)
+        else:
+            _restore_previous_install(
+                target, cache, previous_target_content, previous_cache_content, exc
+            )
         raise
     return InstallResult(target_path=target, changed=True)
 
 
 def _cleanup_partial_install(target: Path, cache: Path) -> None:
     """Remove partially written target and cache files after a failed install."""
-    for path in (target, cache):
-        with suppress(FileNotFoundError, OSError):
-            path.unlink()
+    with suppress(FileNotFoundError, OSError):
+        target.unlink()
+    with suppress(GlobalSkillError, FileNotFoundError, OSError):
+        _unlink_state_file(cache, action="clean up cache")
+
+
+def _restore_previous_install(
+    target: Path,
+    cache: Path,
+    previous_target_content: str | None,
+    previous_cache_content: str | None,
+    update_error: BaseException,
+) -> None:
+    """Restore an existing install target after a failed update."""
+    try:
+        if previous_target_content is None:
+            with suppress(FileNotFoundError):
+                target.unlink()
+        else:
+            _atomic_write_text(target, previous_target_content)
+        if previous_cache_content is None:
+            with suppress(FileNotFoundError):
+                _unlink_state_file(cache, action="remove cache")
+        else:
+            _reject_symlinked_existing_prefixes(cache, action="restore cache")
+            _atomic_write_text(cache, previous_cache_content)
+    except (GlobalSkillError, OSError) as exc:
+        raise GlobalSkillError(
+            f"update failed ({update_error}); rollback restore failed for {target} "
+            f"and {cache}: {exc}. Manually inspect and restore or delete "
+            "inconsistent files, then reinstall with --force."
+        ) from exc
 
 
 def _write_skill_file(target: Path, content: str) -> None:
@@ -315,16 +373,16 @@ def _write_skill_file(target: Path, content: str) -> None:
 def _write_cache_file(package_ref: str, skill_name: str, content: str) -> None:
     cache = _cache_path(package_ref, skill_name)
     parent = cache.parent
-    if parent.is_symlink():
-        raise GlobalSkillError(
-            f"refusing to write through symlinked directory: {parent}"
-        )
+    _reject_symlinked_existing_prefixes(cache, action="write cache")
     if parent.exists() and parent.is_file():
         raise GlobalSkillError(f"non-directory cache parent path: {parent}")
     parent.mkdir(parents=True, exist_ok=True)
-    if cache.is_symlink():
-        raise GlobalSkillError(f"refusing to write through symlinked file: {cache}")
     _atomic_write_text(cache, content)
+
+
+def _unlink_state_file(path: Path, *, action: str) -> None:
+    _reject_symlinked_existing_prefixes(path, action=action)
+    path.unlink()
 
 
 def remove_skill_global(agent: str, skill_name: str) -> Path:
@@ -335,17 +393,83 @@ def remove_skill_global(agent: str, skill_name: str) -> Path:
     if existing is None:
         raise GlobalSkillError(f"skill {skill_name} is not installed for {agent}")
 
-    target = Path(str(existing.get("target_path", _target_path(agent, skill_name))))
-    if target.is_symlink() or target.parent.is_symlink():
-        raise GlobalSkillError(f"refusing to remove through symlinked path: {target}")
-    if target.exists():
-        target.unlink()
-        if target.parent.is_dir() and not any(target.parent.iterdir()):
-            target.parent.rmdir()
+    target = _validated_remove_target(existing, agent, skill_name)
+    _reject_symlinked_path_components(
+        target, boundary=global_skill_dir(agent), action="remove"
+    )
 
     entries.remove(existing)
-    _write_lock(entries)
+    try:
+        _write_lock(entries)
+    except Exception as exc:
+        raise GlobalSkillError(
+            f"failed to update lock before removing {skill_name}; "
+            f"target was left untouched: {target}"
+        ) from exc
+
+    if target.exists():
+        try:
+            target.unlink()
+            if target.parent.is_dir() and not any(target.parent.iterdir()):
+                target.parent.rmdir()
+        except OSError as exc:
+            raise GlobalSkillError(
+                f"lock updated, but failed to remove target {target}; "
+                "delete it manually or reinstall with --force"
+            ) from exc
+
     return target
+
+
+def _validated_remove_target(
+    entry: dict[str, Any], agent: str, skill_name: str
+) -> Path:
+    expected = _target_path(agent, skill_name)
+    stored = Path(str(entry.get("target_path", expected)))
+    try:
+        stored_resolved = stored.resolve(strict=False)
+        expected_resolved = expected.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise GlobalSkillError(
+            f"failed to validate lock target_path for {skill_name}: {exc}"
+        ) from exc
+    if stored_resolved != expected_resolved:
+        raise GlobalSkillError(
+            "lock target_path does not match expected skill target; "
+            f"refusing to remove {stored}. Expected {expected}"
+        )
+    return expected
+
+
+def _reject_symlinked_path_components(
+    path: Path, *, boundary: Path, action: str
+) -> None:
+    """Reject symlinks in existing native skill path components through leaf."""
+    try:
+        relative = path.relative_to(boundary)
+    except ValueError as exc:
+        raise GlobalSkillError(
+            f"refusing to {action} outside native skill boundary: {path}"
+        ) from exc
+
+    _reject_symlinked_existing_prefixes(boundary, action=action)
+    candidate = boundary
+    for part in relative.parts:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise GlobalSkillError(
+                f"refusing to {action} through symlinked path component: {candidate}"
+            )
+
+
+def _reject_symlinked_existing_prefixes(path: Path, *, action: str) -> None:
+    candidate = Path(path.anchor) if path.anchor else Path()
+    for part in path.parts[1 if path.anchor else 0 :]:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise GlobalSkillError(
+                f"refusing to {action} through symlinked path component: {candidate}"
+            )
 
 
 def list_installed_skills(agent: str) -> list[dict[str, Any]]:
