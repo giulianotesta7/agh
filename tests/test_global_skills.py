@@ -927,6 +927,43 @@ def test_skill_list_shows_available_skills(monkeypatch: MonkeyPatch) -> None:
     assert "acme/commenting@latest" in result.stdout
 
 
+def test_skill_help_documents_global_paths_and_agent_default() -> None:
+    runner = CliRunner()
+
+    skill_help = runner.invoke(cli_app, ["skill", "--help"])
+    install_help = runner.invoke(cli_app, ["skill", "install", "--help"])
+    agent_help = runner.invoke(cli_app, ["skill", "agent", "--help"])
+    select_help = runner.invoke(cli_app, ["skill", "agent", "select", "--help"])
+
+    assert skill_help.exit_code == 0, skill_help.stdout
+    assert (
+        "Discover, install, and remove collection-backed global skills."
+        in skill_help.stdout
+    )
+    assert "Claude: ~/.claude/skills" in skill_help.stdout
+    assert "OpenCode: ~/.config/opencode/skills" in skill_help.stdout
+    assert "Select the agent for global skills:" in skill_help.stdout
+
+    assert install_help.exit_code == 0, install_help.stdout
+    assert (
+        "Install a collection-backed skill into the selected global agent."
+        in install_help.stdout
+    )
+    assert "Use --agent to choose claude or opencode." in install_help.stdout
+    assert "Overwrite an untracked target skill file." in install_help.stdout
+
+    assert agent_help.exit_code == 0, agent_help.stdout
+    assert (
+        "Manage the saved default agent for global skill commands." in agent_help.stdout
+    )
+    assert "show" in agent_help.stdout
+    assert "select" in agent_help.stdout
+    assert "clear" in agent_help.stdout
+
+    assert select_help.exit_code == 0, select_help.stdout
+    assert "Default agent target: claude or opencode." in select_help.stdout
+
+
 def test_skill_install_uses_agent_option(
     agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
 ) -> None:

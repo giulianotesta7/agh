@@ -74,7 +74,7 @@ Commands:
   sync         Link this git repository to its matching AGH project.
   pull         Pull assigned guidance packages into this repository.
   agent        Show and manage local agent selection.
-  skill        Discover and install collection-backed global skills.
+  skill        Discover, install, and remove collection-backed global skills.
 
 Global options:
   --help       Show this help page.
@@ -187,13 +187,19 @@ agent_app = typer.Typer(
 )
 skill_app = typer.Typer(
     cls=AghSubcommandGroup,
-    help="Discover and install collection-backed global skills.",
+    help=(
+        "Discover, install, and remove collection-backed global skills.\n\n"
+        "OpenCode: ~/.config/opencode/skills\n\n"
+        "Claude: ~/.claude/skills\n\n"
+        "Agent selection uses the saved global-skills default; otherwise AGH "
+        "prompts with `Select the agent for global skills:`."
+    ),
     no_args_is_help=False,
     rich_markup_mode=None,
 )
 skill_agent_app = typer.Typer(
     cls=AghSubcommandGroup,
-    help="Manage the default agent for global skills.",
+    help="Manage the saved default agent for global skill commands.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
@@ -531,7 +537,9 @@ def skill_list() -> None:
     )
 
 
-@skill_app.command("install", help="Install a global skill for the selected agent.")
+@skill_app.command(
+    "install", help="Install a collection-backed skill into the selected global agent."
+)
 def skill_install(
     package_ref: Annotated[
         str, typer.Argument(help="Package ref such as acme/pkg@latest.")
@@ -539,11 +547,17 @@ def skill_install(
     skill_name: Annotated[str, typer.Argument(help="Skill name to install.")],
     agent: Annotated[
         str | None,
-        typer.Option("--agent", help="Target agent: claude or opencode."),
+        typer.Option(
+            "--agent",
+            help=(
+                "Use --agent to choose claude or opencode. If omitted, use the "
+                "saved default or prompt interactively."
+            ),
+        ),
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Overwrite untracked target files."),
+        typer.Option("--force", help="Overwrite an untracked target skill file."),
     ] = False,
 ) -> None:
     """Resolve, download, and install a collection skill."""
@@ -570,7 +584,13 @@ def skill_remove(
     skill_name: Annotated[str, typer.Argument(help="Skill name to remove.")],
     agent: Annotated[
         str | None,
-        typer.Option("--agent", help="Target agent: claude or opencode."),
+        typer.Option(
+            "--agent",
+            help=(
+                "Use --agent to choose claude or opencode. If omitted, use the "
+                "saved default or prompt interactively."
+            ),
+        ),
     ] = None,
 ) -> None:
     """Remove a global skill from the selected agent and lock file."""
@@ -586,7 +606,13 @@ def skill_remove(
 def skill_installed(
     agent: Annotated[
         str | None,
-        typer.Option("--agent", help="Target agent: claude or opencode."),
+        typer.Option(
+            "--agent",
+            help=(
+                "Use --agent to choose claude or opencode. If omitted, use the "
+                "saved default or prompt interactively."
+            ),
+        ),
     ] = None,
 ) -> None:
     """Show installed global skills from the local lock file."""
@@ -615,7 +641,7 @@ def skill_agent_main(ctx: typer.Context) -> None:
         skill_agent_show()
 
 
-@skill_agent_app.command("show", help="Show the default global skill agent.")
+@skill_agent_app.command("show", help="Show the default agent for global skills.")
 def skill_agent_show() -> None:
     """Read and display the saved default global skill agent."""
     try:
@@ -628,11 +654,11 @@ def skill_agent_show() -> None:
         typer.echo(f"Default global skill agent: {AGENT_LABELS[default]} ({default}).")
 
 
-@skill_agent_app.command("select", help="Set the default global skill agent.")
+@skill_agent_app.command("select", help="Set the default agent for global skills.")
 def skill_agent_select(
     target: Annotated[
         str,
-        typer.Argument(help="Agent target: claude or opencode."),
+        typer.Argument(help="Default agent target: claude or opencode."),
     ],
 ) -> None:
     """Persist the default agent for future global skill commands."""
@@ -645,7 +671,7 @@ def skill_agent_select(
     typer.echo(f"Set default global skill agent to {AGENT_LABELS[target]} ({target}).")
 
 
-@skill_agent_app.command("clear", help="Clear the default global skill agent.")
+@skill_agent_app.command("clear", help="Clear the default agent for global skills.")
 def skill_agent_clear() -> None:
     """Remove the saved default global skill agent."""
     try:

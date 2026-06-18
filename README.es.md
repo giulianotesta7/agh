@@ -263,6 +263,36 @@ Durante el pull del workspace, AGH escribe la versión concreta y el checksum en
 </details>
 
 <details>
+<summary><strong>Skills globales</strong></summary>
+
+Las skills globales son herramientas respaldadas por colecciones e instaladas en el directorio global nativo del agente elegido. Una colección es un grupo administrado por AGH de packages que contienen solo skills y que el servidor pone a disposición; las skills globales están separadas de las asignaciones de packages del workspace.
+
+| Comando | Qué hace |
+|---------|----------|
+| `agh skill list` | Lista skills disponibles desde colecciones activas. |
+| `agh skill install acme/commenting@latest reviewer` | Resuelve, descarga e instala `reviewer` globalmente para el agente seleccionado. |
+| `agh skill remove reviewer` | Elimina la instalación global del agente seleccionado o predeterminado. |
+| `agh skill installed` | Lista skills globales instaladas localmente desde el lock global de skills para el agente seleccionado o predeterminado. |
+| `agh skill agent show` | Muestra el agente predeterminado guardado para comandos de skills globales. |
+| `agh skill agent select opencode` | Guarda OpenCode como predeterminado para comandos de skills globales. |
+| `agh skill agent clear` | Borra el agente predeterminado para skills globales. |
+
+Si no hay un predeterminado guardado y se omite `--agent`, AGH muestra este prompt:
+
+```text
+Select the agent for global skills:
+```
+
+Rutas de instalación:
+
+- Skills globales de OpenCode: `~/.config/opencode/skills`
+- Skills globales de Claude: `~/.claude/skills`
+
+El estado de skills globales es estado local del usuario bajo `XDG_STATE_HOME/agh` o `~/.local/state/agh`; no cambia el comportamiento de `agh pull` ni `.agh/lock.toml`. Si una eliminación informa un error de recuperación del filesystem, siga la salida del comando: puede hacer falta limpiar manualmente el lock y el archivo nativo de la skill antes de reintentar.
+
+</details>
+
+<details>
 <summary><strong>Pull del workspace y estado en Git</strong></summary>
 
 | Comando | Qué hace |

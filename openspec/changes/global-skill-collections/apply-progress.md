@@ -232,3 +232,27 @@ Review budget: within the 400-line target at implementation time; no `size:excep
 - `uv run ruff check agh tests` → passed.
 - `uv run ruff format --check agh tests` → 61 files already formatted.
 - `uv run --with pyright pyright agh tests` → 0 errors, 0 warnings, 0 informations.
+
+## PR 2A.3 / Phase 5.1 Docs Progress
+
+Docs/help slice for issue #97. Base: `feat/global-skill-collections`. Scope: CLI help wording and README docs for `agh skill list/install/remove/installed`, `agh skill agent show/select/clear`, default global-skill agent prompt behavior, and native global install paths. Excludes workspace prompt wording cleanup, which remains task 5.2 as an intentional follow-up.
+
+Completed tasks: 5.1.
+Review budget: targeted under the 400-line review budget; no `size:exception` required.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 5.1 CLI help/docs | `tests/test_global_skills.py`, `tests/test_docs_guidance.py` | CLI/docs | ✅ `uv run pytest tests/test_global_skills.py tests/test_docs_guidance.py -q` → 69 passed before changes | ✅ Added failing help/docs assertions for global commands, agent-default prompt, and OpenCode/Claude global paths | ✅ Focused docs/help tests passed after updating CLI help and READMEs | ✅ Covered CLI help plus English and Spanish README docs, including command list, prompt wording, paths, and workspace separation | ✅ Kept changes documentation-only/help-only; workspace prompt wording left for 5.2 |
+
+### Verification
+
+- `uv run pytest tests/test_global_skills.py tests/test_docs_guidance.py -q` → 70 passed.
+- `uv run ruff check agh tests` → passed.
+- `uv run ruff format --check agh tests` → 61 files already formatted.
+- `git diff --check` → passed before commit.
+- `uv run pytest -q` → 449 passed, 1 skipped.
+- `uv run --with pyright pyright agh tests` → 0 errors, 0 warnings, 0 informations.
+
+Remaining: 5.2 workspace prompt wording cleanup remains an intentional follow-up PR.

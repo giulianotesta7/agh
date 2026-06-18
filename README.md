@@ -256,6 +256,36 @@ During workspace pull, AGH writes the resolved concrete version and checksum to 
 </details>
 
 <details>
+<summary><strong>Global skills</strong></summary>
+
+Global skills are collection-backed tools installed into the selected agent's native user-level skill directory. A collection is an AGH-managed group of skill-only packages made available by the server; global skills are separate from workspace package assignments.
+
+| Command | What it does |
+|---------|--------------|
+| `agh skill list` | Lists skills available from active collections. |
+| `agh skill install acme/commenting@latest reviewer` | Resolves, downloads, and installs `reviewer` globally for the selected agent. |
+| `agh skill remove reviewer` | Removes the global install for the selected or default agent. |
+| `agh skill installed` | Lists locally installed global skills from the global-skill lock for the selected or default agent. |
+| `agh skill agent show` | Shows the saved default agent for global skill commands. |
+| `agh skill agent select opencode` | Saves OpenCode as the default for global skill commands. |
+| `agh skill agent clear` | Clears the global skill default agent. |
+
+If no default is saved and `--agent` is omitted, AGH prompts with:
+
+```text
+Select the agent for global skills:
+```
+
+Install paths:
+
+- OpenCode global skills: `~/.config/opencode/skills`
+- Claude global skills: `~/.claude/skills`
+
+Global skill state is local user state under `XDG_STATE_HOME/agh` or `~/.local/state/agh`; it does not change workspace pull behavior or `.agh/lock.toml`. If a remove operation reports a filesystem recovery error, follow the command output: the lock and native skill file may need manual cleanup before retrying.
+
+</details>
+
+<details>
 <summary><strong>Workspace pull and Git state</strong></summary>
 
 | Command | What it does |
