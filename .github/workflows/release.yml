@@ -242,3 +242,95 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+
+  update-homebrew:
+    name: Update Homebrew tap
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    needs:
+      - validate
+      - publish-pypi
+      - publish-ghcr
+      - github-release
+
+    steps:
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: giulianotesta7/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          persist-credentials: false
+
+      - name: Update formula from PyPI
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import urllib.request
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          formula_path = Path("Formula/agh.rb")
+          data_url = "https://pypi.org/pypi/agh/json"
+
+          with urllib.request.urlopen(data_url, timeout=30) as response:
+              payload = json.load(response)
+
+          release_files = payload["releases"].get(version, [])
+          sdist = next((item for item in release_files if item.get("packagetype") == "sdist"), None)
+          if sdist is None:
+              raise SystemExit(f"No sdist found on PyPI for agh {version}")
+
+          url = sdist["url"]
+          with urllib.request.urlopen(url, timeout=30) as response:
+              sha256 = hashlib.sha256(response.read()).hexdigest()
+
+          text = formula_path.read_text(encoding="utf-8")
+          text, url_replacements = re.subn(
+              r'url "https://files\.pythonhosted\.org/[^"]+/agh-[^"]+\.tar\.gz"',
+              f'url "{url}"',
+              text,
+              count=1,
+          )
+          text, sha_replacements = re.subn(
+              r'sha256 "[0-9a-f]{64}"',
+              f'sha256 "{sha256}"',
+              text,
+              count=1,
+          )
+          if url_replacements != 1 or sha_replacements != 1:
+              raise SystemExit(
+                  "Expected to replace exactly one formula URL and sha256; "
+                  f"got url={url_replacements}, sha256={sha_replacements}"
+              )
+          formula_path.write_text(text, encoding="utf-8")
+
+          print(f"Updated agh formula to {version}")
+          print(f"sdist: {url}")
+          print(f"sha256: {sha256}")
+          PY
+
+      - name: Update Python resources
+        run: brew update-python-resources Formula/agh.rb
+
+      - name: Audit formula
+        run: brew audit --strict --online Formula/agh.rb
+
+      - name: Create Homebrew tap pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          branch: agh-${{ needs.validate.outputs.version }}
+          delete-branch: true
+          commit-message: agh ${{ needs.validate.outputs.version }}
+          title: agh ${{ needs.validate.outputs.version }}
+          body: |
+            Updates `agh` to `${{ needs.validate.outputs.version }}`.
+
+            Source release: https://github.com/giulianotesta7/AgentGuidanceHub/releases/tag/v${{ needs.validate.outputs.version }}
+            PyPI package: https://pypi.org/project/agh/${{ needs.validate.outputs.version }}/
