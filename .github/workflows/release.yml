@@ -262,6 +262,9 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           persist-credentials: false
 
+      - name: Register local tap checkout
+        run: brew tap giulianotesta7/homebrew-tap "$PWD"
+
       - name: Update formula from PyPI
         env:
           VERSION: ${{ needs.validate.outputs.version }}
