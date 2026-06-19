@@ -256,6 +256,35 @@ During workspace pull, AGH writes the resolved concrete version and checksum to 
 </details>
 
 <details>
+<summary><strong>Collection administration</strong></summary>
+
+Collections group skill-only packages that members install through `agh skill ...`. Owners and admins manage collections with the `agh collection` commands. These admin commands are separate from the consumer `agh skill ...` flow.
+
+```bash
+agh collection create "Team Skills" --description "Shared review skills"
+agh collection list
+agh collection get "Team Skills"
+agh collection update "Team Skills" --name "Review Skills" --inactive
+agh collection delete "Team Skills"
+```
+
+Collection commands that take a collection reference accept `col_...` ids or exact active collection names. Canonical ids skip name resolution; exact names resolve through the active-collection by-name endpoint.
+
+Assign skill-only packages to a collection:
+
+```bash
+agh collection package list "Team Skills"
+agh collection package add "Team Skills" acme/reviewer@latest
+agh collection package add "Team Skills" acme/reviewer@latest --position 2
+agh collection package update "Team Skills" casn_... --package-ref acme/reviewer@1.0.0 --inactive
+agh collection package remove "Team Skills" casn_...
+```
+
+`casn_...` identifies the collection-to-package assignment. Collection packages must be skill-only: AGH rejects packages that contain `instructions/AGENTS.md`, `instructions/CLAUDE.md`, or no skills, and the CLI surfaces that server validation. Package inputs accept `pkgv_...`, `domain/name@version`, and exact `name@version` refs. Unlike `agh project package add`, `agh collection package add` requires both the collection and the package reference — there is no interactive picker, since only the server can validate skill-only packages.
+
+</details>
+
+<details>
 <summary><strong>Global skills</strong></summary>
 
 Global skills are collection-backed tools installed into the selected agent's native user-level skill directory. A collection is an AGH-managed group of skill-only packages made available by the server; global skills are separate from workspace package assignments.

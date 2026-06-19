@@ -185,6 +185,12 @@ collection_app = typer.Typer(
     no_args_is_help=False,
     rich_markup_mode=None,
 )
+collection_package_app = typer.Typer(
+    cls=AghSubcommandGroup,
+    help="Manage collection package assignments.",
+    no_args_is_help=False,
+    rich_markup_mode=None,
+)
 package_app = typer.Typer(
     cls=AghSubcommandGroup,
     help="Create, publish, and list guidance packages.",
@@ -225,6 +231,7 @@ app.add_typer(agent_app, name="agent")
 app.add_typer(skill_app, name="skill")
 project_app.add_typer(project_member_app, name="member")
 project_app.add_typer(project_package_app, name="package")
+collection_app.add_typer(collection_package_app, name="package")
 skill_app.add_typer(skill_agent_app, name="agent")
 
 
@@ -1035,6 +1042,60 @@ def _echo_collection_deactivated(collection: dict[str, Any]) -> None:
     )
 
 
+def _echo_collection_package_list(payload: dict[str, Any]) -> None:
+    assignments = payload.get("collection_packages", [])
+    if not assignments:
+        typer.echo("No assigned packages found.")
+        return
+    _echo_table(
+        ["ASSIGNMENT_ID", "PACKAGE_REF", "RESOLVED", "POSITION", "STATUS"],
+        [
+            [
+                str(assignment.get("id", "")),
+                str(assignment.get("package_ref", "")),
+                str(
+                    assignment.get("resolved_ref") or assignment.get("package_ref", "")
+                ),
+                str(assignment.get("position", 0)),
+                _status_label(assignment),
+            ]
+            for assignment in assignments
+        ],
+    )
+
+
+def _echo_collection_package_assigned(
+    payload: dict[str, Any], *, collection_id: str
+) -> None:
+    package_ref = str(payload.get("package_ref", ""))
+    typer.echo(f"Assigned {package_ref} to collection {collection_id}.")
+    typer.echo(f"Resolved: {payload.get('resolved_ref') or package_ref}")
+    typer.echo(f"Assignment: {payload.get('id', '')}")
+
+
+def _echo_collection_package_updated(
+    payload: dict[str, Any], *, collection_id: str, assignment_id: str
+) -> None:
+    returned_assignment_id = str(payload.get("id") or assignment_id)
+    package_ref = str(payload.get("package_ref", ""))
+    typer.echo(
+        f"Updated assignment {returned_assignment_id} on collection {collection_id}."
+    )
+    typer.echo(f"Package: {package_ref}")
+    typer.echo(f"Resolved: {payload.get('resolved_ref') or package_ref}")
+    typer.echo(f"Position: {payload.get('position', 0)}")
+    typer.echo(f"Status: {_status_label(payload)}")
+
+
+def _echo_collection_package_removed(
+    payload: dict[str, Any], *, collection_id: str, assignment_id: str
+) -> None:
+    returned_assignment_id = str(payload.get("id") or assignment_id)
+    typer.echo(
+        f"Removed assignment {returned_assignment_id} from collection {collection_id}."
+    )
+
+
 def _echo_project_member_success(
     verb: str, payload: dict[str, Any], *, project_id: str, user_id: str
 ) -> None:
@@ -1426,6 +1487,96 @@ def collection_delete(
 
 def collection_path(collection_id: str) -> str:
     return f"/collections/{collection_id}"
+
+
+@collection_package_app.callback(invoke_without_command=True)
+def collection_package_main(ctx: typer.Context) -> None:
+    """Collection package assignment commands."""
+    if ctx.invoked_subcommand is None:
+        typer.echo(APP_HELP)
+        raise typer.Exit(0)
+
+
+@collection_package_app.command("list", help="List collection package assignments.")
+def collection_package_list(
+    collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
+) -> None:
+    resolved_collection_id = _resolve_collection_ref(collection_ref)
+    _echo_collection_package_list(
+        _api_request("GET", f"/collections/{resolved_collection_id}/packages")
+    )
+
+
+@collection_package_app.command(
+    "add", help="Assign a skill-only package to a collection."
+)
+def collection_package_add(
+    collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
+    package_ref: Annotated[str, typer.Argument(help=PACKAGE_VERSION_REF_HELP)],
+    position: Annotated[int, typer.Option("--position", help="Assignment order.")] = 0,
+) -> None:
+    resolved_collection_id = _resolve_collection_ref(collection_ref)
+    resolved_package_ref = _resolve_package_version_ref(package_ref)
+    _echo_collection_package_assigned(
+        _api_request(
+            "POST",
+            f"/collections/{resolved_collection_id}/packages",
+            body={"package_ref": resolved_package_ref, "position": position},
+        ),
+        collection_id=resolved_collection_id,
+    )
+
+
+@collection_package_app.command(
+    "update", help="Update a collection package assignment."
+)
+def collection_package_update(
+    collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
+    assignment_id: Annotated[str, typer.Argument(help="Assignment id, e.g. casn_...")],
+    package_ref: Annotated[
+        str | None, typer.Option("--package-ref", help=PACKAGE_VERSION_REF_HELP)
+    ] = None,
+    position: Annotated[
+        int | None, typer.Option("--position", help="New order.")
+    ] = None,
+    active: Annotated[
+        bool | None,
+        typer.Option("--active/--inactive", help="Set whether assignment is active."),
+    ] = None,
+) -> None:
+    resolved_collection_id = _resolve_collection_ref(collection_ref)
+    resolved_package_ref = (
+        _resolve_package_version_ref(package_ref) if package_ref is not None else None
+    )
+    _echo_collection_package_updated(
+        _api_request(
+            "PATCH",
+            f"/collections/{resolved_collection_id}/packages/{assignment_id}",
+            body=_body_without_none(
+                package_ref=resolved_package_ref, position=position, active=active
+            ),
+        ),
+        collection_id=resolved_collection_id,
+        assignment_id=assignment_id,
+    )
+
+
+@collection_package_app.command(
+    "remove", help="Deactivate a collection package assignment."
+)
+def collection_package_remove(
+    collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
+    assignment_id: Annotated[str, typer.Argument(help="Assignment id, e.g. casn_...")],
+) -> None:
+    resolved_collection_id = _resolve_collection_ref(collection_ref)
+    _echo_collection_package_removed(
+        _api_request(
+            "DELETE",
+            f"/collections/{resolved_collection_id}/packages/{assignment_id}",
+        ),
+        collection_id=resolved_collection_id,
+        assignment_id=assignment_id,
+    )
 
 
 @package_app.callback(invoke_without_command=True)

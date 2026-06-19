@@ -195,6 +195,49 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
             "description": "ops2",
             "active": False,
         }
+    if (method, path) == ("GET", "/api/v1/collections/col_2/packages"):
+        return 200, {
+            "collection_packages": [
+                {
+                    "id": "casn_1",
+                    "collection_id": "col_2",
+                    "package_id": "pkg_1",
+                    "package_ref": "acme/reviewer@latest",
+                    "resolved_ref": "acme/reviewer@1.0.0",
+                    "domain": "acme",
+                    "name": "reviewer",
+                    "version_ref": "latest",
+                    "resolved_version": "1.0.0",
+                    "position": 1,
+                    "active": True,
+                }
+            ]
+        }
+    if (method, path) == ("POST", "/api/v1/collections/col_2/packages"):
+        return 201, {
+            "id": "casn_1",
+            "collection_id": "col_2",
+            "package_ref": "acme/reviewer@latest",
+            "resolved_ref": "acme/reviewer@1.0.0",
+            "position": 5,
+            "active": True,
+        }
+    if (method, path) == ("PATCH", "/api/v1/collections/col_2/packages/casn_1"):
+        return 200, {
+            "id": "casn_1",
+            "collection_id": "col_2",
+            "package_ref": "acme/reviewer@1.0.0",
+            "resolved_ref": "acme/reviewer@1.0.0",
+            "position": 7,
+            "active": False,
+        }
+    if (method, path) == ("DELETE", "/api/v1/collections/col_2/packages/casn_1"):
+        return 200, {"id": "casn_1", "collection_id": "col_2", "active": False}
+    if (method, path) == ("POST", "/api/v1/collections/col_3/packages"):
+        # Server rejects an instruction-bearing package as not skill-only.
+        return 400, {
+            "detail": "package contains instructions and cannot be used as a collection skill"
+        }
     if path == "/api/v1/forbidden":
         return 403, {"detail": "forbidden"}
     if path == "/api/v1/leaky-error":
@@ -1103,3 +1146,239 @@ def test_cli_collection_resolver_failure_exits_with_message(monkeypatch) -> None
         path.startswith("/collections/") and "/by-name/" not in path
         for _method, path in calls
     )
+
+
+def test_cli_collection_package_commands_map_to_api_and_mask_stored_token(
+    tmp_path: Path,
+) -> None:
+    """3.1: collection package list/add/update/remove map to the API with casn_ targets."""
+    server, handler, url = _serve_api()
+    env = _write_config(tmp_path, url)
+    runner = CliRunner()
+    commands = [
+        (["collection", "package", "list", "col_2"], "casn_1"),
+        (
+            [
+                "collection",
+                "package",
+                "add",
+                "col_2",
+                "acme/reviewer@latest",
+                "--position",
+                "5",
+            ],
+            "Assigned acme/reviewer@latest",
+        ),
+        (
+            [
+                "collection",
+                "package",
+                "update",
+                "col_2",
+                "casn_1",
+                "--package-ref",
+                "acme/reviewer@1.0.0",
+                "--position",
+                "7",
+                "--inactive",
+            ],
+            "Status: inactive",
+        ),
+        (
+            ["collection", "package", "remove", "col_2", "casn_1"],
+            "Removed assignment casn_1",
+        ),
+    ]
+    try:
+        for args, expected in commands:
+            result = runner.invoke(cli_app, args, env=env)
+            assert result.exit_code == 0, (args, result.stdout)
+            assert expected in result.stdout
+            assert "stored-secret-token" not in result.stdout
+    finally:
+        server.shutdown()
+
+    assert {request["authorization"] for request in handler.requests} == {
+        "Bearer stored-secret-token"
+    }
+    observed = {
+        (request["method"], request["path"]): request["body"]
+        for request in handler.requests
+    }
+    assert observed[("POST", "/api/v1/collections/col_2/packages")] == {
+        "package_ref": "acme/reviewer@latest",
+        "position": 5,
+    }
+    assert observed[("PATCH", "/api/v1/collections/col_2/packages/casn_1")] == {
+        "package_ref": "acme/reviewer@1.0.0",
+        "position": 7,
+        "active": False,
+    }
+    assert ("DELETE", "/api/v1/collections/col_2/packages/casn_1") in observed
+
+
+def test_cli_collection_package_list_empty_message(monkeypatch) -> None:
+    """3.1: an empty collection package list renders a human message, not raw JSON."""
+    from agh.cli import main as cli_main
+
+    monkeypatch.setattr(
+        cli_main,
+        "_api_request",
+        lambda _method, _path, **_kwargs: {"collection_packages": []},
+    )
+    result = CliRunner().invoke(cli_app, ["collection", "package", "list", "col_2"])
+
+    assert result.exit_code == 0, result.stdout
+    assert result.stdout == "No assigned packages found.\n"
+    assert "collection_packages" not in result.stdout
+
+
+def test_cli_collection_package_mutation_commands_use_human_output(
+    tmp_path: Path,
+) -> None:
+    """3.1: package add/update/remove render concise detail lines, never raw JSON."""
+    server, _handler, url = _serve_api()
+    env = _write_config(tmp_path, url)
+    runner = CliRunner()
+    try:
+        added = runner.invoke(
+            cli_app,
+            [
+                "collection",
+                "package",
+                "add",
+                "col_2",
+                "acme/reviewer@latest",
+                "--position",
+                "5",
+            ],
+            env=env,
+        )
+        updated = runner.invoke(
+            cli_app,
+            [
+                "collection",
+                "package",
+                "update",
+                "col_2",
+                "casn_1",
+                "--package-ref",
+                "acme/reviewer@1.0.0",
+                "--position",
+                "7",
+                "--inactive",
+            ],
+            env=env,
+        )
+        removed = runner.invoke(
+            cli_app, ["collection", "package", "remove", "col_2", "casn_1"], env=env
+        )
+    finally:
+        server.shutdown()
+
+    assert added.exit_code == 0, added.stdout
+    assert added.stdout == (
+        "Assigned acme/reviewer@latest to collection col_2.\n"
+        "Resolved: acme/reviewer@1.0.0\n"
+        "Assignment: casn_1\n"
+    )
+    assert '"collection_id"' not in added.stdout
+
+    assert updated.exit_code == 0, updated.stdout
+    assert updated.stdout == (
+        "Updated assignment casn_1 on collection col_2.\n"
+        "Package: acme/reviewer@1.0.0\n"
+        "Resolved: acme/reviewer@1.0.0\n"
+        "Position: 7\n"
+        "Status: inactive\n"
+    )
+
+    assert removed.exit_code == 0, removed.stdout
+    assert removed.stdout == "Removed assignment casn_1 from collection col_2.\n"
+
+
+def test_cli_collection_package_commands_resolve_collection_names_and_skip_resolver_for_col_ids(
+    monkeypatch,
+) -> None:
+    """3.2: package commands resolve exact collection names and skip the resolver for col_... ids."""
+    from agh.cli import main as cli_main
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_api(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append((method, path))
+        if path == "/collections/by-name/Team%20Skills":
+            return {"id": "col_2", "name": "Team Skills"}
+        if path in {"/collections/col_2/packages", "/collections/col_123/packages"}:
+            return {"collection_packages": []}
+        if (method, path) == ("POST", "/collections/col_2/packages"):
+            return {
+                "id": "casn_1",
+                "package_ref": kwargs["body"]["package_ref"],
+                "resolved_ref": kwargs["body"]["package_ref"],
+            }
+        if path == "/packages/versions:resolve?ref=acme%2Freviewer%40latest":
+            return {"package_ref": "acme/reviewer@latest"}
+        raise AssertionError((method, path))
+
+    monkeypatch.setattr(cli_main, "_api_request", fake_api)
+    runner = CliRunner()
+
+    listed_by_name = runner.invoke(
+        cli_app, ["collection", "package", "list", "Team Skills"]
+    )
+    added_by_name = runner.invoke(
+        cli_app,
+        ["collection", "package", "add", "Team Skills", "acme/reviewer@latest"],
+    )
+    listed_by_id = runner.invoke(cli_app, ["collection", "package", "list", "col_123"])
+
+    assert listed_by_name.exit_code == 0, listed_by_name.stdout
+    assert added_by_name.exit_code == 0, added_by_name.stdout
+    assert listed_by_id.exit_code == 0, listed_by_id.stdout
+
+    # Name targets resolve through the by-name endpoint before the package request.
+    assert calls.count(("GET", "/collections/by-name/Team%20Skills")) == 2
+    assert ("GET", "/collections/col_2/packages") in calls
+    assert ("POST", "/collections/col_2/packages") in calls
+    # Canonical col_... ids skip the resolver entirely.
+    assert ("GET", "/collections/col_123/packages") in calls
+    assert ("GET", "/collections/by-name/col_123") not in calls
+
+
+def test_cli_collection_package_add_surfaces_server_skill_only_rejection(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """3.2: a server skill-only rejection surfaces as a CLI error, not a silent success."""
+    from agh.cli import main as cli_main
+
+    # Skip the package-version resolver so the only network call is the assignment
+    # POST against the real HTTP stub, exercising the real _api_request error path.
+    monkeypatch.setattr(
+        cli_main,
+        "_resolve_package_version_ref",
+        lambda ref: ref,
+    )
+    server, handler, url = _serve_api()
+    env = _write_config(tmp_path, url)
+    try:
+        result = CliRunner().invoke(
+            cli_app,
+            ["collection", "package", "add", "col_3", "acme/instructions@latest"],
+            env=env,
+        )
+    finally:
+        server.shutdown()
+
+    # 400 is not an auth failure, so the CLI exits non-zero and prints the server detail.
+    assert result.exit_code == 1, result.stdout
+    assert (
+        "package contains instructions and cannot be used as a collection skill"
+        in result.stdout
+    )
+    assert "HTTP 400" in result.stdout
+    # The CLI forwards the package_ref verbatim and never claims success.
+    assert "Assigned" not in result.stdout
+    assert ("POST", "/api/v1/collections/col_3/packages") in {
+        (request["method"], request["path"]) for request in handler.requests
+    }

@@ -263,6 +263,35 @@ Durante el pull del workspace, AGH escribe la versión concreta y el checksum en
 </details>
 
 <details>
+<summary><strong>Administración de colecciones</strong></summary>
+
+Las colecciones agrupan packages que contienen solo skills y que los miembros instalan con `agh skill ...`. Los owners y admins administran colecciones con los comandos `agh collection`. Estos comandos de administración están separados del flujo de consumo `agh skill ...`.
+
+```bash
+agh collection create "Team Skills" --description "Skills de review compartidas"
+agh collection list
+agh collection get "Team Skills"
+agh collection update "Team Skills" --name "Review Skills" --inactive
+agh collection delete "Team Skills"
+```
+
+Los comandos de colección que toman una referencia aceptan ids `col_...` o nombres exactos de colecciones activas. Los ids canónicos omiten la resolución por nombre; los nombres exactos se resuelven a través del endpoint de colecciones activas por nombre.
+
+Asigná packages que contienen solo skills a una colección:
+
+```bash
+agh collection package list "Team Skills"
+agh collection package add "Team Skills" acme/reviewer@latest
+agh collection package add "Team Skills" acme/reviewer@latest --position 2
+agh collection package update "Team Skills" casn_... --package-ref acme/reviewer@1.0.0 --inactive
+agh collection package remove "Team Skills" casn_...
+```
+
+`casn_...` identifica la asignación entre colección y package. Los packages de colección tienen que contener solo skills: AGH rechaza packages que tengan `instructions/AGENTS.md`, `instructions/CLAUDE.md` o ninguna skill, y el CLI muestra esa validación del servidor. Las referencias de package aceptan `pkgv_...`, `domain/name@version` y `name@version` exactos. A diferencia de `agh project package add`, `agh collection package add` requiere tanto la colección como la referencia del package: no hay selector interactivo, dado que solo el servidor puede validar packages de solo skills.
+
+</details>
+
+<details>
 <summary><strong>Skills globales</strong></summary>
 
 Las skills globales son herramientas respaldadas por colecciones e instaladas en el directorio global nativo del agente elegido. Una colección es un grupo administrado por AGH de packages que contienen solo skills y que el servidor pone a disposición; las skills globales están separadas de las asignaciones de packages del workspace.
