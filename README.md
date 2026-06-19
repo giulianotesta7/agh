@@ -478,3 +478,24 @@ Contributing and security:
 
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
+
+### Third-party notices
+
+AGH includes project-specific skills adapted from third-party skill workflows.
+
+- `skills/agh-branch-pr` is adapted from `skills/branch-pr/SKILL.md` in
+  [`Gentleman-Programming/gentle-ai`](https://github.com/Gentleman-Programming/gentle-ai),
+  licensed under Apache-2.0, and modified for AGH's PR-first contribution policy.
+- `skills/agh-issue-flow` is adapted from `skills/issue-creation/SKILL.md` in
+  [`Gentleman-Programming/gentle-ai`](https://github.com/Gentleman-Programming/gentle-ai),
+  licensed under Apache-2.0, and modified for AGH's PR-first contribution policy
+  and minimal issue-label workflow.
+- `skills/agh-work-unit-commits` is adapted from `skills/work-unit-commits/SKILL.md`
+  in [`Gentleman-Programming/gentle-ai`](https://github.com/Gentleman-Programming/gentle-ai),
+  licensed under Apache-2.0, and modified for AGH's Python/uv validation workflow,
+  docs mirror policy, and PR-first contribution model.
+- `skills/agh-chained-pr` is adapted from `skills/chained-pr/SKILL.md` and
+  `skills/chained-pr/references/chaining-details.md` in
+  [`Gentleman-Programming/gentle-ai`](https://github.com/Gentleman-Programming/gentle-ai),
+  licensed under Apache-2.0, and modified for AGH's PR-first contribution policy,
+  minimal labels, Python/uv validation, and single-maintainer review flow.
