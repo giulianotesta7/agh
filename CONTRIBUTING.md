@@ -1,18 +1,21 @@
 # Contributing
 
-AGH uses an issue-first workflow. Keep changes small and reviewable.
+Open a PR directly for small, focused changes. Open an issue first when a change needs discussion: large features, behavior changes, or architecture, security, and product decisions.
+
+Keep changes small and reviewable.
 
 ## Workflow
 
-1. Search existing issues.
-2. Open a bug report or feature request.
-3. Create a branch and open a PR that links the issue with `Closes #N`, `Fixes #N`, or `Resolves #N`.
+1. Branch off `main`.
+2. Make a focused change.
+3. Run the validation commands.
+4. Open a PR with a clear summary.
 
-PR validation checks linked issue references. Labels are triage aids, not contributor blockers.
+Open an issue before the PR when the work is large, ambiguous, or touches a shared decision. Small fixes and docs can go straight to a PR.
 
 ## Labels
 
-Use this minimal taxonomy for triage:
+These labels track the kind of work:
 
 | Label | Use it for |
 |-------|------------|
@@ -20,18 +23,14 @@ Use this minimal taxonomy for triage:
 | `enhancement` | New behavior or product improvements. |
 | `documentation` | Documentation changes or gaps. |
 | `question` | Questions that need maintainer input. |
-| `help wanted` | Maintainers welcome outside help. |
-| `good first issue` | Approachable work for new contributors. |
-| `status:needs-review` | A maintainer still needs to review the issue. |
-| `status:approved` | The issue is approved for implementation. |
 
-Issue templates apply `bug` or `enhancement` plus `status:needs-review` automatically. Maintainers may adjust labels during triage.
+Issue templates apply `bug` or `enhancement`. Maintainers add the rest during triage.
 
 ## Review size
 
 Keep PRs small enough for one focused review. Aim for **400 changed lines or less** (`additions + deletions`).
 
-If a change grows past that budget, split it by behavior or workflow. If a large diff is unavoidable, say why in the PR body before asking for review.
+Split a change by behavior or workflow when it grows past that budget. If a large diff is unavoidable, say why in the PR body before asking for review.
 
 ## Branches and commits
 
@@ -48,9 +47,6 @@ Prefer one focused change per PR. Split large changes before review becomes hard
 
 ## Before opening a PR
 
-Check this before opening a PR:
-
-- [ ] The PR body links the issue with `Closes #N`, `Fixes #N`, or `Resolves #N`.
 - [ ] The diff is reviewable, or the PR body explains why it is large.
 - [ ] Commits use conventional commit messages.
 - [ ] You ran the relevant validation commands.

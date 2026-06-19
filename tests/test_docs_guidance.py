@@ -446,56 +446,54 @@ def test_docker_runtime_validation_is_pytest_based_not_smoke_script() -> None:
     assert "ENTRYPOINT" not in dockerfile
 
 
-def test_pr_validation_workflow_requires_issue_reference_without_label_blockers() -> (
-    None
-):
-    workflow = _read(".github/workflows/pr-validation.yml")
+def test_contribution_flow_is_pr_first_with_optional_issues() -> None:
     pr_template = _read(".github/pull_request_template.md")
     feature_template = _read(".github/ISSUE_TEMPLATE/feature_request.yml")
     bug_template = _read(".github/ISSUE_TEMPLATE/bug_report.yml")
+    issue_config = _read(".github/ISSUE_TEMPLATE/config.yml")
     contributing = _read("CONTRIBUTING.md")
     security = _read("SECURITY.md")
 
-    for expected in [
-        "pull_request_target:",
-        "Closes #N",
-        "Fixes #N",
-        "Resolves #N",
-    ]:
-        assert expected in workflow
+    # The blocking linked-issue workflow is gone.
+    assert not Path(".github/workflows/pr-validation.yml").exists()
 
-    for forbidden in ["type:*", "type:", "label;", "status:approved", "issue.labels"]:
-        assert forbidden not in workflow
-
-    for expected in ["Closes #", "uv run pytest"]:
+    # PR template keeps its core sections and makes the issue optional.
+    for expected in ["## Summary", "## Validation", "## Notes", "uv run pytest"]:
         assert expected in pr_template
 
+    assert "Closes #" in pr_template
     assert "type:" not in pr_template
 
+    # Issue templates drop the status label and the label-blocker wording.
     for template in [feature_template, bug_template]:
-        assert "status:needs-review" in template
-        assert "labels are triage aids, not contributor blockers" in template
+        assert "status:needs-review" not in template
+        assert "labels are triage aids, not contributor blockers" not in template
         assert "required: true" in template
 
+    assert "labels: [bug]" in bug_template
+    assert "labels: [enhancement]" in feature_template
+
+    # Blank issues are enabled for the simplified flow.
+    assert "blank_issues_enabled: true" in issue_config
+
+    # CONTRIBUTING is PR-first with a reduced label set.
     for expected in [
-        "issue-first workflow",
-        "status:approved",
-        "Labels are triage aids, not contributor blockers.",
-        "`status:needs-review`",
+        "`bug`",
+        "`enhancement`",
+        "`documentation`",
+        "`question`",
         "uv run --with pyright pyright agh tests",
     ]:
         assert expected in contributing
 
     for forbidden in [
-        "type:*",
-        "type:bug",
-        "type:feature",
-        "status:blocked",
-        "priority:",
+        "issue-first workflow",
+        "status:approved",
+        "status:needs-review",
+        "help wanted",
+        "good first issue",
     ]:
         assert forbidden not in contributing
-
-    assert not ("The issue has" in contributing and "status:approved" in contributing)
 
     for expected in [
         "Do not open a public issue for vulnerabilities",
