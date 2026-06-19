@@ -340,6 +340,27 @@ def list_collections(
         conn.close()
 
 
+@router.get("/collections/by-name/{name:path}")
+def get_collection_by_name(
+    name: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str]:
+    conn = _connect(request)
+    try:
+        row = conn.execute(
+            "SELECT id, name FROM collections WHERE name = ? AND active = 1",
+            (name,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="collection not found"
+            )
+        return {"id": row["id"], "name": row["name"]}
+    finally:
+        conn.close()
+
+
 @router.post("/collections", status_code=status.HTTP_201_CREATED)
 def create_collection(
     payload: CollectionCreate,

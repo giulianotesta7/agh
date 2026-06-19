@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import status
 from fastapi.testclient import TestClient
 
 from agh.server.app import create_app
+
+
+def _by_name_url(name: str) -> str:
+    """Build a by-name resolver URL with the exact collection name encoded."""
+    return f"/api/v1/collections/by-name/{quote(name, safe='')}"
+
 
 MAX_COLLECTION_NAME_LENGTH = 80
 MAX_COLLECTION_DESCRIPTION_LENGTH = 1000
@@ -308,3 +315,70 @@ def test_collection_payload_exact_length_boundaries_are_accepted(
     updated = update_response.json()
     assert updated["name"] == update_name
     assert updated["description"] == update_description
+
+
+def test_resolve_active_collection_by_exact_name(tmp_path: Path, monkeypatch) -> None:
+    client, owner = _client(tmp_path, monkeypatch)
+    collection = _collection(client, owner, name="Team Skills")
+
+    resolved = client.get(_by_name_url("Team Skills"), headers=_auth(owner))
+
+    assert resolved.status_code == status.HTTP_200_OK, resolved.text
+    assert resolved.json() == {"id": collection["id"], "name": "Team Skills"}
+
+
+def test_resolve_collection_by_name_requires_authentication(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner = _client(tmp_path, monkeypatch)
+    _collection(client, owner, name="Team Skills")
+
+    assert (
+        client.get(_by_name_url("Team Skills")).status_code
+        == status.HTTP_401_UNAUTHORIZED
+    )
+
+
+def test_resolve_collection_by_name_404_for_inactive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner = _client(tmp_path, monkeypatch)
+    collection = _collection(client, owner, name="Team Skills")
+    client.delete(f"/api/v1/collections/{collection['id']}", headers=_auth(owner))
+
+    owner_lookup = client.get(_by_name_url("Team Skills"), headers=_auth(owner))
+    admin = _user(client, owner, "admin@example.com", "admin")
+    admin_lookup = client.get(_by_name_url("Team Skills"), headers=_auth(admin))
+
+    assert owner_lookup.status_code == status.HTTP_404_NOT_FOUND
+    assert admin_lookup.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_resolve_collection_by_name_is_case_sensitive(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner = _client(tmp_path, monkeypatch)
+    _collection(client, owner, name="Team Skills")
+
+    lower = client.get(_by_name_url("team skills"), headers=_auth(owner))
+    alternate = client.get(_by_name_url("TEAM SKILLS"), headers=_auth(owner))
+
+    assert lower.status_code == status.HTTP_404_NOT_FOUND
+    assert alternate.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_resolve_collection_by_name_requires_active_collection_for_authenticated_users(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner = _client(tmp_path, monkeypatch)
+    member = _user(client, owner, "dev@example.com", "member")
+    active = _collection(client, owner, name="Visible Skills")
+    inactive = _collection(client, owner, name="Hidden Skills")
+    client.delete(f"/api/v1/collections/{inactive['id']}", headers=_auth(owner))
+
+    active_member = client.get(_by_name_url("Visible Skills"), headers=_auth(member))
+    inactive_member = client.get(_by_name_url("Hidden Skills"), headers=_auth(member))
+
+    assert active_member.status_code == status.HTTP_200_OK, active_member.text
+    assert active_member.json() == {"id": active["id"], "name": "Visible Skills"}
+    assert inactive_member.status_code == status.HTTP_404_NOT_FOUND
