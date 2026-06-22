@@ -21,6 +21,7 @@ commits, branches, pull requests, or review slices.
 | `agh-chained-pr` | Planning stacked/chained PRs, review slices, or changes that may exceed the 400-line review budget. | `skills/agh-chained-pr/SKILL.md` |
 | `agh-docs-alignment` | Changing README structure, examples, templates, validation commands, or checking docs/code drift. | `skills/agh-docs-alignment/SKILL.md` |
 | `agh-testing-coverage` | Adding behavior, fixing bugs, choosing pytest/ruff/pyright/Docker validation, or reporting PR validation. | `skills/agh-testing-coverage/SKILL.md` |
+| `agh-changelog` | Changing user-facing behavior, creating Towncrier fragments, release notes, or changelog validation. | `skills/agh-changelog/SKILL.md` |
 | `agh-skill-manager` | Creating, auditing, improving, normalizing, or validating AGH-local skills under `skills/<name>/SKILL.md`. | `skills/agh-skill-manager/SKILL.md` |
 | `agh-cli-validation` | Manually validating AGH CLI commands, config isolation, workspace pull/sync, or installed CLI behavior. | `skills/agh-cli-validation/SKILL.md` |
 
@@ -36,6 +37,9 @@ commits, branches, pull requests, or review slices.
   code, docs, examples, and docs tests consistent.
 - For behavior changes, bug fixes, or validation planning: load
   `agh-testing-coverage` with `agh-work-unit-commits`.
+- For user-facing behavior changes or release-note work: load `agh-changelog`
+  with `agh-work-unit-commits`; add `agh-testing-coverage` when validation is
+  required.
 - For creating, auditing, or validating AGH-local skills: load
   `agh-skill-manager` with `agh-docs-alignment` when the change touches
   `AGENTS.md`, `README.md`, or notices.

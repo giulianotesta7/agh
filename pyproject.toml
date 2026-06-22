@@ -45,7 +45,7 @@ Releases = "https://github.com/giulianotesta7/AgentGuidanceHub/releases"
 Container = "https://github.com/giulianotesta7/AgentGuidanceHub/pkgs/container/agent-guidance-hub"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "httpx2>=0.28"]
+dev = ["pytest>=8.0", "httpx2>=0.28", "towncrier>=25.8.0"]
 
 [project.scripts]
 agh = "agh.cli.main:app"
@@ -59,6 +59,41 @@ include = ["agh*"]
 
 [tool.setuptools_scm]
 fallback_version = "0.0.0"
+
+[tool.towncrier]
+directory = "changelog.d"
+filename = "CHANGELOG.md"
+start_string = "<!-- towncrier release notes start -->\n"
+template = "towncrier:default.md"
+title_format = "## {version} - {project_date}"
+issue_format = "[#{issue}](https://github.com/giulianotesta7/AgentGuidanceHub/issues/{issue})"
+underlines = ["", "", ""]
+ignore = ["README.md"]
+
+[[tool.towncrier.type]]
+directory = "added"
+name = "Added"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "changed"
+name = "Changed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fixed"
+name = "Fixed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "breaking"
+name = "Breaking Changes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "docs"
+name = "Documentation"
+showcontent = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

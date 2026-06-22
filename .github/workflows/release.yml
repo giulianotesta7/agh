@@ -31,16 +31,26 @@ jobs:
           import re
           import sys
 
+          semver_pattern = r"v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))"
           ref = os.environ["GITHUB_REF_NAME"]
-          match = re.fullmatch(r"v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))", ref)
+          match = re.fullmatch(semver_pattern, ref)
           if not match:
-              print(f"release tag must look like vMAJOR.MINOR.PATCH, got {ref!r}")
+              print(
+                  "release tag must look like vMAJOR.MINOR.PATCH, "
+                  f"got {ref!r}"
+              )
               sys.exit(1)
           version = match.group(1)
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+          output_path = os.environ["GITHUB_OUTPUT"]
+          with open(output_path, "a", encoding="utf-8") as output:
               output.write(f"version={version}\n")
           print(f"Release version: {version}")
           PY
+
+      - name: Verify changelog entry
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: grep -F "## ${VERSION} -" CHANGELOG.md
 
       - name: Verify release tag is on main and highest SemVer tag
         env:
@@ -59,19 +69,33 @@ jobs:
               ["git", "branch", "-r", "--contains", "HEAD"], text=True
           ).splitlines()
           if not any(branch.strip() == "origin/main" for branch in branches):
-              print("release tag must point to a commit contained in origin/main")
+              print(
+                  "release tag must point to a commit contained in "
+                  "origin/main"
+              )
               sys.exit(1)
 
-          tags = subprocess.check_output(["git", "tag", "--list", "v*"], text=True).splitlines()
+          tags = subprocess.check_output(
+              ["git", "tag", "--list", "v*"], text=True
+          ).splitlines()
+          semver_pattern = r"v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))"
           semver_tags = []
           for tag in tags:
-              match = re.fullmatch(r"v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))", tag)
+              match = re.fullmatch(semver_pattern, tag)
               if match:
-                  semver_tags.append((tuple(int(part) for part in match.group(1).split(".")), tag))
+                  parsed = tuple(
+                      int(part) for part in match.group(1).split(".")
+                  )
+                  semver_tags.append((parsed, tag))
 
-          higher = [tag for parsed, tag in semver_tags if parsed > version_tuple]
+          higher = [
+              tag for parsed, tag in semver_tags if parsed > version_tuple
+          ]
           if higher:
-              print(f"release tag v{version} is not the highest SemVer tag; higher tags: {higher}")
+              print(
+                  f"release tag v{version} is not the highest SemVer tag; "
+                  f"higher tags: {higher}"
+              )
               sys.exit(1)
           PY
 
@@ -104,7 +128,9 @@ jobs:
         run: docker build --check .
 
       - name: Test Docker runtime hardening
-        run: AGH_STRICT_DOCKER_RUNTIME=1 uv run pytest tests/test_docker_runtime.py -q
+        run: >
+          AGH_STRICT_DOCKER_RUNTIME=1
+          uv run pytest tests/test_docker_runtime.py -q
 
   publish-pypi:
     name: Publish PyPI
@@ -192,19 +218,33 @@ jobs:
               ["git", "branch", "-r", "--contains", "HEAD"], text=True
           ).splitlines()
           if not any(branch.strip() == "origin/main" for branch in branches):
-              print("release tag must point to a commit contained in origin/main")
+              print(
+                  "release tag must point to a commit contained in "
+                  "origin/main"
+              )
               sys.exit(1)
 
-          tags = subprocess.check_output(["git", "tag", "--list", "v*"], text=True).splitlines()
+          tags = subprocess.check_output(
+              ["git", "tag", "--list", "v*"], text=True
+          ).splitlines()
+          semver_pattern = r"v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))"
           semver_tags = []
           for tag in tags:
-              match = re.fullmatch(r"v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))", tag)
+              match = re.fullmatch(semver_pattern, tag)
               if match:
-                  semver_tags.append((tuple(int(part) for part in match.group(1).split(".")), tag))
+                  parsed = tuple(
+                      int(part) for part in match.group(1).split(".")
+                  )
+                  semver_tags.append((parsed, tag))
 
-          higher = [tag for parsed, tag in semver_tags if parsed > version_tuple]
+          higher = [
+              tag for parsed, tag in semver_tags if parsed > version_tuple
+          ]
           if higher:
-              print(f"release tag v{version} is not the highest SemVer tag; higher tags: {higher}")
+              print(
+                  f"release tag v{version} is not the highest SemVer tag; "
+                  f"higher tags: {higher}"
+              )
               sys.exit(1)
           PY
 
@@ -259,7 +299,8 @@ jobs:
         id: tap
         run: |
           brew tap giulianotesta7/homebrew-tap
-          echo "dir=$(brew --repository giulianotesta7/homebrew-tap)" >> "$GITHUB_OUTPUT"
+          tap_dir=$(brew --repository giulianotesta7/homebrew-tap)
+          echo "dir=${tap_dir}" >> "$GITHUB_OUTPUT"
 
       - name: Update formula from PyPI
         env:
@@ -282,7 +323,13 @@ jobs:
               payload = json.load(response)
 
           release_files = payload["releases"].get(version, [])
-          sdist = next((item for item in release_files if item.get("packagetype") == "sdist"), None)
+          sdist = next(
+              (
+                  item for item in release_files
+                  if item.get("packagetype") == "sdist"
+              ),
+              None,
+          )
           if sdist is None:
               raise SystemExit(f"No sdist found on PyPI for agh {version}")
 
@@ -291,8 +338,12 @@ jobs:
               sha256 = hashlib.sha256(response.read()).hexdigest()
 
           text = formula_path.read_text(encoding="utf-8")
+          url_pattern = (
+              r'url "https://files\.pythonhosted\.org/[^"]+'
+              r'/agh-[^"]+\.tar\.gz"'
+          )
           text, url_replacements = re.subn(
-              r'url "https://files\.pythonhosted\.org/[^"]+/agh-[^"]+\.tar\.gz"',
+              url_pattern,
               f'url "{url}"',
               text,
               count=1,
@@ -336,16 +387,27 @@ jobs:
 
           branch="agh-${VERSION}"
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$branch"
           git add Formula/agh.rb
           git commit -m "agh ${VERSION}"
-          git push --force-with-lease \
-            "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/giulianotesta7/homebrew-tap.git" \
-            "$branch"
+          tap_remote="https://x-access-token:${HOMEBREW_TAP_TOKEN}"
+          tap_remote="${tap_remote}@github.com/giulianotesta7/homebrew-tap.git"
+          git push --force-with-lease "$tap_remote" "$branch"
 
-          body=$'Updates `agh` to `'"${VERSION}"$'`.\n\nSource release: https://github.com/giulianotesta7/AgentGuidanceHub/releases/tag/v'"${VERSION}"$'\nPyPI package: https://pypi.org/project/agh/'"${VERSION}"$'/'
-          if gh pr view "$branch" --repo giulianotesta7/homebrew-tap >/dev/null 2>&1; then
+          source_url="https://github.com/giulianotesta7/AgentGuidanceHub"
+          source_url="${source_url}/releases/tag/v${VERSION}"
+          pypi_url="https://pypi.org/project/agh/${VERSION}/"
+          body=$(cat <<EOF
+          Updates \`agh\` to \`${VERSION}\`.
+
+          Source release: ${source_url}
+          PyPI package: ${pypi_url}
+          EOF
+          )
+          if gh pr view "$branch" \
+            --repo giulianotesta7/homebrew-tap >/dev/null 2>&1; then
             gh pr edit "$branch" \
               --repo giulianotesta7/homebrew-tap \
               --title "agh ${VERSION}" \

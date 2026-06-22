@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches:
       - main
@@ -17,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -30,6 +33,15 @@ jobs:
 
       - name: Check lockfile
         run: uv lock --locked
+
+      - name: Check changelog fragments
+        if: >
+          github.event_name != 'pull_request' ||
+          !contains(
+            github.event.pull_request.labels.*.name,
+            'no-changelog-needed'
+          )
+        run: uv run towncrier check
 
       - name: Run tests
         run: uv run pytest -q
@@ -47,7 +59,9 @@ jobs:
         run: docker build --check .
 
       - name: Test Docker runtime hardening
-        run: AGH_STRICT_DOCKER_RUNTIME=1 uv run pytest tests/test_docker_runtime.py -q
+        run: >
+          AGH_STRICT_DOCKER_RUNTIME=1
+          uv run pytest tests/test_docker_runtime.py -q
 
       - name: Build package
         run: uv build

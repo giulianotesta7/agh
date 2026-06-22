@@ -24,8 +24,13 @@ Do not use this skill to decide commit boundaries for a large diff; load `agh-wo
 3. **Keep PRs reviewable** — aim for the 400 changed-line review budget (`additions + deletions`). Split large changes or explain why the size is unavoidable in the PR body.
 4. **Use Conventional Commits** — examples: `docs: simplify contribution flow`, `fix(cli): handle invalid config`.
 5. **Run relevant validation** — use AGH's Python/uv validation commands; add Docker validation only for Docker/runtime changes.
-6. **No invented gates** — do not require `status:approved`, `type:*` labels, mandatory issue links, or labels not documented in `CONTRIBUTING.md`.
-7. **No AI attribution** — never add `Co-Authored-By` or AI-generated trailers.
+6. **No invented gates or labels** — do not require `status:approved`,
+   `type:*` labels, mandatory issue links, or any label not documented in
+   `CONTRIBUTING.md`.
+7. **Use only documented labels.** Before adding or requesting a PR/issue label,
+   confirm it appears in `CONTRIBUTING.md`. If a useful label is missing, ask a
+   maintainer to document it first; do not create it ad hoc.
+8. **No AI attribution** — never add `Co-Authored-By` or AI-generated trailers.
 
 ## Workflow
 
@@ -64,6 +69,7 @@ chore/<short-topic>
 ```
 
 Rules:
+
 - Branch from `main`.
 - Use lowercase words separated by hyphens.
 - Keep the branch scoped to one reviewable outcome.
@@ -76,6 +82,22 @@ fix/invalid-pack-manifest
 ci/update-release-validation
 chore/add-branch-pr-skill
 ```
+
+## Label Policy
+
+Use only labels documented in `CONTRIBUTING.md`:
+
+| Label | Use |
+| --- | --- |
+| `bug` | Reproducible defects. |
+| `enhancement` | New behavior or product improvements. |
+| `documentation` | Documentation changes or gaps. |
+| `question` | Questions that need maintainer input. |
+| `no-changelog-needed` | Internal PRs that do not need release notes. |
+
+For PRs, labels are optional except when CI needs `no-changelog-needed` to skip
+Towncrier for an internal-only change. If the PR needs a label that is not in
+this table, stop and ask to update `CONTRIBUTING.md` first.
 
 ## PR Body Format
 
@@ -188,6 +210,7 @@ gh pr create --base main --head docs/<short-topic>
 ## Output Contract
 
 Return:
+
 - Branch name and PR URL.
 - Commit subject(s).
 - Whether an issue was linked, and why or why not.
