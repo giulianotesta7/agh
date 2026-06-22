@@ -19,5 +19,4 @@ If there is no linked issue, explain why this change is needed and what it chang
 
 ## Notes
 
-- Release needed: yes/no
 - Docs updated: yes/no
