@@ -107,11 +107,12 @@ Use `Closes/Fixes/Resolves #N` only when the PR closes an issue. For a direct PR
 
 ## Notes
 
-- Release needed: yes/no
 - Docs updated: yes/no
 ```
 
 If validation is intentionally narrower, state the exact command and why it is sufficient.
+Mention release impact only when the change affects packaging, containers, versioning,
+install behavior, PyPI, GHCR, or GitHub Release automation.
 
 ## Validation Commands
 
