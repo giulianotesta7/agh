@@ -97,3 +97,72 @@ def test_pyinstaller_is_a_locked_release_dependency_only() -> None:
     assert "pyinstaller" not in deps.lower()
     assert "release" in pyproject and "pyinstaller" in pyproject.lower()
     assert "pyinstaller" in _read("uv.lock").lower()
+
+
+# ---------------------------------------------------------------------------
+# PR 2: update-scoop job
+# ---------------------------------------------------------------------------
+
+
+def test_scoop_preflight_runs_before_publication() -> None:
+    preflight = _job("preflight-scoop")
+    for expected in [
+        "SCOOP_BUCKET_TOKEN",
+        "test -n",
+        "gh repo view giulianotesta7/scoop-agh",
+        "contents/bucket/agh.json",
+        "agh-preflight-${GITHUB_RUN_ID}",
+        "git commit --allow-empty",
+        "push --force-with-lease",
+        "gh pr create",
+        "--draft",
+        "gh pr close",
+        "--delete-branch",
+    ]:
+        assert expected in preflight
+    for job_name in ("github-release", "publish-pypi", "publish-ghcr"):
+        assert "- preflight-scoop" in _job(job_name)
+
+
+def test_update_scoop_runs_after_publication_and_is_hard_failing() -> None:
+    workflow = _read(".github/workflows/release.yml")
+    scoop = _job("update-scoop")
+    assert workflow.index("  update-scoop:") > workflow.index("  github-release:")
+    for expected in [
+        "- github-release",
+        "- publish-pypi",
+        "- publish-ghcr",
+        "- preflight-scoop",
+        "giulianotesta7/scoop-agh",
+        "bucket/agh.json",
+        "agh-${VERSION}",
+        "::error::Merge ${pr_url}, then rerun update-scoop.",
+        "exit 1",
+    ]:
+        assert expected in scoop
+    assert "continue-on-error" not in scoop
+    assert "SCOOP_BUCKET_TOKEN" not in _job("update-scoop").split("steps:", 1)[0]
+
+
+def test_update_scoop_maps_architecture_urls_and_hashes_to_helper() -> None:
+    scoop = _job("update-scoop")
+    for expected in [
+        'AMD64_URL="${base}/agh-${VERSION}-windows-amd64.zip"',
+        'ARM64_URL="${base}/agh-${VERSION}-windows-arm64.zip"',
+        'echo "AMD64_URL=$AMD64_URL" >> "$GITHUB_ENV"',
+        'echo "ARM64_URL=$ARM64_URL" >> "$GITHUB_ENV"',
+        '--amd64-url "${AMD64_URL}"',
+        '--amd64-hash "${AMD64_HASH}"',
+        '--arm64-url "${ARM64_URL}"',
+        '--arm64-hash "${ARM64_HASH}"',
+    ]:
+        assert expected in scoop
+    assert "pypi.org" not in scoop.lower()
+
+
+def test_update_scoop_uses_retrying_downloads_and_tested_helper() -> None:
+    scoop = _job("update-scoop")
+    assert "curl --fail --location --retry 3 --connect-timeout 10" in scoop
+    assert "--max-time 120" in scoop
+    assert "sha256sum" in scoop
+    assert "scripts/update_scoop_manifest.py" in scoop
