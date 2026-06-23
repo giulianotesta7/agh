@@ -238,6 +238,58 @@ jobs:
           path: release/agh-${{ env.VERSION }}-windows-${{ matrix.arch }}.zip
           if-no-files-found: error
 
+  preflight-scoop:
+    name: Preflight Scoop bucket
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - validate
+    permissions:
+      contents: read
+
+    steps:
+      - name: Validate Scoop bucket write and PR access
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh repo view giulianotesta7/scoop-agh >/dev/null
+          gh api \
+            repos/giulianotesta7/scoop-agh/contents/bucket/agh.json \
+            --jq .name | grep -Fx agh.json
+
+          branch="agh-preflight-${GITHUB_RUN_ID}"
+          gh repo clone giulianotesta7/scoop-agh scoop-preflight
+          cd scoop-preflight
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git commit --allow-empty -m "preflight ${GITHUB_RUN_ID}"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          auth_header="AUTHORIZATION: basic ${auth}"
+          cleanup() {
+            git -c http.https://github.com/.extraheader="$auth_header" \
+              push --delete \
+              https://github.com/giulianotesta7/scoop-agh.git \
+              "$branch" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          git -c http.https://github.com/.extraheader="$auth_header" \
+            push --force-with-lease \
+            https://github.com/giulianotesta7/scoop-agh.git "$branch"
+          pr_url=$(gh pr create \
+            --repo giulianotesta7/scoop-agh \
+            --head "$branch" \
+            --base main \
+            --draft \
+            --title "preflight ${GITHUB_RUN_ID}" \
+            --body "Temporary release preflight PR.")
+          gh pr close "$pr_url" \
+            --repo giulianotesta7/scoop-agh \
+            --delete-branch
+
   publish-pypi:
     name: Publish PyPI
     runs-on: ubuntu-latest
@@ -246,6 +298,7 @@ jobs:
       - validate
       - build-windows
       - github-release
+      - preflight-scoop
     permissions:
       contents: read
       id-token: write
@@ -298,7 +351,8 @@ jobs:
         run: agh --help
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
+        uses: >-
+          pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
 
   publish-ghcr:
     name: Publish GHCR
@@ -308,6 +362,7 @@ jobs:
       - validate
       - build-windows
       - github-release
+      - preflight-scoop
     permissions:
       contents: read
       packages: write
@@ -371,7 +426,8 @@ jobs:
           PY
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        uses: >-
+          docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
@@ -398,6 +454,7 @@ jobs:
     needs:
       - validate
       - build-windows
+      - preflight-scoop
     permissions:
       contents: write
     env:
@@ -419,7 +476,8 @@ jobs:
           test -f "windows-assets/agh-${VERSION}-windows-arm64.zip"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: >-
+          softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           generate_release_notes: true
           files: |
@@ -563,3 +621,116 @@ jobs:
               --title "agh ${VERSION}" \
               --body "$body"
           fi
+
+  update-scoop:
+    name: Update Scoop bucket
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+    needs:
+      - validate
+      - github-release
+      - publish-pypi
+      - publish-ghcr
+      - preflight-scoop
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download and hash published release assets
+        run: |
+          set -euo pipefail
+          mkdir -p scoop-assets
+          base="https://github.com/giulianotesta7/AgentGuidanceHub"
+          base+="/releases/download/v${VERSION}"
+          AMD64_URL="${base}/agh-${VERSION}-windows-amd64.zip"
+          ARM64_URL="${base}/agh-${VERSION}-windows-arm64.zip"
+          curl --fail --location --retry 3 --connect-timeout 10 \
+            --max-time 120 \
+            -o "scoop-assets/agh-${VERSION}-windows-amd64.zip" \
+            "$AMD64_URL"
+          curl --fail --location --retry 3 --connect-timeout 10 \
+            --max-time 120 \
+            -o "scoop-assets/agh-${VERSION}-windows-arm64.zip" \
+            "$ARM64_URL"
+          AMD64_HASH=$(sha256sum \
+            "scoop-assets/agh-${VERSION}-windows-amd64.zip" \
+            | awk '{print $1}')
+          ARM64_HASH=$(sha256sum \
+            "scoop-assets/agh-${VERSION}-windows-arm64.zip" \
+            | awk '{print $1}')
+          echo "AMD64_URL=$AMD64_URL" >> "$GITHUB_ENV"
+          echo "ARM64_URL=$ARM64_URL" >> "$GITHUB_ENV"
+          echo "AMD64_HASH=$AMD64_HASH" >> "$GITHUB_ENV"
+          echo "ARM64_HASH=$ARM64_HASH" >> "$GITHUB_ENV"
+
+      - name: Clone Scoop bucket
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        run: gh repo clone giulianotesta7/scoop-agh scoop-bucket
+
+      - name: Update manifest
+        run: |
+          python scripts/update_scoop_manifest.py \
+            scoop-bucket/bucket/agh.json \
+            --version "${VERSION}" \
+            --amd64-url "${AMD64_URL}" \
+            --amd64-hash "${AMD64_HASH}" \
+            --arm64-url "${ARM64_URL}" \
+            --arm64-hash "${ARM64_HASH}"
+
+      - name: Create or update Scoop bucket pull request
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd scoop-bucket
+          if git diff --quiet -- bucket/agh.json; then
+            echo "bucket/agh.json is already up to date."
+            exit 0
+          fi
+          branch="agh-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add bucket/agh.json
+          git commit -m "agh ${VERSION}"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          auth_header="AUTHORIZATION: basic ${auth}"
+          git -c http.https://github.com/.extraheader="$auth_header" \
+            push --force-with-lease \
+            https://github.com/giulianotesta7/scoop-agh.git "$branch"
+          release_url="https://github.com/giulianotesta7/AgentGuidanceHub"
+          release_url="${release_url}/releases/tag/v${VERSION}"
+          body=$(cat <<EOF
+          Updates \`agh\` to \`${VERSION}\`.
+
+          Source release: ${release_url}
+          AMD64 asset: ${AMD64_URL} (${AMD64_HASH})
+          ARM64 asset: ${ARM64_URL} (${ARM64_HASH})
+          EOF
+          )
+          if gh pr view "$branch" \
+            --repo giulianotesta7/scoop-agh >/dev/null 2>&1; then
+            pr_url=$(gh pr edit "$branch" \
+              --repo giulianotesta7/scoop-agh \
+              --title "agh ${VERSION}" \
+              --body "$body")
+          else
+            pr_url=$(gh pr create \
+              --repo giulianotesta7/scoop-agh \
+              --head "$branch" \
+              --base main \
+              --title "agh ${VERSION}" \
+              --body "$body")
+          fi
+          echo "::error::Merge ${pr_url}, then rerun update-scoop."
+          exit 1

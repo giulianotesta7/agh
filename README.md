@@ -42,6 +42,13 @@ Linux / macOS:
 brew install giulianotesta7/tap/agh
 ```
 
+Windows (Scoop):
+
+```powershell
+scoop bucket add agh https://github.com/giulianotesta7/scoop-agh
+scoop install agh
+```
+
 or install with script:
 
 ```bash
