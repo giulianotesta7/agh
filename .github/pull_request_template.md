@@ -13,6 +13,7 @@ If there is no linked issue, explain why this change is needed and what it chang
 ## Validation
 
 - [ ] `uv run pytest`
+- [ ] `uv run towncrier check` or `no-changelog-needed` label applies
 - [ ] `uv run --with ruff ruff check .`
 - [ ] `uv run --with ruff ruff format --check .`
 - [ ] `uv run --with pyright pyright agh tests`
@@ -20,3 +21,4 @@ If there is no linked issue, explain why this change is needed and what it chang
 ## Notes
 
 - Docs updated: yes/no
+- Changelog fragment: yes/no/not needed

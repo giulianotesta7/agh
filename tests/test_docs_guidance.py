@@ -383,7 +383,14 @@ def test_package_version_is_dynamic_from_git_metadata() -> None:
         "[project.urls]",
         'Homepage = "https://github.com/giulianotesta7/AgentGuidanceHub"',
         'Container = "https://github.com/giulianotesta7/AgentGuidanceHub/pkgs/container/agent-guidance-hub"',
+        '"towncrier>=25.8.0"',
         "[tool.setuptools_scm]",
+        "[tool.towncrier]",
+        'directory = "changelog.d"',
+        'filename = "CHANGELOG.md"',
+        'directory = "added"',
+        'directory = "fixed"',
+        'directory = "breaking"',
     ]:
         assert expected in pyproject
 
@@ -399,17 +406,22 @@ def test_ci_workflow_runs_release_validation_commands() -> None:
 
     for expected in [
         "pull_request:",
+        "types: [opened, synchronize, reopened, labeled, unlabeled]",
         "branches:",
         "- main",
         "astral-sh/setup-uv@v5",
+        "fetch-depth: 0",
         'python-version: "3.11"',
         "uv lock --locked",
+        "uv run towncrier check",
+        "no-changelog-needed",
         "uv run pytest -q",
         "uv run --with ruff ruff check .",
         "uv run --with ruff ruff format --check .",
         "uv run --with pyright pyright agh tests",
         "docker build --check .",
-        "AGH_STRICT_DOCKER_RUNTIME=1 uv run pytest tests/test_docker_runtime.py -q",
+        "AGH_STRICT_DOCKER_RUNTIME=1",
+        "uv run pytest tests/test_docker_runtime.py -q",
         "uv build",
         "uv tool install --force dist/*.whl",
         "agh --help",
@@ -458,7 +470,15 @@ def test_contribution_flow_is_pr_first_with_optional_issues() -> None:
     assert not Path(".github/workflows/pr-validation.yml").exists()
 
     # PR template keeps its core sections and makes the issue optional.
-    for expected in ["## Summary", "## Validation", "## Notes", "uv run pytest"]:
+    for expected in [
+        "## Summary",
+        "## Validation",
+        "## Notes",
+        "uv run pytest",
+        "uv run towncrier check",
+        "no-changelog-needed",
+        "Changelog fragment",
+    ]:
         assert expected in pr_template
 
     assert "Closes #" in pr_template
@@ -482,7 +502,11 @@ def test_contribution_flow_is_pr_first_with_optional_issues() -> None:
         "`enhancement`",
         "`documentation`",
         "`question`",
+        "`no-changelog-needed`",
         "uv run --with pyright pyright agh tests",
+        "uv run towncrier check",
+        "uv run towncrier build --version X.Y.Z --yes",
+        "User-facing changes include a Towncrier fragment",
     ]:
         assert expected in contributing
 
@@ -522,13 +546,16 @@ def test_tag_release_workflow_publishes_package_image_and_release() -> None:
         "Verify release tag is on main and highest SemVer tag",
         "Re-verify release tag before publishing latest",
         "Derive release version",
+        "Verify changelog entry",
+        'grep -F "## ${VERSION} -" CHANGELOG.md',
         "uv lock --locked",
         "uv run pytest -q",
         "uv run --with ruff ruff check .",
         "uv run --with ruff ruff format --check .",
         "uv run --with pyright pyright agh tests",
         "docker build --check .",
-        "AGH_STRICT_DOCKER_RUNTIME=1 uv run pytest tests/test_docker_runtime.py -q",
+        "AGH_STRICT_DOCKER_RUNTIME=1",
+        "uv run pytest tests/test_docker_runtime.py -q",
         "uv build",
         "Verify built package version",
         "environment: pypi",
