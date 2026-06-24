@@ -46,6 +46,7 @@ Container = "https://github.com/giulianotesta7/AgentGuidanceHub/pkgs/container/a
 
 [dependency-groups]
 dev = ["pytest>=8.0", "httpx2>=0.28", "towncrier>=25.8.0"]
+release = ["pyinstaller>=6.0"]
 
 [project.scripts]
 agh = "agh.cli.main:app"

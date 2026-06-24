@@ -13,6 +13,7 @@ from typing import Annotated, Any, NoReturn
 import typer
 from typer.core import TyperGroup
 
+from agh import __version__
 from agh.cli.agent_integrations import (
     AGENT_LABELS,
     SUPPORTED_AGENT_TARGETS,
@@ -756,8 +757,17 @@ def sync(
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context) -> None:
+def main(
+    ctx: typer.Context,
+    version: Annotated[
+        bool | None,
+        typer.Option("--version", help="Show the AGH version and exit."),
+    ] = None,
+) -> None:
     """Agent Guidance Hub CLI."""
+    if version:
+        typer.echo(f"agh {__version__}")
+        raise typer.Exit(0)
     if ctx.invoked_subcommand is None:
         typer.echo(APP_HELP)
         raise typer.Exit(0)

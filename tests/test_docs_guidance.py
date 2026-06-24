@@ -560,11 +560,11 @@ def test_tag_release_workflow_publishes_package_image_and_release() -> None:
         "Verify built package version",
         "environment: pypi",
         "environment: ghcr",
-        "pypa/gh-action-pypi-publish@release/v1",
-        "docker/build-push-action@v6",
+        "pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b",
+        "docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8",
         "AGH_VERSION=${{ needs.validate.outputs.version }}",
         "${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}",
-        "softprops/action-gh-release@v2",
+        "softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65",
         "generate_release_notes: true",
     ]:
         assert expected in release
