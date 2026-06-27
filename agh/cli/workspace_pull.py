@@ -145,9 +145,9 @@ class ProjectLink:
 
 
 _AGENT_SELECTION_INSTRUCTIONS = (
-    "Select an agent before pulling:\n"
-    "  agh agent select claude\n"
-    "  agh agent select opencode"
+    "Select a target before pulling:\n"
+    "  agh target set claude\n"
+    "  agh target set opencode"
 )
 
 
@@ -160,14 +160,14 @@ def _resolve_agent_target(workspace: Path, *, persist_prompt: bool = True) -> st
         return preference.target
     if not sys.stdin.isatty():
         raise WorkspacePullError(
-            "no local agent selected for this workspace.\n"
+            "no local target selected for this workspace.\n"
             f"{_AGENT_SELECTION_INSTRUCTIONS}",
             code=2,
         )
     target = _prompt_agent_target()
     if target is None:
         raise WorkspacePullError(
-            "agent selection skipped; pull did not apply guidance.\n"
+            "target selection skipped; pull did not apply guidance.\n"
             f"{_AGENT_SELECTION_INSTRUCTIONS}",
             code=2,
         )
@@ -180,7 +180,7 @@ def _resolve_agent_target(workspace: Path, *, persist_prompt: bool = True) -> st
 
 
 def _prompt_agent_target() -> str | None:
-    print("Which agent do you use for this workspace?")
+    print("Which target do you use for this workspace?")
     print("1. Claude Code")
     print("2. OpenCode")
     print("3. Skip for now")
@@ -189,7 +189,7 @@ def _prompt_agent_target() -> str | None:
             choice = input("Choice [1-3]: ").strip()
         except EOFError as exc:
             raise WorkspacePullError(
-                f"agent selection requires input.\n{_AGENT_SELECTION_INSTRUCTIONS}",
+                f"target selection requires input.\n{_AGENT_SELECTION_INSTRUCTIONS}",
                 code=2,
             ) from exc
         if choice in {"1", "claude", "Claude", "Claude Code"}:

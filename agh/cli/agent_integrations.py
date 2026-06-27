@@ -161,13 +161,6 @@ def clear_agent_preference(workspace: Path | None = None) -> bool:
     return True
 
 
-def format_agent_preference(preference: AgentPreference | None) -> str:
-    """Render the local workspace agent preference."""
-    if preference is None:
-        return "Selection: not set"
-    return f"Selection: {preference.label} ({preference.target})"
-
-
 def detect_agent_availability(
     *,
     workspace: Path | None = None,
@@ -194,7 +187,7 @@ def detect_agent_availability(
 
 
 def format_agent_availability(agents: list[AgentAvailability]) -> str:
-    """Render sober, plain advisory output for `agh agent`."""
+    """Render sober, plain advisory output for `agh target`."""
     lines: list[str] = []
     for agent in agents:
         marker = "✓" if agent.available else "✗"

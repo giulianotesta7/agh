@@ -455,7 +455,7 @@ def test_pull_filters_manifest_to_selected_agent(tmp_path: Path, monkeypatch) ->
     ]
 
 
-def test_pull_missing_agent_preference_non_tty_exits_2_without_server_call(
+def test_pull_missing_target_preference_non_tty_exits_2_without_server_call(
     tmp_path: Path, monkeypatch
 ) -> None:
     repo = _repo(tmp_path)
@@ -468,9 +468,9 @@ def test_pull_missing_agent_preference_non_tty_exits_2_without_server_call(
         server.shutdown()
 
     assert result.exit_code == 2, result.stdout
-    assert "no local agent selected" in result.stdout
-    assert "agh agent select claude" in result.stdout
-    assert "agh agent select opencode" in result.stdout
+    assert "no local target selected" in result.stdout
+    assert "agh target set claude" in result.stdout
+    assert "agh target set opencode" in result.stdout
     assert handler.requests == []
     assert not (repo / "AGENTS.md").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
@@ -489,7 +489,7 @@ def test_pull_prompt_skip_exits_2_without_selection(
         pull_workspace(cwd=repo)
 
     assert exc_info.value.code == 2
-    assert "agent selection skipped" in str(exc_info.value)
+    assert "target selection skipped" in str(exc_info.value)
     assert not (repo / ".agh-cache" / "preferences.toml").exists()
 
 

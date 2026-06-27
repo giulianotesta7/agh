@@ -71,11 +71,11 @@ Delivery strategy: ask-always (approved chained PRs)
 
 ### 2c — Target (PR2c)
 
-- [ ] 2c.1 RED: Test `target`/`target set`/`target clear` with `--global`;
+- [x] 2c.1 RED: Test `target`/`target set`/`target clear` with `--global`;
       public `agent` removed (exit 2, no alias); output/help uses "target".
-- [ ] 2c.2 GREEN: Replace public `agent` with `target` in `agh/cli/main.py`
+- [x] 2c.2 GREEN: Replace public `agent` with `target` in `agh/cli/main.py`
       (workspace + global); reuse `agent_integrations` storage.
-- [ ] 2c.3 RED/GREEN: Update `agh pull` missing-target message to
+- [x] 2c.3 RED/GREEN: Update `agh pull` missing-target message to
       `agh target set ...` (direct rename dependency); remove dead
       `format_agent_preference`.
 
