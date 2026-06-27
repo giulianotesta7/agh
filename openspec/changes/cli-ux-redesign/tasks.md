@@ -36,9 +36,46 @@ Delivery strategy: ask-always (approved chained PRs)
 
 ## Phase 2: Config / Auth / Target
 
-- [ ] 2.1 RED: Test temp `AGH_CONFIG_FILE`, mocked `/me`, token masking, logout, and no URL prompt.
-- [ ] 2.2 GREEN: Update `agh/cli/config.py` and `agh/cli/main.py` for config/auth commands.
-- [ ] 2.3 RED/GREEN: Test target scope, then add `agent_integrations.py` wrappers and target wiring.
+> Phase 2 is split into three stacked review slices (PR2a config, PR2b auth,
+> PR2c target) to stay within the 400-line review budget. Mark only the slice
+> you ship.
+
+### 2a — Instance config (PR2a)
+
+- [x] 2a.1 RED: Test `config` shows only instance URL (never auth); `config set`
+      normalizes/stores/overwrites; `config clear` clears only instance.
+- [x] 2a.2 GREEN: Add instance/corrupt helpers in `agh/cli/config.py`
+      (`load/save/clear_instance_url`, `InstanceUpdate`, `ConfigCorruptError`,
+      `_read/_write_config_dict`, `_write_or_remove`); wire `config`,
+      `config set`, `config clear` in `agh/cli/main.py`.
+- [x] 2a.3 RED/GREEN: Trust boundary — changing the instance clears stored
+      credentials; same normalized instance preserves them; orphaned creds
+      after `config clear` are dropped on the next `config set`.
+- [x] 2a.4 RED/GREEN: Corrupt config graceful recovery for `config`,
+      `config set`, and `config clear` (no traceback, clear guidance, file
+      left intact).
+
+### 2b — Auth (PR2b)
+
+- [ ] 2b.1 RED: Test `login` uses configured instance (flags + interactive),
+      never prompts URL, fails before prompts when unconfigured; `whoami`;
+      `logout` clears only credentials.
+- [ ] 2b.2 GREEN: Rewrite `login` (no `--url`, `load_instance_url` +
+      `save_credentials`); add `whoami`, `logout`; add
+      `save_credentials`/`clear_credentials`; drop now-dead `save_config`.
+- [ ] 2b.3 RED/GREEN: Corrupt config recovery for `logout`, and for
+      `whoami`/API-backed commands via `_api_request`
+      (`load_config` raises `ConfigCorruptError` → recovery guidance).
+
+### 2c — Target (PR2c)
+
+- [ ] 2c.1 RED: Test `target`/`target set`/`target clear` with `--global`;
+      public `agent` removed (exit 2, no alias); output/help uses "target".
+- [ ] 2c.2 GREEN: Replace public `agent` with `target` in `agh/cli/main.py`
+      (workspace + global); reuse `agent_integrations` storage.
+- [ ] 2c.3 RED/GREEN: Update `agh pull` missing-target message to
+      `agh target set ...` (direct rename dependency); remove dead
+      `format_agent_preference`.
 
 ## Phase 3: User / Project / Collection Vocabulary
 

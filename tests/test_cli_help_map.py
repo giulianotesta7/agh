@@ -18,32 +18,35 @@ from typer.testing import CliRunner
 
 from agh.cli.main import app as cli_app
 
-# PR1 intended-current root command map. Legacy names (agent/sync/token and the
-# show/get/delete verbs) are deliberately retained in PR1 and removed in later
-# slices as each command is rewired. This pins what PR1 actually advertises,
-# not the final future tree, so accidental renames or premature advertising
-# fail loudly.
-PR1_TOP_LEVEL_COMMANDS = [
-    "login",
+# PR2a root command map. The config-instance slice splits instance config from
+# auth storage: `config` now shows the instance and gains `config set` /
+# `config clear` (replacing the removed `config show`). `config` is moved to the
+# front of the map to match the final command-tree skeleton. Legacy names still
+# awaiting their own slices (login still takes --url, sync, token,
+# show/get/delete verbs, nested project/collection package, `agent`) are
+# retained until those slices land. This pins what PR2a actually advertises.
+PR2A_TOP_LEVEL_COMMANDS = [
     "config",
+    "login",
     "user",
     "token",
     "project",
     "collection",
     "package",
-    "sync",
-    "pull",
     "agent",
     "skill",
+    "sync",
+    "pull",
 ]
-PR1_NESTED_COMMANDS = [
-    "config show",
+PR2A_NESTED_COMMANDS = [
+    "config set",
+    "config clear",
     "project member",
     "project package",
     "collection package",
     "skill agent",
 ]
-# Names promised by the final redesign that are NOT backed by any PR1 command
+# Names promised by the final redesign that are NOT backed by any PR2a command
 # yet, and therefore MUST NOT be advertised from root help.
 NOT_YET_IMPLEMENTED_COMMANDS = ["target", "link", "whoami", "logout"]
 
@@ -123,7 +126,6 @@ def test_subgroup_no_args_shows_local_help_not_root_map() -> None:
 
     cases = (
         (runner.invoke(cli_app, ["user"]), "Manage AGH users."),
-        (runner.invoke(cli_app, ["config"]), "local AGH CLI configuration"),
         (
             runner.invoke(cli_app, ["package"]),
             "Create, publish, and list guidance packages.",
@@ -225,8 +227,8 @@ def test_root_map_pins_intended_current_command_rows() -> None:
     runner = CliRunner()
     top_level, nested = _root_command_rows(_root_help(runner))
 
-    assert top_level == PR1_TOP_LEVEL_COMMANDS
-    assert nested == PR1_NESTED_COMMANDS
+    assert top_level == PR2A_TOP_LEVEL_COMMANDS
+    assert nested == PR2A_NESTED_COMMANDS
 
 
 def test_root_help_does_not_advertise_not_yet_implemented_commands() -> None:
@@ -253,7 +255,7 @@ def test_nested_leaf_help_uses_concise_wording() -> None:
     """
     runner = CliRunner()
     cases = (
-        ["config", "show", "--help"],
+        ["config", "set", "--help"],
         ["project", "member", "add", "--help"],
     )
     for argv in cases:
