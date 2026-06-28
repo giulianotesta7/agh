@@ -28,9 +28,39 @@ _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "agh" / "config.toml"
 CONFIG_PATH_ENV = "AGH_CONFIG_FILE"
 
+# Flat config keys, written in this stable order so partial edits keep a
+# stable, reviewable file shape. Instance URL and credentials are stored
+# independently so `config clear` (instance) and `logout` (credentials) do not
+# trample each other.
+_CONFIG_KEYS = ("instance_url", "email", "token")
+INSTANCE_MISSING_MESSAGE = (
+    "No AGH instance configured. Run: agh config set INSTANCE_URL"
+)
+
+
+def corrupt_config_recovery_message(path: Path, reason: str) -> str:
+    """User-facing guidance for an unparseable config file (no overwrite)."""
+    return (
+        f"AGH config at {path} is invalid ({reason}). "
+        "Fix or remove that file, then run: agh config set INSTANCE_URL"
+    )
+
 
 class ConfigError(RuntimeError):
     """Raised when local CLI configuration cannot be read or written."""
+
+
+class ConfigCorruptError(ConfigError):
+    """Raised when a config file exists but cannot be parsed as TOML.
+
+    Carries the offending path so commands can surface a clear recovery
+    message instead of silently masking a corrupt file as "not set".
+    """
+
+    def __init__(self, path: Path, reason: str) -> None:
+        self.path = path
+        self.reason = reason
+        super().__init__(f"Invalid AGH config at {path}: {reason}")
 
 
 class LoginValidationError(RuntimeError):
@@ -44,6 +74,19 @@ class AghConfig:
     instance_url: str
     email: str
     token: str
+
+
+@dataclass(frozen=True)
+class InstanceUpdate:
+    """Result of persisting an instance URL via :func:`save_instance_url`.
+
+    ``credentials_cleared`` is True when stored credentials were dropped
+    because the configured instance changed (or were orphaned), so the caller
+    can tell the user to re-authenticate.
+    """
+
+    instance_url: str
+    credentials_cleared: bool
 
 
 def get_config_path() -> Path:
@@ -86,6 +129,56 @@ def load_config(path: Path | None = None) -> AghConfig:
         raise ConfigError(f"AGH config missing required field: {exc.args[0]}") from exc
 
 
+def load_instance_url(path: Path | None = None) -> str:
+    """Return the configured instance URL, or raise a guided ConfigError."""
+    data = _read_config_dict(path or get_config_path())
+    instance_url = data.get("instance_url", "").strip()
+    if not instance_url:
+        raise ConfigError(INSTANCE_MISSING_MESSAGE)
+    return instance_url
+
+
+def save_instance_url(url: str, path: Path | None = None) -> InstanceUpdate:
+    """Normalize and persist the instance URL.
+
+    Trust-boundary contract: credentials are only valid for the instance they
+    were validated against. When the normalized URL differs from the currently
+    configured instance (or credentials are orphaned with no current instance),
+    stored email/token are cleared so they can never be sent to a different
+    host. Re-setting the same normalized instance preserves credentials.
+    """
+    normalized = normalize_instance_url(url)
+    config_path = path or get_config_path()
+    data = _read_config_dict(config_path)
+    previous_instance = data.get("instance_url", "").strip()
+
+    credentials_cleared = False
+    if "email" in data or "token" in data:
+        # Preserve only when the instance is genuinely unchanged.
+        keep_credentials = bool(previous_instance) and previous_instance == normalized
+        if not keep_credentials:
+            data.pop("email", None)
+            data.pop("token", None)
+            credentials_cleared = True
+
+    data["instance_url"] = normalized
+    _write_config_dict(config_path, data)
+    return InstanceUpdate(
+        instance_url=normalized, credentials_cleared=credentials_cleared
+    )
+
+
+def clear_instance_url(path: Path | None = None) -> bool:
+    """Remove only the instance URL, preserving credentials. Return whether it existed."""
+    config_path = path or get_config_path()
+    data = _read_config_dict(config_path)
+    if "instance_url" not in data:
+        return False
+    del data["instance_url"]
+    _write_or_remove(config_path, data)
+    return True
+
+
 def save_config(config: AghConfig, path: Path | None = None) -> None:
     """Atomically write local config with restrictive permissions where supported."""
     config_path = path or get_config_path()
@@ -110,6 +203,56 @@ def save_config(config: AghConfig, path: Path | None = None) -> None:
         with suppress(FileNotFoundError):
             temp_path.unlink()
         raise
+
+
+def _read_config_dict(path: Path) -> dict[str, str]:
+    """Read the flat config into a dict of known keys (empty if absent)."""
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigCorruptError(path, str(exc)) from exc
+    return {key: str(raw[key]) for key in _CONFIG_KEYS if key in raw}
+
+
+def _write_config_dict(path: Path, data: dict[str, str]) -> None:
+    """Atomically write the known config keys in stable order with 0o600 perms."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = _format_partial_config(data)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        with suppress(OSError):
+            os.chmod(temp_path, 0o600)
+        os.replace(temp_path, path)
+        with suppress(OSError):
+            os.chmod(path, 0o600)
+    except Exception:
+        with suppress(FileNotFoundError):
+            temp_path.unlink()
+        raise
+
+
+def _write_or_remove(path: Path, data: dict[str, str]) -> None:
+    """Write remaining keys, or remove the file when nothing is left."""
+    if not data:
+        with suppress(FileNotFoundError):
+            path.unlink()
+        return
+    _write_config_dict(path, data)
+
+
+def _format_partial_config(data: dict[str, str]) -> str:
+    return "".join(
+        f'{key} = "{_toml_escape(data[key])}"\n' for key in _CONFIG_KEYS if key in data
+    )
 
 
 def validate_login(*, instance_url: str, email: str, token: str) -> dict[str, Any]:

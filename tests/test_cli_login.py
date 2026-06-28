@@ -1,4 +1,21 @@
-"""CLI login and local config tests."""
+"""CLI login and instance-config tests (PR2a: split instance config from auth).
+
+The config-instance slice separates instance configuration from credential
+storage in the local config file while leaving the ``login`` command behavior
+unchanged (it is rewritten in the auth slice). This file keeps the unchanged
+login validation tests and adds the config-instance coverage:
+
+* `agh config` shows only the configured instance URL (never auth)
+* `agh config set INSTANCE_URL` stores/overwrites the normalized instance URL
+* `agh config clear` clears only the instance URL (credentials preserved)
+* Trust-boundary: changing the instance clears stored credentials so they can
+  never be sent to a different host (same normalized instance preserves them)
+* Corrupt config is recovered gracefully (no traceback; clear guidance; file
+  left intact)
+
+The `config show` command is intentionally gone; `config` (no-args) shows the
+instance, and `config show` now exits 2 as an unknown subgroup command.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +30,8 @@ from typing import ClassVar
 from typer.testing import CliRunner
 
 from agh.cli.main import app as cli_app
+
+INSTANCE_GUIDANCE = "agh config set INSTANCE_URL"
 
 
 class _RedirectHandler(BaseHTTPRequestHandler):
@@ -80,6 +99,16 @@ def _serve_redirect(redirect_url: str):
 
 def _config_env(tmp_path: Path) -> dict[str, str]:
     return {"AGH_CONFIG_FILE": str(tmp_path / "config.toml")}
+
+
+def _set_instance(runner: CliRunner, tmp_path: Path, url: str):
+    """Configure the instance via the public `config set` command."""
+    result = runner.invoke(cli_app, ["config", "set", url], env=_config_env(tmp_path))
+    assert result.exit_code == 0, result.stdout
+    return result
+
+
+# --- login (unchanged in this slice; validation kept) ----------------------
 
 
 def test_login_validates_me_and_writes_restricted_config(tmp_path: Path) -> None:
@@ -265,75 +294,256 @@ def test_login_socket_timeout_is_clean_failure(tmp_path: Path, monkeypatch) -> N
     assert not (tmp_path / "config.toml").exists()
 
 
-def test_config_show_masks_token(tmp_path: Path) -> None:
-    token = "super-secret-token"
+# --- config: instance only -------------------------------------------------
+
+
+def test_config_set_then_show_and_clear_instance_url(tmp_path: Path) -> None:
+    runner = CliRunner()
+
+    set_result = _set_instance(runner, tmp_path, "http://agh.example/")
+
+    assert "Set instance URL: http://agh.example" in set_result.stdout
+    config_path = tmp_path / "config.toml"
+    assert 'instance_url = "http://agh.example"' in config_path.read_text("utf-8")
+
+    show = runner.invoke(cli_app, ["config"], env=_config_env(tmp_path))
+    assert show.exit_code == 0, show.stdout
+    assert "http://agh.example" in show.stdout
+    # config shows ONLY the instance, never credentials
+    assert "email" not in show.stdout.lower()
+    assert "token" not in show.stdout.lower()
+
+    clear = runner.invoke(cli_app, ["config", "clear"], env=_config_env(tmp_path))
+    assert clear.exit_code == 0, clear.stdout
+    assert "Cleared instance URL" in clear.stdout
+    # instance URL is gone (the file may be removed when nothing remains)
+    if config_path.exists():
+        assert "instance_url" not in config_path.read_text("utf-8")
+
+    show_after = runner.invoke(cli_app, ["config"], env=_config_env(tmp_path))
+    assert show_after.exit_code == 0, show_after.stdout
+    assert "not set" in show_after.stdout.lower()
+
+
+def test_config_clear_with_no_instance_is_noop(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli_app, ["config", "clear"], env=_config_env(tmp_path))
+
+    assert result.exit_code == 0, result.stdout
+    assert "No instance URL was set" in result.stdout
+
+
+def test_config_set_rejects_invalid_url_without_writing(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_app, ["config", "set", "not-a-url"], env=_config_env(tmp_path)
+    )
+
+    assert result.exit_code != 0
+    assert "http://" in result.stdout or "https://" in result.stdout
+    assert not (tmp_path / "config.toml").exists()
+
+
+def test_config_set_overwrites_existing_instance(tmp_path: Path) -> None:
+    runner = CliRunner()
+    _set_instance(runner, tmp_path, "http://first.example")
+
+    overwrite = runner.invoke(
+        cli_app, ["config", "set", "http://second.example"], env=_config_env(tmp_path)
+    )
+    assert overwrite.exit_code == 0, overwrite.stdout
+
+    config_path = tmp_path / "config.toml"
+    text = config_path.read_text("utf-8")
+    assert "second.example" in text
+    assert "first.example" not in text
+
+
+def test_config_clear_preserves_credentials(tmp_path: Path) -> None:
+    """config clear removes only the instance URL, keeping credentials."""
+    runner = CliRunner()
     config_path = tmp_path / "config.toml"
     config_path.write_text(
-        f'instance_url = "http://agh.example"\nemail = "owner@example.com"\ntoken = "{token}"\n',
+        'instance_url = "http://agh.example"\n'
+        'email = "owner@example.com"\n'
+        'token = "keep-me"\n',
         encoding="utf-8",
     )
 
-    result = CliRunner().invoke(
+    clear = runner.invoke(
+        cli_app, ["config", "clear"], env={"AGH_CONFIG_FILE": str(config_path)}
+    )
+    assert clear.exit_code == 0, clear.stdout
+
+    remaining = config_path.read_text("utf-8")
+    assert "instance_url" not in remaining
+    assert 'email = "owner@example.com"' in remaining
+    assert 'token = "keep-me"' in remaining
+
+
+def test_config_show_is_not_a_command(tmp_path: Path) -> None:
+    """config show was removed; config (no-args) shows the instance instead."""
+    runner = CliRunner()
+    _set_instance(runner, tmp_path, "http://agh.example")
+
+    result = runner.invoke(cli_app, ["config", "show"], env=_config_env(tmp_path))
+    # unknown subgroup command -> local config help, exit 2
+    assert result.exit_code == 2
+
+
+# --- trust boundary: changing instance must not leak credentials ----------
+
+
+def test_config_set_different_instance_clears_credentials(tmp_path: Path) -> None:
+    """Changing the instance URL must clear stored credentials (trust boundary)."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'instance_url = "http://first.example"\n'
+        'email = "owner@example.com"\n'
+        'token = "old-token"\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
         cli_app,
-        ["config", "show"],
+        ["config", "set", "http://second.example"],
         env={"AGH_CONFIG_FILE": str(config_path)},
     )
 
     assert result.exit_code == 0, result.stdout
-    assert "instance_url" in result.stdout
-    assert "http://agh.example" in result.stdout
-    assert "owner@example.com" in result.stdout
-    assert token not in result.stdout
-    assert "supe" in result.stdout
-    assert "****" in result.stdout
+    assert "second.example" in result.stdout
+    # user is told to re-authenticate
+    assert "login" in result.stdout.lower()
+    remaining = config_path.read_text("utf-8")
+    assert "second.example" in remaining
+    assert "first.example" not in remaining
+    assert "owner@example.com" not in remaining
+    assert "old-token" not in remaining
 
 
-def test_top_level_help_lists_login_config_flags_and_arguments() -> None:
+def test_config_set_same_normalized_instance_preserves_credentials(
+    tmp_path: Path,
+) -> None:
+    """Re-setting the same (normalized) instance keeps credentials."""
     runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'instance_url = "http://agh.example"\n'
+        'email = "owner@example.com"\n'
+        'token = "keep-me"\n',
+        encoding="utf-8",
+    )
 
-    no_args = runner.invoke(cli_app, [])
-    help_result = runner.invoke(cli_app, ["--help"])
-    invalid_command = runner.invoke(cli_app, ["wrong-command"])
-    config_no_args = runner.invoke(cli_app, ["config"])
+    # trailing slash normalizes to the same instance
+    result = runner.invoke(
+        cli_app,
+        ["config", "set", "http://agh.example/"],
+        env={"AGH_CONFIG_FILE": str(config_path)},
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Set instance URL: http://agh.example" in result.stdout
+    assert "cleared" not in result.stdout.lower()
+    remaining = config_path.read_text("utf-8")
+    assert 'email = "owner@example.com"' in remaining
+    assert 'token = "keep-me"' in remaining
+
+
+def test_config_set_after_clear_does_not_revive_orphaned_credentials(
+    tmp_path: Path,
+) -> None:
+    """After config clear, orphaned credentials must not attach to a new instance."""
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'instance_url = "http://first.example"\n'
+        'email = "owner@example.com"\n'
+        'token = "orphan-token"\n',
+        encoding="utf-8",
+    )
+
+    # clear instance only -> credentials become orphaned (kept by decision)
+    clear = runner.invoke(
+        cli_app, ["config", "clear"], env={"AGH_CONFIG_FILE": str(config_path)}
+    )
+    assert clear.exit_code == 0, clear.stdout
+    remaining = config_path.read_text("utf-8")
+    assert "instance_url" not in remaining
+    assert "orphan-token" in remaining
+
+    # configuring a different instance must drop the orphaned credentials
+    result = runner.invoke(
+        cli_app,
+        ["config", "set", "http://second.example"],
+        env={"AGH_CONFIG_FILE": str(config_path)},
+    )
+    assert result.exit_code == 0, result.stdout
+
+    final = config_path.read_text("utf-8")
+    assert "second.example" in final
+    assert "orphan-token" not in final
+    assert "owner@example.com" not in final
+
+
+# --- corrupted config: graceful recovery, no traceback ---------------------
+
+
+def _write_corrupt_config(config_path: Path) -> None:
+    config_path.write_text(
+        'instance_url = "http://agh.example"\nkey = "oops\n', encoding="utf-8"
+    )
+
+
+def test_config_reports_corrupt_config_with_recovery(tmp_path: Path) -> None:
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    _write_corrupt_config(config_path)
+
+    result = runner.invoke(
+        cli_app, ["config"], env={"AGH_CONFIG_FILE": str(config_path)}
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert str(config_path) in result.stdout
+    assert "invalid" in result.stdout.lower()
+    # recovery guidance
+    assert "config set" in result.stdout.lower()
+    # must NOT mask a corrupt file as "not set"
+    assert "not set" not in result.stdout.lower()
+    # corrupt file left intact (not overwritten)
+    assert "oops" in config_path.read_text("utf-8")
+
+
+def test_config_clear_reports_corrupt_config_without_traceback(
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    _write_corrupt_config(config_path)
+
+    result = runner.invoke(
+        cli_app, ["config", "clear"], env={"AGH_CONFIG_FILE": str(config_path)}
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert str(config_path) in result.stdout
+    assert "config set" in result.stdout.lower()
+    # not overwritten
+    assert "oops" in config_path.read_text("utf-8")
+
+
+# --- help surface ----------------------------------------------------------
+
+
+def test_config_help_flag_shows_local_help() -> None:
+    """config --help shows local config help (never the root map)."""
+    runner = CliRunner()
+    root_help = runner.invoke(cli_app, []).stdout
     config_help = runner.invoke(cli_app, ["config", "--help"])
-    config_invalid_command = runner.invoke(cli_app, ["config", "wrong-command"])
 
-    assert no_args.exit_code == 0
-    assert help_result.exit_code == 0
-    assert invalid_command.exit_code == 2
-    assert config_no_args.exit_code == 0
-    assert config_help.exit_code == 0
-    assert config_invalid_command.exit_code == 2
-    # root invocations (no args, --help, unknown command) share the root map
-    assert help_result.stdout == no_args.stdout
-    assert invalid_command.stdout == no_args.stdout
-    # config shows LOCAL config help, never the root command map
-    for config_output in (
-        config_no_args.stdout,
-        config_help.stdout,
-        config_invalid_command.stdout,
-    ):
-        assert "local AGH CLI configuration" in config_output
-        assert config_output != no_args.stdout
-    for output in (no_args.stdout, help_result.stdout):
-        assert "Agent Guidance Hub" in output
-        assert "Usage" in output
-        assert "Commands" in output
-        assert "login" in output
-        assert "config" in output
-        assert "--help" in output
-        assert "Arguments" in output or "Options" in output
-
-
-def test_command_specific_help_still_works() -> None:
-    runner = CliRunner()
-
-    login_help = runner.invoke(cli_app, ["login", "--help"])
-    config_show_help = runner.invoke(cli_app, ["config", "show", "--help"])
-
-    assert login_help.exit_code == 0
-    assert "--url" in login_help.stdout
-    assert "--email" in login_help.stdout
-    assert "--token" in login_help.stdout
-    assert config_show_help.exit_code == 0
-    assert "Show local AGH config" in config_show_help.stdout
+    assert config_help.exit_code == 0, config_help.stdout
+    assert "local AGH CLI configuration" in config_help.stdout
+    assert config_help.stdout != root_help

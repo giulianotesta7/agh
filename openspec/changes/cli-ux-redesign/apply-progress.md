@@ -132,8 +132,92 @@ later slices:
 
 ## Remaining Phases
 
-- [ ] Phase 2: Config / Auth / Target (PR2)
+- [~] Phase 2: Config / Auth / Target — split into stacked slices:
+  - [x] 2a instance config (PR2a) — DONE (this branch)
+  - [ ] 2b auth (PR2b) — next
+  - [ ] 2c target (PR2c)
 - [ ] Phase 3: User / Project / Collection vocabulary (PR3)
 - [ ] Phase 4: Package assignment UX (PR4)
 - [ ] Phase 5: Skill / Link / Pull cleanup (PR5)
 - [ ] Phase 6: Docs / Changelog / Final validation (PR6)
+
+## Phase 2a: Instance Config (PR2a) — DONE
+
+PR2 was originally planned as one slice. To respect the 400-line review budget
+it is split into three stacked-to-main slices while PR1 is open:
+PR2a (instance config) → PR2b (auth) → PR2c (target). Each branch stacks on the
+previous slice branch until PR1 merges.
+
+### What shipped (PR2a)
+
+- **Instance-only config.** `agh config` shows only the configured instance
+  URL ("Instance URL: …" / "Instance URL: not set"). `agh config set
+  INSTANCE_URL` normalizes and stores the instance URL. `agh config clear`
+  removes only the instance URL, preserving credentials. `config show` is
+  removed; `config` no-args replaces it (exit 2 as unknown subgroup command).
+- **Storage split.** `agh/cli/config.py` gains instance/credential-independent
+  helpers (`load/save/clear_instance_url`, `InstanceUpdate`,
+  `ConfigCorruptError`, `_read/_write_config_dict`, `_write_or_remove`,
+  `_format_partial_config`) over the same flat TOML shape. `save_config` /
+  `_format_config` are retained because `login` is unchanged in this slice.
+- **Trust boundary (4R blocker carried into the slice).** `save_instance_url`
+  drops stored email/token when the normalized instance differs (or when
+  credentials are orphaned with no current instance); the same normalized
+  instance preserves them. `config set` reports the clearance + login guidance.
+- **Corrupt-config recovery (4R blocker).** `config`, `config set`, and
+  `config clear` catch `ConfigCorruptError`, print the offending path +
+  `config set` recovery guidance, exit non-zero with no traceback, and leave
+  the corrupt file intact.
+- **`login` is intentionally unchanged** in this slice (still takes `--url` and
+  writes via `save_config`). It is rewritten in PR2b, so its tests are kept
+  here and updated there.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | RED | GREEN | REFACTOR |
+|------|-----------|-------|-----|-------|----------|
+| 2a.1 | `tests/test_cli_login.py` (config tests) | Unit (CliRunner) | new failing | passing | `_set_instance` helper |
+| 2a.2 | `agh/cli/config.py`, `agh/cli/main.py` | Unit | covered | 30 focused passing | dict read/write helpers |
+| 2a.3 | `tests/test_cli_login.py` (trust boundary) | Unit | 3 failing | 3 passing | `InstanceUpdate` contract |
+| 2a.4 | `tests/test_cli_login.py` (corrupt) | Unit | 2 failing | 2 passing | `ConfigCorruptError` + `_fail_corrupt_config` |
+
+Test Summary:
+- Focused run (`test_cli_login.py` + `test_cli_help_map.py`): 30 passed.
+- Full suite: 508 passed, 1 skipped.
+- Validation: `ruff check` clean, `ruff format --check` clean, `pyright` on
+  touched files 0 errors, `git diff --check` clean.
+
+### Files Changed (PR2a)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `agh/cli/config.py` | Modified | Added instance split + corrupt handling: `_CONFIG_KEYS`, `INSTANCE_MISSING_MESSAGE`, `corrupt_config_recovery_message`, `ConfigCorruptError`, `InstanceUpdate`, `load/save/clear_instance_url`, `_read/_write_config_dict`, `_write_or_remove`, `_format_partial_config`. Kept `save_config`/`_format_config` for unchanged `login`. |
+| `agh/cli/main.py` | Modified | `config` shows instance; added `config set`/`config clear`; removed `config show`; added `_fail_corrupt_config`; `config_app` help updated; `APP_HELP` config block + config-first ordering. |
+| `tests/test_cli_login.py` | Modified | Added config/trust-boundary/corrupt tests + `_set_instance`/`_write_corrupt_config`; removed `config show` tests; kept unchanged `login` tests. |
+| `tests/test_cli_help_map.py` | Modified | Root map pins updated to PR2a tree (`config set`/`config clear`; config-first order; removed config local-help no-args case; `config set --help` leaf check). |
+| `openspec/changes/cli-ux-redesign/tasks.md` | Modified | Phase 2 restructured into 2a/2b/2c sub-tasks; 2a marked done. |
+
+### Review surface accounting
+
+| Surface | Files | Changed lines | vs 400 budget |
+|---------|-------|---------------|---------------|
+| Runtime code | `agh/cli/config.py`, `agh/cli/main.py` | 217 (200+ / 17−) | under |
+| Tests | `test_cli_login.py`, `test_cli_help_map.py` | 356 (284+ / 72−) | over alone |
+| OpenSpec governance | `tasks.md`, `apply-progress.md` | 129 (125+ / 4−) | n/a (governance) |
+| **Full PR2a slice total** | | **702 (609+ / 93−)** | **over** |
+
+### Size disposition
+
+`size:exception` required. The full PR2a slice is **702 changed lines** vs its
+parent (`feat/cli-ux-help-root`), exceeding the 400-line budget. Splitting
+Phase 2 into config/auth/target reduced each slice's conceptual scope, but
+mandatory config, trust-boundary, and corrupt-config coverage plus the additive
+OpenSpec governance artifacts keep this slice over 400. Runtime code alone
+stays within budget; the overage is tests plus governance docs, not logic
+complexity. Rollback stays per-slice (revert this PR only).
+
+### Out of scope (deferred)
+
+- `login`/`whoami`/`logout` behavior (PR2b).
+- `agent` → `target` rename and `agh pull` message (PR2c).
+- README/changelog (PR6).

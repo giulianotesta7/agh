@@ -32,13 +32,18 @@ from agh.cli import global_skills as global_skills_module
 from agh.cli.global_skills import GlobalSkillError
 from agh.cli.config import (
     AghConfig,
+    ConfigCorruptError,
     ConfigError,
     LoginValidationError,
+    clear_instance_url,
+    corrupt_config_recovery_message,
     get_config_path,
     load_config,
+    load_instance_url,
     mask_token,
     normalize_instance_url,
     save_config,
+    save_instance_url,
     validate_login,
 )
 from agh.cli.package_init import PackageInitError, init_package_template
@@ -70,9 +75,10 @@ Usage:
   agh [--help] [--version] COMMAND [ARGS]...
 
 Commands:
+  config              Show the configured AGH instance URL.
+    config set INSTANCE_URL  Configure the AGH instance URL.
+    config clear      Clear the configured AGH instance URL.
   login               Validate API credentials and save local config.
-  config              Inspect local AGH CLI configuration.
-    config show       Show the saved instance URL, email, and masked token.
   user                Manage users (list/create/show/update/delete).
   token               Rotate or reset user API tokens (rotate/reset).
   project             Manage projects and developer memberships.
@@ -81,11 +87,11 @@ Commands:
   collection          Manage collections.
     collection package  Manage collection package assignments.
   package             Create, publish, and list guidance packages.
-  sync                Link this git repository to its matching AGH project.
-  pull                Pull assigned guidance packages into this repository.
   agent               Show and manage local agent selection.
   skill               Discover, install, and remove collection-backed global skills.
     skill agent       Manage the default agent for global skills.
+  sync                Link this git repository to its matching AGH project.
+  pull                Pull assigned guidance packages into this repository.
 
 Global options:
   --help              Show this help page.
@@ -193,7 +199,7 @@ app = typer.Typer(
 )
 config_app = typer.Typer(
     cls=AghSubcommandGroup,
-    help="Inspect local AGH CLI configuration.",
+    help="Inspect and manage local AGH CLI configuration.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
@@ -286,6 +292,11 @@ skill_app.add_typer(skill_agent_app, name="agent")
 def _fail(message: str, *, code: int = 1) -> NoReturn:
     typer.secho(f"Error: {message}", fg=typer.colors.RED, err=False)
     raise typer.Exit(code)
+
+
+def _fail_corrupt_config(exc: ConfigCorruptError) -> NoReturn:
+    """Surface a corrupt config with recovery guidance instead of a traceback."""
+    _fail(corrupt_config_recovery_message(exc.path, exc.reason), code=1)
 
 
 def _api_request(
@@ -863,23 +874,52 @@ def login(
 
 @config_app.callback(invoke_without_command=True)
 def config_main(ctx: typer.Context) -> None:
-    """Local AGH CLI configuration commands."""
-    if ctx.invoked_subcommand is None:
-        _show_local_help(ctx)
-
-
-@config_app.command("show", help="Show local AGH config with the token masked.")
-def config_show() -> None:
-    """Show local config without revealing the plaintext token."""
+    """Show the configured AGH instance, or manage it with set/clear."""
+    if ctx.invoked_subcommand is not None:
+        return
     try:
-        config = load_config()
-    except ConfigError as exc:
-        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=False)
-        raise typer.Exit(1) from exc
+        instance_url = load_instance_url()
+    except ConfigCorruptError as exc:
+        _fail_corrupt_config(exc)
+    except ConfigError:
+        typer.echo("Instance URL: not set")
+        raise typer.Exit(0)
+    typer.echo(f"Instance URL: {instance_url}")
 
-    typer.echo(f"instance_url = {config.instance_url}")
-    typer.echo(f"email = {config.email}")
-    typer.echo(f"token = {mask_token(config.token)}")
+
+@config_app.command("set", help="Configure the AGH instance URL.")
+def config_set(
+    instance_url: Annotated[
+        str,
+        typer.Argument(help="AGH instance URL, e.g. http://localhost:8912."),
+    ],
+) -> None:
+    """Configure the instance URL, clearing credentials when the instance changes."""
+    try:
+        result = save_instance_url(instance_url)
+    except ConfigCorruptError as exc:
+        _fail_corrupt_config(exc)
+    except ConfigError as exc:
+        _fail(str(exc), code=2)
+    typer.echo(f"Set instance URL: {result.instance_url}")
+    if result.credentials_cleared:
+        typer.echo(
+            "Instance changed: cleared stored credentials. "
+            "Run: agh login to authenticate against the new instance."
+        )
+
+
+@config_app.command("clear", help="Clear the configured AGH instance URL.")
+def config_clear() -> None:
+    """Remove only the instance URL, preserving any stored credentials."""
+    try:
+        cleared = clear_instance_url()
+    except ConfigCorruptError as exc:
+        _fail_corrupt_config(exc)
+    if cleared:
+        typer.echo("Cleared instance URL.")
+    else:
+        typer.echo("No instance URL was set.")
 
 
 def _status_label(payload: dict[str, Any]) -> str:
