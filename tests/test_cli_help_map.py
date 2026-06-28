@@ -18,16 +18,16 @@ from typer.testing import CliRunner
 
 from agh.cli.main import app as cli_app
 
-# PR2a root command map. The config-instance slice splits instance config from
-# auth storage: `config` now shows the instance and gains `config set` /
-# `config clear` (replacing the removed `config show`). `config` is moved to the
-# front of the map to match the final command-tree skeleton. Legacy names still
-# awaiting their own slices (login still takes --url, sync, token,
-# show/get/delete verbs, nested project/collection package, `agent`) are
-# retained until those slices land. This pins what PR2a actually advertises.
-PR2A_TOP_LEVEL_COMMANDS = [
+# PR2b root command map. The auth slice adds `whoami` and `logout` and
+# rewrites `login` to use the configured instance (no `--url`). `agent` is
+# still present (renamed to `target` in PR2c). Legacy names still awaiting their
+# own slices (sync, token, show/get/delete verbs, nested project/collection
+# package) are retained until those slices land. This pins what PR2b advertises.
+PR2B_TOP_LEVEL_COMMANDS = [
     "config",
     "login",
+    "whoami",
+    "logout",
     "user",
     "token",
     "project",
@@ -38,7 +38,7 @@ PR2A_TOP_LEVEL_COMMANDS = [
     "sync",
     "pull",
 ]
-PR2A_NESTED_COMMANDS = [
+PR2B_NESTED_COMMANDS = [
     "config set",
     "config clear",
     "project member",
@@ -46,9 +46,9 @@ PR2A_NESTED_COMMANDS = [
     "collection package",
     "skill agent",
 ]
-# Names promised by the final redesign that are NOT backed by any PR2a command
+# Names promised by the final redesign that are NOT backed by any PR2b command
 # yet, and therefore MUST NOT be advertised from root help.
-NOT_YET_IMPLEMENTED_COMMANDS = ["target", "link", "whoami", "logout"]
+NOT_YET_IMPLEMENTED_COMMANDS = ["target", "link"]
 
 
 def _root_help(runner: CliRunner) -> str:
@@ -95,6 +95,8 @@ def test_root_help_lists_command_tree_and_version_flag() -> None:
     for command in [
         "login",
         "config",
+        "whoami",
+        "logout",
         "user",
         "project",
         "collection",
@@ -227,8 +229,8 @@ def test_root_map_pins_intended_current_command_rows() -> None:
     runner = CliRunner()
     top_level, nested = _root_command_rows(_root_help(runner))
 
-    assert top_level == PR2A_TOP_LEVEL_COMMANDS
-    assert nested == PR2A_NESTED_COMMANDS
+    assert top_level == PR2B_TOP_LEVEL_COMMANDS
+    assert nested == PR2B_NESTED_COMMANDS
 
 
 def test_root_help_does_not_advertise_not_yet_implemented_commands() -> None:

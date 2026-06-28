@@ -1246,3 +1246,33 @@ def test_pull_skill_rejects_symlinked_target_parent_without_writes(
     assert "symlinked directory" in result.stdout
     assert not (repo / ".agh-cache" / "packages").exists()
     assert not (repo / ".agh" / "lock.toml").exists()
+
+
+def test_pull_dry_run_corrupt_config_shows_recovery_guidance(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Corrupt config surfaces recovery guidance, not a raw error/traceback.
+
+    Regression for the Judgment Day finding that linked pull failed without the
+    shared corrupt-config recovery guidance. A linked workspace plus a selected
+    target are required so pull reaches config loading (no server is contacted).
+    """
+    repo = _repo(tmp_path)
+    _write_link(repo, agent_target="opencode")
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'instance_url = "http://agh.example\nkey = "oops\n', encoding="utf-8"
+    )
+    monkeypatch.chdir(repo)
+
+    result = CliRunner().invoke(
+        cli_app, ["pull", "--dry-run"], env={"AGH_CONFIG_FILE": str(config_path)}
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert str(config_path) in result.stdout
+    assert "invalid" in result.stdout.lower()
+    assert "config set" in result.stdout.lower()
+    # corrupt file left intact (not overwritten)
+    assert "oops" in config_path.read_text("utf-8")

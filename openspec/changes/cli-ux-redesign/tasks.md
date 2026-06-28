@@ -57,15 +57,17 @@ Delivery strategy: ask-always (approved chained PRs)
 
 ### 2b — Auth (PR2b)
 
-- [ ] 2b.1 RED: Test `login` uses configured instance (flags + interactive),
+- [x] 2b.1 RED: Test `login` uses configured instance (flags + interactive),
       never prompts URL, fails before prompts when unconfigured; `whoami`;
       `logout` clears only credentials.
-- [ ] 2b.2 GREEN: Rewrite `login` (no `--url`, `load_instance_url` +
+- [x] 2b.2 GREEN: Rewrite `login` (no `--url`, `load_instance_url` +
       `save_credentials`); add `whoami`, `logout`; add
       `save_credentials`/`clear_credentials`; drop now-dead `save_config`.
-- [ ] 2b.3 RED/GREEN: Corrupt config recovery for `logout`, and for
+- [x] 2b.3 RED/GREEN: Corrupt config recovery for `logout`, and for
       `whoami`/API-backed commands via `_api_request`
       (`load_config` raises `ConfigCorruptError` → recovery guidance).
+      Judgment Day Round 1: extended to `login`, `sync`, and linked `pull`
+      (regression tests for each).
 
 ### 2c — Target (PR2c)
 

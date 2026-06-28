@@ -133,9 +133,9 @@ later slices:
 ## Remaining Phases
 
 - [~] Phase 2: Config / Auth / Target — split into stacked slices:
-  - [x] 2a instance config (PR2a) — DONE (this branch)
-  - [ ] 2b auth (PR2b) — next
-  - [ ] 2c target (PR2c)
+  - [x] 2a instance config (PR2a)
+  - [x] 2b auth (PR2b) — DONE (this branch)
+  - [ ] 2c target (PR2c) — next
 - [ ] Phase 3: User / Project / Collection vocabulary (PR3)
 - [ ] Phase 4: Package assignment UX (PR4)
 - [ ] Phase 5: Skill / Link / Pull cleanup (PR5)
@@ -219,5 +219,90 @@ complexity. Rollback stays per-slice (revert this PR only).
 ### Out of scope (deferred)
 
 - `login`/`whoami`/`logout` behavior (PR2b).
+- `agent` → `target` rename and `agh pull` message (PR2c).
+- README/changelog (PR6).
+
+## Phase 2b: Auth (PR2b) — DONE
+
+Stacked on PR2a. The auth commands now use the instance/credential split.
+
+### What shipped (PR2b)
+
+- **`login` rewritten.** Takes `--email`/`--token` (or prompts interactively)
+  and authenticates against the configured instance via `load_instance_url`.
+  It never prompts for a URL and fails with `agh config set INSTANCE_URL`
+  guidance before any prompt when no instance is configured. Credentials are
+  persisted with `save_credentials` (instance preserved); on validation
+  failure existing credentials are left untouched.
+- **`whoami` / `logout`.** `whoami` shows the authenticated user via
+  `GET /me`; `logout` clears only credentials (instance preserved) and is a
+  no-op when none are stored.
+- **Judgment Day fix (confirmed).** `load_config` now raises
+  `ConfigCorruptError` (carrying the path) on invalid TOML, and `_api_request`
+  catches it → `_fail_corrupt_config`, so `whoami` and every API-backed command
+  surface recovery guidance ("Fix or remove … run: agh config set
+  INSTANCE_URL") instead of a raw error/traceback. The corrupt file is left
+  intact. (`logout` already recovered via `clear_credentials`.)
+- **Judgment Day Round 1 fix (extended recovery).** The same corrupt-config
+  recovery was missing from `login`, `sync`, and linked `pull`: each surfaced
+  raw invalid-config text instead of the shared guidance. `login` now catches
+  `ConfigCorruptError` before prompting (fails before any credential prompt);
+  `sync`/`pull` let `ConfigCorruptError` propagate from `_load_config_or_error`
+  and route it through `_fail_corrupt_config`. Regression tests cover corrupt
+  config on `login`, `sync`, and linked `pull --dry-run`.
+- **Dead code removed.** `save_config`/`_format_config` (no callers after the
+  login rewrite) dropped from `config.py`. `AghConfig`/`normalize_instance_url`
+  stay (used by `load_config`/`save_instance_url`, workspace pull/sync, tests).
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | RED | GREEN | REFACTOR |
+|------|-----------|-------|-----|-------|----------|
+| 2b.1 | `tests/test_cli_login.py` (login/whoami/logout) | Unit + local HTTP | login tests rewritten | passing | instance-check-before-prompt |
+| 2b.2 | `agh/cli/config.py`, `agh/cli/main.py` | Unit | covered | 39 focused passing | save/clear_credentials |
+| 2b.3 | `tests/test_cli_login.py` (corrupt) | Unit | whoami/logout corrupt failing | passing | `load_config`→`ConfigCorruptError` |
+
+Test Summary:
+- Focused run (`test_cli_login.py` + `test_cli_help_map.py` +
+  `test_workspace_sync.py` + `test_cli_pull.py`): 85 passed.
+- Validation: `ruff check` clean, `ruff format --check` clean, `pyright` on
+  touched files 0 errors, `git diff --check` clean.
+
+### Files Changed (PR2b)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `agh/cli/config.py` | Modified | `load_config` raises `ConfigCorruptError` on bad TOML; added `save_credentials`/`clear_credentials`; removed dead `save_config`/`_format_config`. |
+| `agh/cli/main.py` | Modified | Rewrote `login` (no `--url`); added `whoami`, `logout`; `_api_request` surfaces corrupt-config recovery; `login`/`sync`/`pull` route corrupt config to `_fail_corrupt_config`; APP_HELP adds whoami/logout; imports trimmed. |
+| `agh/cli/workspace_sync.py` | Modified | `_load_config_or_error` lets `ConfigCorruptError` propagate for recovery guidance. |
+| `agh/cli/workspace_pull.py` | Modified | `_load_config_or_error` lets `ConfigCorruptError` propagate for recovery guidance. |
+| `tests/test_cli_login.py` | Modified | Rewrote login tests; added whoami/logout, trust-boundary-whoami, logout-corrupt, whoami-corrupt, and login-corrupt (JD fix) tests + login-help test. |
+| `tests/test_cli_help_map.py` | Modified | Root map adds whoami/logout; `NOT_YET_IMPLEMENTED_COMMANDS` reduced to [target, link]. |
+| `tests/test_workspace_sync.py` | Modified | Added sync corrupt-config recovery regression test. |
+| `tests/test_cli_pull.py` | Modified | Added linked `pull --dry-run` corrupt-config recovery regression test. |
+| `openspec/changes/cli-ux-redesign/tasks.md` | Modified | 2b sub-tasks marked done; corrupt-config recovery scope extended to login/sync/pull. |
+
+### Review surface accounting
+
+| Surface | Files | Changed lines | vs 400 budget |
+|---------|-------|---------------|---------------|
+| Runtime code | `agh/cli/config.py`, `agh/cli/main.py`, `agh/cli/workspace_sync.py`, `agh/cli/workspace_pull.py` | 145 (84+ / 61−) | under |
+| Tests | `test_cli_login.py`, `test_cli_help_map.py`, `test_workspace_sync.py`, `test_cli_pull.py` | 496 (370+ / 126−) | over alone |
+| OpenSpec governance | `tasks.md`, `apply-progress.md` | 99 (93+ / 6−) | n/a (governance) |
+| **Full PR2b slice total** | | **740 (547+ / 193−)** | **over** |
+
+### Size disposition
+
+`size:exception` required. The full PR2b slice is **740 changed lines** vs its
+parent (`feat/cli-ux-config-instance`), exceeding the 400-line budget (it was
+611 before the Judgment Day Round 1 corrupt-config extension added runtime
+recovery + 3 regression tests). Splitting Phase 2 into config/auth/target
+reduced each slice's conceptual scope, but the login rewrite, whoami/logout,
+trust-boundary, and corrupt-config coverage plus the additive OpenSpec
+governance artifacts keep this slice over 400. Runtime code alone stays within
+budget; the overage is tests plus governance docs, not logic complexity.
+
+### Out of scope (deferred)
+
 - `agent` → `target` rename and `agh pull` message (PR2c).
 - README/changelog (PR6).

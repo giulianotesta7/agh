@@ -14,7 +14,7 @@ from typing import Any
 import urllib.error
 import urllib.request
 
-from agh.cli.config import AghConfig, ConfigError, load_config
+from agh.cli.config import AghConfig, ConfigCorruptError, ConfigError, load_config
 from agh.common.repo_url import normalize_repo_url
 
 
@@ -81,6 +81,9 @@ def sync_workspace(
 def _load_config_or_error() -> AghConfig:
     try:
         return load_config()
+    except ConfigCorruptError:
+        # Let corrupt config surface recovery guidance in the command layer.
+        raise
     except ConfigError as exc:
         raise WorkspaceSyncError(str(exc), code=4) from exc
 

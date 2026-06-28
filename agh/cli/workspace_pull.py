@@ -25,7 +25,7 @@ from agh.cli.agent_integrations import (
     symlink_points_to,
     write_agent_preference,
 )
-from agh.cli.config import AghConfig, ConfigError, load_config
+from agh.cli.config import AghConfig, ConfigCorruptError, ConfigError, load_config
 from agh.cli.pull_markers import MarkerConflict
 from agh.cli.pull_plan import (
     EXIT_CONFLICT,
@@ -350,6 +350,9 @@ def _preflight_cache_boundaries(*, cache_dir: Path, manifest: dict) -> None:
 def _load_config_or_error() -> AghConfig:
     try:
         return load_config()
+    except ConfigCorruptError:
+        # Let corrupt config surface recovery guidance in the command layer.
+        raise
     except ConfigError as exc:
         raise WorkspacePullError(str(exc), code=4) from exc
 

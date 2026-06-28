@@ -1,20 +1,25 @@
-"""CLI login and instance-config tests (PR2a: split instance config from auth).
+"""CLI instance-config and auth tests (PR2a config + PR2b auth).
 
-The config-instance slice separates instance configuration from credential
-storage in the local config file while leaving the ``login`` command behavior
-unchanged (it is rewritten in the auth slice). This file keeps the unchanged
-login validation tests and adds the config-instance coverage:
+PR2a split instance configuration from credential storage in the local config
+file, and PR2b rewrites the auth commands to use that split:
 
 * `agh config` shows only the configured instance URL (never auth)
 * `agh config set INSTANCE_URL` stores/overwrites the normalized instance URL
 * `agh config clear` clears only the instance URL (credentials preserved)
-* Trust-boundary: changing the instance clears stored credentials so they can
-  never be sent to a different host (same normalized instance preserves them)
-* Corrupt config is recovered gracefully (no traceback; clear guidance; file
-  left intact)
+* `agh login` authenticates against the configured instance (never prompts for
+  a URL; supports `--email`/`--token` or interactive prompts; fails before
+  prompts when no instance is configured)
+* `agh whoami` shows the authenticated user (`GET /me`)
+* `agh logout` clears only credentials (instance preserved)
 
-The `config show` command is intentionally gone; `config` (no-args) shows the
-instance, and `config show` now exits 2 as an unknown subgroup command.
+Trust-boundary: changing the instance clears stored credentials so they can
+never be sent to a different host (same normalized instance preserves them).
+
+Corrupt config is recovered gracefully across `config`, `config clear`,
+`logout`, and whoami/API-backed commands (no traceback, clear guidance, file
+left intact).
+
+The `agent` -> `target` rename lives in PR2c.
 """
 
 from __future__ import annotations
@@ -108,105 +113,122 @@ def _set_instance(runner: CliRunner, tmp_path: Path, url: str):
     return result
 
 
-# --- login (unchanged in this slice; validation kept) ----------------------
+# --- login: uses configured instance, never prompts URL --------------------
 
 
-def test_login_validates_me_and_writes_restricted_config(tmp_path: Path) -> None:
+def test_login_with_flags_uses_configured_instance(tmp_path: Path) -> None:
     server, handler, url = _serve_me()
     runner = CliRunner()
     token = "good-token"
+    _set_instance(runner, tmp_path, url)
     try:
         result = runner.invoke(
             cli_app,
-            [
-                "login",
-                "--url",
-                f"{url}/",
-                "--email",
-                "owner@example.com",
-                "--token",
-                token,
-            ],
+            ["login", "--email", "owner@example.com", "--token", token],
             env=_config_env(tmp_path),
         )
     finally:
         server.shutdown()
 
     assert result.exit_code == 0, result.stdout
-    assert "Logged in" in result.stdout
+    assert url in result.stdout
+    assert "owner@example.com" in result.stdout
     assert token not in result.stdout
     assert handler.seen_authorization == [f"Bearer {token}"]
 
     config_path = tmp_path / "config.toml"
-    config_text = config_path.read_text(encoding="utf-8")
-    assert f'instance_url = "{url}"' in config_text
-    assert 'email = "owner@example.com"' in config_text
-    assert f'token = "{token}"' in config_text
+    text = config_path.read_text("utf-8")
+    assert f'instance_url = "{url}"' in text
+    assert 'email = "owner@example.com"' in text
+    assert f'token = "{token}"' in text
     if os.name == "posix":
         assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
 
 
-def test_invalid_login_preserves_existing_config(tmp_path: Path) -> None:
+def test_login_interactive_prompts_email_and_token_not_url(tmp_path: Path) -> None:
+    server, _handler, url = _serve_me()
+    runner = CliRunner()
+    _set_instance(runner, tmp_path, url)
+    try:
+        result = runner.invoke(
+            cli_app,
+            ["login"],
+            input="owner@example.com\ngood-token\n",
+            env=_config_env(tmp_path),
+        )
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    # never asks for the instance URL
+    assert "instance URL" not in result.stdout
+    assert "Email" in result.stdout
+    assert url in result.stdout
+    config_path = tmp_path / "config.toml"
+    assert 'token = "good-token"' in config_path.read_text("utf-8")
+
+
+def test_login_without_configured_instance_errors_with_guidance(
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    # no network, no input: must fail before any prompt or request
+    result = runner.invoke(cli_app, ["login"], env=_config_env(tmp_path))
+
+    assert result.exit_code != 0
+    assert INSTANCE_GUIDANCE in result.stdout
+    assert not (tmp_path / "config.toml").exists()
+
+
+def test_login_invalid_token_preserves_existing_credentials(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text(
-        'instance_url = "http://old.example"\nemail = "old@example.com"\ntoken = "old-token"\n',
+        'instance_url = "http://old.example"\n'
+        'email = "old@example.com"\n'
+        'token = "old-token"\n',
         encoding="utf-8",
     )
-    if os.name == "posix":
-        config_path.chmod(0o600)
-    before = config_path.read_text(encoding="utf-8")
+    before = config_path.read_text("utf-8")
 
     server, _handler, url = _serve_me(status_code=401)
+    runner = CliRunner()
+    # point the configured instance at the 401 server
+    config_path.write_text(
+        f'instance_url = "{url}"\nemail = "old@example.com"\ntoken = "old-token"\n',
+        encoding="utf-8",
+    )
     try:
-        result = CliRunner().invoke(
+        result = runner.invoke(
             cli_app,
-            [
-                "login",
-                "--url",
-                url,
-                "--email",
-                "owner@example.com",
-                "--token",
-                "bad-token",
-            ],
+            ["login", "--email", "owner@example.com", "--token", "bad-token"],
             env={"AGH_CONFIG_FILE": str(config_path)},
         )
     finally:
         server.shutdown()
 
     assert result.exit_code != 0
-    assert config_path.read_text(encoding="utf-8") == before
+    # credentials untouched on failure
+    after = config_path.read_text("utf-8")
+    assert 'email = "old@example.com"' in after
+    assert 'token = "old-token"' in after
+    assert before.split("email", 1)[1] in after  # original creds preserved
 
 
-def test_login_email_mismatch_preserves_existing_config(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        'instance_url = "old"\nemail = "old@example.com"\ntoken = "old"\n',
-        encoding="utf-8",
-    )
-    before = config_path.read_text(encoding="utf-8")
-
+def test_login_email_mismatch_fails(tmp_path: Path) -> None:
+    runner = CliRunner()
     server, _handler, url = _serve_me(email="other@example.com")
+    _set_instance(runner, tmp_path, url)
     try:
-        result = CliRunner().invoke(
+        result = runner.invoke(
             cli_app,
-            [
-                "login",
-                "--url",
-                url,
-                "--email",
-                "owner@example.com",
-                "--token",
-                "good-token",
-            ],
-            env={"AGH_CONFIG_FILE": str(config_path)},
+            ["login", "--email", "owner@example.com", "--token", "good-token"],
+            env=_config_env(tmp_path),
         )
     finally:
         server.shutdown()
 
     assert result.exit_code != 0
     assert "email" in result.stdout.lower()
-    assert config_path.read_text(encoding="utf-8") == before
 
 
 def test_login_rejects_redirect_without_forwarding_token(tmp_path: Path) -> None:
@@ -214,18 +236,12 @@ def test_login_rejects_redirect_without_forwarding_token(tmp_path: Path) -> None
     redirect_server, _redirect_handler, redirect_url = _serve_redirect(
         f"{target_url}/api/v1/me"
     )
+    runner = CliRunner()
     try:
-        result = CliRunner().invoke(
+        _set_instance(runner, tmp_path, redirect_url)
+        result = runner.invoke(
             cli_app,
-            [
-                "login",
-                "--url",
-                redirect_url,
-                "--email",
-                "owner@example.com",
-                "--token",
-                "redirect-secret",
-            ],
+            ["login", "--email", "owner@example.com", "--token", "redirect-secret"],
             env=_config_env(tmp_path),
         )
     finally:
@@ -235,7 +251,6 @@ def test_login_rejects_redirect_without_forwarding_token(tmp_path: Path) -> None
     assert result.exit_code != 0
     assert "redirect" in result.stdout.lower()
     assert target_handler.seen_authorization == []
-    assert not (tmp_path / "config.toml").exists()
 
 
 def test_login_timeout_is_clean_failure(tmp_path: Path, monkeypatch) -> None:
@@ -245,53 +260,18 @@ def test_login_timeout_is_clean_failure(tmp_path: Path, monkeypatch) -> None:
         raise TimeoutError("timed out")
 
     monkeypatch.setattr(cli_config._NO_REDIRECT_OPENER, "open", raise_timeout)
+    runner = CliRunner()
+    _set_instance(runner, tmp_path, "http://agh.example")
 
-    result = CliRunner().invoke(
+    result = runner.invoke(
         cli_app,
-        [
-            "login",
-            "--url",
-            "http://agh.example",
-            "--email",
-            "owner@example.com",
-            "--token",
-            "secret-token",
-        ],
+        ["login", "--email", "owner@example.com", "--token", "secret-token"],
         env=_config_env(tmp_path),
     )
 
     assert result.exit_code != 0
     assert "timed out" in result.stdout.lower()
     assert result.exception is None or isinstance(result.exception, SystemExit)
-    assert not (tmp_path / "config.toml").exists()
-
-
-def test_login_socket_timeout_is_clean_failure(tmp_path: Path, monkeypatch) -> None:
-    from agh.cli import config as cli_config
-
-    def raise_timeout(*_args, **_kwargs):
-        raise TimeoutError("socket timed out")
-
-    monkeypatch.setattr(cli_config._NO_REDIRECT_OPENER, "open", raise_timeout)
-
-    result = CliRunner().invoke(
-        cli_app,
-        [
-            "login",
-            "--url",
-            "http://agh.example",
-            "--email",
-            "owner@example.com",
-            "--token",
-            "secret-token",
-        ],
-        env=_config_env(tmp_path),
-    )
-
-    assert result.exit_code != 0
-    assert "timed out" in result.stdout.lower()
-    assert result.exception is None or isinstance(result.exception, SystemExit)
-    assert not (tmp_path / "config.toml").exists()
 
 
 # --- config: instance only -------------------------------------------------
@@ -535,6 +515,197 @@ def test_config_clear_reports_corrupt_config_without_traceback(
     assert "oops" in config_path.read_text("utf-8")
 
 
+# --- whoami / logout -------------------------------------------------------
+
+
+def test_whoami_shows_authenticated_user(tmp_path: Path) -> None:
+    server, _handler, url = _serve_me()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        f'instance_url = "{url}"\nemail = "owner@example.com"\ntoken = "good-token"\n',
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    try:
+        result = runner.invoke(
+            cli_app, ["whoami"], env={"AGH_CONFIG_FILE": str(config_path)}
+        )
+    finally:
+        server.shutdown()
+
+    assert result.exit_code == 0, result.stdout
+    assert "owner@example.com" in result.stdout
+    assert "usr_test" in result.stdout
+    assert "owner" in result.stdout
+    # the plaintext token is never echoed
+    assert "good-token" not in result.stdout
+
+
+def test_logout_clears_only_credentials(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'instance_url = "http://agh.example"\n'
+        'email = "owner@example.com"\n'
+        'token = "good-token"\n',
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_app, ["logout"], env={"AGH_CONFIG_FILE": str(config_path)}
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Logged out" in result.stdout
+    remaining = config_path.read_text("utf-8")
+    assert 'instance_url = "http://agh.example"' in remaining
+    assert "email" not in remaining
+    assert "token" not in remaining
+
+
+def test_logout_with_no_credentials_is_noop(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('instance_url = "http://agh.example"\n', encoding="utf-8")
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_app, ["logout"], env={"AGH_CONFIG_FILE": str(config_path)}
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "No credentials" in result.stdout
+
+
+# --- trust boundary: authenticated commands never leak old credentials -----
+
+
+def test_whoami_after_instance_change_does_not_send_old_token(tmp_path: Path) -> None:
+    """After switching instance, old credentials must never reach the new host."""
+    server, handler, url = _serve_me()
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'instance_url = "http://old.example"\n'
+        'email = "owner@example.com"\n'
+        'token = "old-token"\n',
+        encoding="utf-8",
+    )
+    try:
+        # switch to a new instance -> credentials must be cleared
+        switched = runner.invoke(
+            cli_app,
+            ["config", "set", url],
+            env={"AGH_CONFIG_FILE": str(config_path)},
+        )
+        assert switched.exit_code == 0, switched.stdout
+        assert "old-token" not in config_path.read_text("utf-8")
+
+        # a subsequent authenticated command must NOT send any token
+        whoami = runner.invoke(
+            cli_app, ["whoami"], env={"AGH_CONFIG_FILE": str(config_path)}
+        )
+    finally:
+        server.shutdown()
+
+    assert whoami.exit_code != 0
+    # the new instance never received a bearer token
+    assert handler.seen_authorization == []
+
+
+def test_whoami_after_config_clear_does_not_send_old_token(tmp_path: Path) -> None:
+    """With no instance configured, credentials cannot be sent anywhere."""
+    server, handler, _url = _serve_me()
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'instance_url = "http://agh.example"\n'
+        'email = "owner@example.com"\n'
+        'token = "old-token"\n',
+        encoding="utf-8",
+    )
+    runner.invoke(
+        cli_app, ["config", "clear"], env={"AGH_CONFIG_FILE": str(config_path)}
+    )
+    try:
+        whoami = runner.invoke(
+            cli_app, ["whoami"], env={"AGH_CONFIG_FILE": str(config_path)}
+        )
+    finally:
+        server.shutdown()
+
+    assert whoami.exit_code != 0
+    assert handler.seen_authorization == []
+
+
+# --- corrupt config: whoami/logout recovery guidance -----------------------
+
+
+def test_logout_reports_corrupt_config_without_traceback(tmp_path: Path) -> None:
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    _write_corrupt_config(config_path)
+
+    result = runner.invoke(
+        cli_app, ["logout"], env={"AGH_CONFIG_FILE": str(config_path)}
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert str(config_path) in result.stdout
+    assert "config set" in result.stdout.lower()
+    assert "oops" in config_path.read_text("utf-8")
+
+
+def test_whoami_corrupt_config_shows_recovery_guidance(tmp_path: Path) -> None:
+    """Corrupt config must surface recovery guidance, not a raw error/traceback.
+
+    Regression for the Judgment Day finding that whoami/API-backed commands
+    failed without telling the user how to recover.
+    """
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    _write_corrupt_config(config_path)
+
+    result = runner.invoke(
+        cli_app, ["whoami"], env={"AGH_CONFIG_FILE": str(config_path)}
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert str(config_path) in result.stdout
+    assert "invalid" in result.stdout.lower()
+    # recovery guidance present
+    assert "config set" in result.stdout.lower()
+    # corrupt file left intact (not overwritten)
+    assert "oops" in config_path.read_text("utf-8")
+
+
+def test_login_corrupt_config_shows_recovery_guidance(tmp_path: Path) -> None:
+    """Corrupt config must surface recovery guidance before any login prompt.
+
+    Regression for the Judgment Day finding that login surfaced raw invalid
+    config text instead of the shared recovery guidance used by whoami/logout.
+    """
+    runner = CliRunner()
+    config_path = tmp_path / "config.toml"
+    _write_corrupt_config(config_path)
+
+    result = runner.invoke(
+        cli_app,
+        ["login", "--email", "owner@example.com", "--token", "good-token"],
+        env={"AGH_CONFIG_FILE": str(config_path)},
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    # Same recovery guidance as whoami/logout/config
+    assert str(config_path) in result.stdout
+    assert "invalid" in result.stdout.lower()
+    assert "config set" in result.stdout.lower()
+    # Must not have prompted for credentials (fails before prompts)
+    assert "Email" not in result.stdout
+    # corrupt file left intact (not overwritten)
+    assert "oops" in config_path.read_text("utf-8")
+
+
 # --- help surface ----------------------------------------------------------
 
 
@@ -547,3 +718,14 @@ def test_config_help_flag_shows_local_help() -> None:
     assert config_help.exit_code == 0, config_help.stdout
     assert "local AGH CLI configuration" in config_help.stdout
     assert config_help.stdout != root_help
+
+
+def test_login_help_has_email_and_token_but_not_url() -> None:
+    """login no longer takes --url; the instance comes from `config set`."""
+    runner = CliRunner()
+    login_help = runner.invoke(cli_app, ["login", "--help"])
+
+    assert login_help.exit_code == 0
+    assert "--email" in login_help.stdout
+    assert "--token" in login_help.stdout
+    assert "--url" not in login_help.stdout

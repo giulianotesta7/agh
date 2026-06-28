@@ -31,18 +31,17 @@ from agh.cli.agent_integrations import (
 from agh.cli import global_skills as global_skills_module
 from agh.cli.global_skills import GlobalSkillError
 from agh.cli.config import (
-    AghConfig,
     ConfigCorruptError,
     ConfigError,
     LoginValidationError,
+    clear_credentials,
     clear_instance_url,
     corrupt_config_recovery_message,
     get_config_path,
     load_config,
     load_instance_url,
     mask_token,
-    normalize_instance_url,
-    save_config,
+    save_credentials,
     save_instance_url,
     validate_login,
 )
@@ -78,7 +77,9 @@ Commands:
   config              Show the configured AGH instance URL.
     config set INSTANCE_URL  Configure the AGH instance URL.
     config clear      Clear the configured AGH instance URL.
-  login               Validate API credentials and save local config.
+  login               Validate credentials for the configured instance.
+  whoami              Show the authenticated user.
+  logout              Clear stored credentials.
   user                Manage users (list/create/show/update/delete).
   token               Rotate or reset user API tokens (rotate/reset).
   project             Manage projects and developer memberships.
@@ -307,6 +308,8 @@ def _api_request(
 ) -> Any:
     try:
         config = load_config()
+    except ConfigCorruptError as exc:
+        _fail_corrupt_config(exc)
     except ConfigError as exc:
         _fail(str(exc), code=4)
 
@@ -443,6 +446,8 @@ def pull(
     """Fetch the linked project pull-manifest and apply managed guidance blocks."""
     try:
         result = pull_workspace(dry_run=dry_run, force=force)
+    except ConfigCorruptError as exc:
+        _fail_corrupt_config(exc)
     except WorkspacePullError as exc:
         _fail(str(exc), code=exc.code)
 
@@ -808,6 +813,8 @@ def sync(
     """Match the selected git remote to an accessible AGH project and write .agh/project.toml."""
     try:
         result = sync_workspace(remote=remote, force=force)
+    except ConfigCorruptError as exc:
+        _fail_corrupt_config(exc)
     except WorkspaceSyncError as exc:
         _fail(str(exc), code=exc.code)
 
@@ -830,46 +837,71 @@ def main(
         _show_local_help(ctx)
 
 
-@app.command(help="Validate API credentials and save local AGH config.")
+@app.command("login", help="Validate credentials for the configured AGH instance.")
 def login(
-    url: Annotated[
-        str,
-        typer.Option(
-            "--url",
-            prompt="AGH instance URL",
-            help="AGH server base URL, e.g. http://localhost:8912.",
-        ),
-    ],
     email: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--email",
-            prompt="Email",
-            help="Email expected from GET /api/v1/me.",
+            help="Email expected from GET /api/v1/me. Prompted when omitted.",
         ),
-    ],
+    ] = None,
     token: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--token",
-            prompt="Token",
             hide_input=True,
-            help="AGH API token. The token is validated but never printed.",
+            help="AGH API token. Validated against the configured instance.",
         ),
-    ],
+    ] = None,
 ) -> None:
-    """Validate credentials against /api/v1/me, then write config.toml."""
+    """Authenticate against the configured instance and store credentials.
+
+    The instance URL comes from `agh config set`; login never prompts for it.
+    Email and token are prompted interactively when the flags are omitted.
+    """
     try:
-        instance_url = normalize_instance_url(url)
-        validate_login(instance_url=instance_url, email=email, token=token)
-        save_config(AghConfig(instance_url=instance_url, email=email, token=token))
+        instance_url = load_instance_url()
+    except ConfigCorruptError as exc:
+        _fail_corrupt_config(exc)
+    except ConfigError as exc:
+        _fail(str(exc))
+
+    email_value: str = email if email is not None else typer.prompt("Email")
+    token_value: str = (
+        token if token is not None else typer.prompt("Token", hide_input=True)
+    )
+
+    try:
+        validate_login(instance_url=instance_url, email=email_value, token=token_value)
+        save_credentials(email=email_value, token=token_value)
     except (ConfigError, LoginValidationError) as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=False)
         raise typer.Exit(1) from exc
 
     typer.echo(
-        f"Logged in to {instance_url} as {email}. Config saved to {get_config_path()}."
+        f"Logged in to {instance_url} as {email_value}. "
+        f"Credentials saved to {get_config_path()}."
     )
+
+
+@app.command("whoami", help="Show the authenticated user.")
+def whoami() -> None:
+    """Show the user identified by GET /api/v1/me for the stored credentials."""
+    _echo_user_detail(_api_request("GET", "/me"))
+
+
+@app.command("logout", help="Clear stored credentials.")
+def logout() -> None:
+    """Remove stored credentials, keeping the configured instance URL."""
+    try:
+        cleared = clear_credentials()
+    except ConfigCorruptError as exc:
+        _fail_corrupt_config(exc)
+    if cleared:
+        typer.echo("Logged out (cleared credentials).")
+    else:
+        typer.echo("No credentials were saved.")
 
 
 @config_app.callback(invoke_without_command=True)

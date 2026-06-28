@@ -117,7 +117,7 @@ def load_config(path: Path | None = None) -> AghConfig:
             f"No AGH config found at {config_path}. Run 'agh login'."
         ) from exc
     except tomllib.TOMLDecodeError as exc:
-        raise ConfigError(f"Invalid AGH config at {config_path}: {exc}") from exc
+        raise ConfigCorruptError(config_path, str(exc)) from exc
 
     try:
         return AghConfig(
@@ -179,30 +179,25 @@ def clear_instance_url(path: Path | None = None) -> bool:
     return True
 
 
-def save_config(config: AghConfig, path: Path | None = None) -> None:
-    """Atomically write local config with restrictive permissions where supported."""
+def save_credentials(*, email: str, token: str, path: Path | None = None) -> None:
+    """Persist credentials, preserving any configured instance URL."""
     config_path = path or get_config_path()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    text = _format_config(config)
+    data = _read_config_dict(config_path)
+    data["email"] = email
+    data["token"] = token
+    _write_config_dict(config_path, data)
 
-    fd, temp_name = tempfile.mkstemp(
-        prefix=f".{config_path.name}.", suffix=".tmp", dir=config_path.parent
-    )
-    temp_path = Path(temp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        with suppress(OSError):
-            os.chmod(temp_path, 0o600)
-        os.replace(temp_path, config_path)
-        with suppress(OSError):
-            os.chmod(config_path, 0o600)
-    except Exception:
-        with suppress(FileNotFoundError):
-            temp_path.unlink()
-        raise
+
+def clear_credentials(path: Path | None = None) -> bool:
+    """Remove only credentials, preserving the instance URL. Return whether any existed."""
+    config_path = path or get_config_path()
+    data = _read_config_dict(config_path)
+    if "email" not in data and "token" not in data:
+        return False
+    data.pop("email", None)
+    data.pop("token", None)
+    _write_or_remove(config_path, data)
+    return True
 
 
 def _read_config_dict(path: Path) -> dict[str, str]:
@@ -307,16 +302,6 @@ def mask_token(token: str) -> str:
     if len(token) <= 8:
         return f"{token[:2]}****"
     return f"{token[:4]}****{token[-4:]}"
-
-
-def _format_config(config: AghConfig) -> str:
-    return "".join(
-        [
-            f'instance_url = "{_toml_escape(config.instance_url)}"\n',
-            f'email = "{_toml_escape(config.email)}"\n',
-            f'token = "{_toml_escape(config.token)}"\n',
-        ]
-    )
 
 
 def _toml_escape(value: str) -> str:
