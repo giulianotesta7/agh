@@ -284,21 +284,28 @@ def _write_config(
     return {"AGH_CONFIG_FILE": str(config_path)}
 
 
-def test_cli_admin_unknown_subcommands_exit_2_with_help_first_output() -> None:
+def test_cli_admin_unknown_subcommands_exit_2_with_local_help() -> None:
     runner = CliRunner()
-    expected_help = runner.invoke(cli_app, []).stdout
+    root_help = runner.invoke(cli_app, []).stdout
 
-    for args in [
-        ["user", "wrong-command"],
-        ["token", "wrong-command"],
-        ["project", "wrong-command"],
-        ["project", "member", "wrong-command"],
-        ["collection", "wrong-command"],
-    ]:
-        result = runner.invoke(cli_app, args)
+    cases = {
+        ("user", "wrong-command"): "Manage AGH users.",
+        ("token", "wrong-command"): "Rotate or reset user API tokens.",
+        ("project", "wrong-command"): "Manage AGH projects.",
+        ("collection", "wrong-command"): "Manage AGH collections.",
+    }
+    for args, local_marker in cases.items():
+        result = runner.invoke(cli_app, list(args))
 
         assert result.exit_code == 2, args
-        assert result.stdout == expected_help
+        assert local_marker in result.stdout, (args, result.stdout)
+        # local group help must never leak the root command map
+        assert result.stdout != root_help, args
+
+    member_unknown = runner.invoke(cli_app, ["project", "member", "wrong-command"])
+    assert member_unknown.exit_code == 2
+    assert "developer membership" in member_unknown.stdout.lower()
+    assert member_unknown.stdout != root_help
 
 
 def test_cli_user_token_project_commands_map_to_api_and_mask_stored_token(
@@ -1057,12 +1064,19 @@ def test_cli_collection_refs_resolve_names_and_pass_through_col_ids(
 
 def test_cli_admin_help_preserves_main_manual_and_command_help() -> None:
     runner = CliRunner()
+    root_help = runner.invoke(cli_app, []).stdout
 
-    assert runner.invoke(cli_app, ["user"]).stdout == runner.invoke(cli_app, []).stdout
-    assert (
-        runner.invoke(cli_app, ["project", "wrong"]).stdout
-        == runner.invoke(cli_app, []).stdout
-    )
+    # Subgroups invoked without a subcommand show LOCAL group help, not the
+    # root command map. Unknown nested commands likewise show local help.
+    user_no_args = runner.invoke(cli_app, ["user"])
+    assert user_no_args.exit_code == 0, user_no_args.stdout
+    assert "Manage AGH users." in user_no_args.stdout
+    assert user_no_args.stdout != root_help
+
+    project_wrong = runner.invoke(cli_app, ["project", "wrong"])
+    assert project_wrong.exit_code == 2, project_wrong.stdout
+    assert "Manage AGH projects." in project_wrong.stdout
+    assert project_wrong.stdout != root_help
 
     user_group_help = runner.invoke(cli_app, ["user", "--help"])
     project_group_help = runner.invoke(cli_app, ["project", "--help"])

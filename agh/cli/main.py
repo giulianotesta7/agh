@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
 import typer
-from typer.core import TyperGroup
+from typer.core import TyperCommand, TyperGroup
 
 from agh import __version__
 from agh.cli.agent_integrations import (
@@ -67,29 +67,36 @@ from agh.common.validation import validate_project_name
 APP_HELP = """Agent Guidance Hub — manage and distribute agent guidance packages.
 
 Usage:
-  agh [OPTIONS] COMMAND [ARGS]...
+  agh [--help] [--version] COMMAND [ARGS]...
 
 Commands:
-  login        Validate API credentials with /api/v1/me and save local config.
-  config show  Show the saved instance URL, email, and masked token.
-  user         Manage users.
-  token        Rotate or reset user API tokens.
-  project      Manage projects and developer memberships.
-  collection   Manage collections.
-  package         Create, publish, and list guidance packages.
-  sync         Link this git repository to its matching AGH project.
-  pull         Pull assigned guidance packages into this repository.
-  agent        Show and manage local agent selection.
-  skill        Discover, install, and remove collection-backed global skills.
+  login               Validate API credentials and save local config.
+  config              Inspect local AGH CLI configuration.
+    config show       Show the saved instance URL, email, and masked token.
+  user                Manage users (list/create/show/update/delete).
+  token               Rotate or reset user API tokens (rotate/reset).
+  project             Manage projects and developer memberships.
+    project member    Manage project developer memberships (add/remove).
+    project package   Manage project package assignments.
+  collection          Manage collections.
+    collection package  Manage collection package assignments.
+  package             Create, publish, and list guidance packages.
+  sync                Link this git repository to its matching AGH project.
+  pull                Pull assigned guidance packages into this repository.
+  agent               Show and manage local agent selection.
+  skill               Discover, install, and remove collection-backed global skills.
+    skill agent       Manage the default agent for global skills.
 
 Global options:
-  --help       Show this help page.
+  --help              Show this help page.
+  --version           Show the AGH version.
 
 Arguments:
   Run `agh <command> --help` for command-specific options and arguments.
 """
 USAGE_ERROR_EXIT_CODE = 2
 COMMAND_CANCELLED_EXIT_CODE = 130
+HELP_OPTION_TEXT = "Show this help page."
 PROJECT_REF_HELP = "Project id or exact name. Numeric refs are treated as ids."
 USER_REF_HELP = "User id or exact email."
 COLLECTION_REF_HELP = "Collection id (col_...) or exact active collection name."
@@ -105,15 +112,29 @@ def _exit_on_unknown_command(group: TyperGroup, ctx: Any, args: list[str]) -> No
     command_name = args[0]
     command = group.get_command(ctx, command_name)
     if command is None and not command_name.startswith("-"):
-        typer.echo(APP_HELP)
+        # Show the help for the group that was invoked, so `agh user wrong`
+        # surfaces user help instead of the root command map.
+        typer.echo(group.get_help(ctx))
         raise typer.Exit(USAGE_ERROR_EXIT_CODE)
 
 
+def _show_local_help(ctx: Any) -> None:
+    """Render the LOCAL group/command help for `ctx`, never the root map."""
+    typer.echo(ctx.get_help())
+    raise typer.Exit(0)
+
+
 class AghHelpGroup(TyperGroup):
-    """Typer group that shows AGH's command overview for help/unknown commands."""
+    """Root group: renders the maintained full command-map help string."""
 
     def get_help(self, ctx: Any) -> str:
         return APP_HELP
+
+    def get_help_option(self, ctx: Any) -> Any:
+        option = super().get_help_option(ctx)
+        if option is not None:
+            option.help = HELP_OPTION_TEXT
+        return option
 
     def resolve_command(self, ctx: Any, args: list[str]) -> Any:
         _exit_on_unknown_command(self, ctx, args)
@@ -121,11 +142,37 @@ class AghHelpGroup(TyperGroup):
 
 
 class AghSubcommandGroup(TyperGroup):
-    """Typer subgroup that keeps real help but routes unknown commands to APP_HELP."""
+    """Subgroup: keeps real local help and routes unknown commands to it."""
+
+    def get_help_option(self, ctx: Any) -> Any:
+        option = super().get_help_option(ctx)
+        if option is not None:
+            option.help = HELP_OPTION_TEXT
+        return option
 
     def resolve_command(self, ctx: Any, args: list[str]) -> Any:
         _exit_on_unknown_command(self, ctx, args)
         return super().resolve_command(ctx, args)
+
+
+class AghCommand(TyperCommand):
+    """Leaf command with AGH's concise help-option wording."""
+
+    def get_help_option(self, ctx: Any) -> Any:
+        option = super().get_help_option(ctx)
+        if option is not None:
+            option.help = HELP_OPTION_TEXT
+        return option
+
+
+def _use_agh_command_help_text(typer_app: typer.Typer) -> None:
+    """Apply AGH help-option wording to every Typer leaf command."""
+    for command_info in typer_app.registered_commands:
+        if command_info.cls is None or command_info.cls is TyperCommand:
+            command_info.cls = AghCommand
+    for group_info in typer_app.registered_groups:
+        if group_info.typer_instance is not None:
+            _use_agh_command_help_text(group_info.typer_instance)
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -145,7 +192,7 @@ app = typer.Typer(
     rich_markup_mode=None,
 )
 config_app = typer.Typer(
-    cls=AghHelpGroup,
+    cls=AghSubcommandGroup,
     help="Inspect local AGH CLI configuration.",
     no_args_is_help=False,
     rich_markup_mode=None,
@@ -761,7 +808,7 @@ def main(
     ctx: typer.Context,
     version: Annotated[
         bool | None,
-        typer.Option("--version", help="Show the AGH version and exit."),
+        typer.Option("--version", help="Show the AGH version."),
     ] = None,
 ) -> None:
     """Agent Guidance Hub CLI."""
@@ -769,8 +816,7 @@ def main(
         typer.echo(f"agh {__version__}")
         raise typer.Exit(0)
     if ctx.invoked_subcommand is None:
-        typer.echo(APP_HELP)
-        raise typer.Exit(0)
+        _show_local_help(ctx)
 
 
 @app.command(help="Validate API credentials and save local AGH config.")
@@ -819,8 +865,7 @@ def login(
 def config_main(ctx: typer.Context) -> None:
     """Local AGH CLI configuration commands."""
     if ctx.invoked_subcommand is None:
-        typer.echo(APP_HELP)
-        raise typer.Exit(0)
+        _show_local_help(ctx)
 
 
 @config_app.command("show", help="Show local AGH config with the token masked.")
@@ -1229,8 +1274,7 @@ def _fail_omitted_package_ref_requires_tty() -> None:
 def user_main(ctx: typer.Context) -> None:
     """User administration commands."""
     if ctx.invoked_subcommand is None:
-        typer.echo(APP_HELP)
-        raise typer.Exit(0)
+        _show_local_help(ctx)
 
 
 @user_app.command("list", help="List users visible to the authenticated admin.")
@@ -1297,8 +1341,7 @@ def user_path(user_id: str) -> str:
 def token_main(ctx: typer.Context) -> None:
     """Token lifecycle commands."""
     if ctx.invoked_subcommand is None:
-        typer.echo(APP_HELP)
-        raise typer.Exit(0)
+        _show_local_help(ctx)
 
 
 @token_app.command("rotate", help="Rotate a user's token and print the new token once.")
@@ -1329,8 +1372,7 @@ def token_reset(
 def project_main(ctx: typer.Context) -> None:
     """Project administration commands."""
     if ctx.invoked_subcommand is None:
-        typer.echo(APP_HELP)
-        raise typer.Exit(0)
+        _show_local_help(ctx)
 
 
 @project_app.command("list", help="List projects visible to the authenticated user.")
@@ -1412,8 +1454,7 @@ def project_path(project_id: str) -> str:
 def collection_main(ctx: typer.Context) -> None:
     """Collection administration commands."""
     if ctx.invoked_subcommand is None:
-        typer.echo(APP_HELP)
-        raise typer.Exit(0)
+        _show_local_help(ctx)
 
 
 @collection_app.command(
@@ -1503,8 +1544,7 @@ def collection_path(collection_id: str) -> str:
 def collection_package_main(ctx: typer.Context) -> None:
     """Collection package assignment commands."""
     if ctx.invoked_subcommand is None:
-        typer.echo(APP_HELP)
-        raise typer.Exit(0)
+        _show_local_help(ctx)
 
 
 @collection_package_app.command("list", help="List collection package assignments.")
@@ -1593,8 +1633,7 @@ def collection_package_remove(
 def package_main(ctx: typer.Context) -> None:
     """Package init/publish/list commands."""
     if ctx.invoked_subcommand is None:
-        typer.echo(APP_HELP)
-        raise typer.Exit(0)
+        _show_local_help(ctx)
 
 
 @package_app.command("list", help="List published package versions.")
@@ -1659,8 +1698,7 @@ def package_publish(
 def project_member_main(ctx: typer.Context) -> None:
     """Project developer membership commands."""
     if ctx.invoked_subcommand is None:
-        typer.echo(APP_HELP)
-        raise typer.Exit(0)
+        _show_local_help(ctx)
 
 
 @project_member_app.command("add", help="Add an active user as a project developer.")
@@ -1701,8 +1739,7 @@ def project_member_remove(
 def project_package_main(ctx: typer.Context) -> None:
     """Project package assignment commands."""
     if ctx.invoked_subcommand is None:
-        typer.echo(APP_HELP)
-        raise typer.Exit(0)
+        _show_local_help(ctx)
 
 
 @project_package_app.command("list", help="List project package assignments.")
@@ -1792,6 +1829,9 @@ def project_package_remove(
         project_id=resolved_project_id,
         assignment_id=assignment_id,
     )
+
+
+_use_agh_command_help_text(app)
 
 
 if __name__ == "__main__":

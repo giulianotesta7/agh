@@ -304,12 +304,18 @@ def test_top_level_help_lists_login_config_flags_and_arguments() -> None:
     assert config_no_args.exit_code == 0
     assert config_help.exit_code == 0
     assert config_invalid_command.exit_code == 2
+    # root invocations (no args, --help, unknown command) share the root map
     assert help_result.stdout == no_args.stdout
     assert invalid_command.stdout == no_args.stdout
-    assert config_no_args.stdout == no_args.stdout
-    assert config_help.stdout == no_args.stdout
-    assert config_invalid_command.stdout == no_args.stdout
-    for output in (no_args.stdout, help_result.stdout, config_no_args.stdout):
+    # config shows LOCAL config help, never the root command map
+    for config_output in (
+        config_no_args.stdout,
+        config_help.stdout,
+        config_invalid_command.stdout,
+    ):
+        assert "local AGH CLI configuration" in config_output
+        assert config_output != no_args.stdout
+    for output in (no_args.stdout, help_result.stdout):
         assert "Agent Guidance Hub" in output
         assert "Usage" in output
         assert "Commands" in output

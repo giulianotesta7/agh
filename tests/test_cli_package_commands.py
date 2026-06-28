@@ -129,18 +129,21 @@ def _write_config(tmp_path: Path, url: str) -> dict[str, str]:
     return {"AGH_CONFIG_FILE": str(config_path)}
 
 
-def test_cli_package_unknown_subcommands_exit_2_with_help_first_output() -> None:
+def test_cli_package_unknown_subcommands_exit_2_with_local_help() -> None:
     runner = CliRunner()
-    expected_help = runner.invoke(cli_app, []).stdout
+    root_help = runner.invoke(cli_app, []).stdout
 
-    for args in [
-        ["package", "wrong-command"],
-        ["project", "package", "wrong-command"],
-    ]:
-        result = runner.invoke(cli_app, args)
+    package_unknown = runner.invoke(cli_app, ["package", "wrong-command"])
+    project_package_unknown = runner.invoke(
+        cli_app, ["project", "package", "wrong-command"]
+    )
 
-        assert result.exit_code == 2, args
-        assert result.stdout == expected_help
+    for result in (package_unknown, project_package_unknown):
+        assert result.exit_code == 2
+        assert result.stdout != root_help
+
+    assert "Create, publish, and list guidance packages." in package_unknown.stdout
+    assert "package assignments" in project_package_unknown.stdout.lower()
 
 
 def _package_dir(tmp_path: Path) -> Path:
