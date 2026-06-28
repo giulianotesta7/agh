@@ -1,6 +1,7 @@
 # Apply Progress: CLI UX Redesign
 
-Status: PR1 (Help / Root Infrastructure) complete. Ready for verify.
+Status: PR1 (Help / Root Infrastructure), PR2a (Instance Config), PR2b
+(Auth), and PR2c (Target) complete and verified.
 
 ## Delivery
 
@@ -132,10 +133,10 @@ later slices:
 
 ## Remaining Phases
 
-- [~] Phase 2: Config / Auth / Target — split into stacked slices:
+- [x] Phase 2: Config / Auth / Target — split into stacked slices:
   - [x] 2a instance config (PR2a)
-  - [x] 2b auth (PR2b) — DONE (this branch)
-  - [ ] 2c target (PR2c) — next
+  - [x] 2b auth (PR2b)
+  - [x] 2c target (PR2c) — DONE (this branch)
 - [ ] Phase 3: User / Project / Collection vocabulary (PR3)
 - [ ] Phase 4: Package assignment UX (PR4)
 - [ ] Phase 5: Skill / Link / Pull cleanup (PR5)
@@ -304,5 +305,76 @@ budget; the overage is tests plus governance docs, not logic complexity.
 
 ### Out of scope (deferred)
 
-- `agent` → `target` rename and `agh pull` message (PR2c).
+- README/changelog (PR6).
+
+## Phase 2c: Target (PR2c) — DONE
+
+Stacked on PR2b. The public local selection UX is now `target`.
+
+### What shipped (PR2c)
+
+- **`agent` removed as public command.** The root command map advertises
+  `target`; `agh agent` exits 2 as an unknown command and is not retained as a
+  hidden alias.
+- **Workspace target UX.** `agh target`, `agh target set TARGET`, and
+  `agh target clear` manage `.agh-cache/preferences.toml` while reusing the
+  existing `[agents] target` state shape.
+- **Global target UX.** `agh target --global`, `agh target set TARGET --global`,
+  and `agh target clear --global` manage the existing global-skill defaults
+  file without changing its path or TOML keys.
+- **Pull guidance aligned.** Missing-target guidance now tells users to run
+  `agh target set claude` or `agh target set opencode`; dead
+  `format_agent_preference` was removed.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | RED | GREEN | REFACTOR |
+|------|-----------|-------|-----|-------|----------|
+| 2c.1 | `tests/test_target_command.py`, `tests/test_cli_help_map.py` | Unit (CliRunner) | target/root-map tests fail before command rename | passing | row parser retained |
+| 2c.2 | `agh/cli/main.py` | Unit | covered by 2c.1 | passing | target show helper split |
+| 2c.3 | `tests/test_cli_pull.py` | Unit (CliRunner) | pull guidance expected removed `agent select` | passing | shared guidance string updated |
+
+Test Summary:
+- Focused run (`tests/test_target_command.py`, `tests/test_cli_pull.py`,
+  `tests/test_cli_help_map.py`, `tests/test_integration_smoke.py`): 63 passed.
+- Full suite: 528 passed, 1 skipped.
+- Validation: `git diff --check` clean; `ruff check` clean;
+  `ruff format --check` clean; `pyright agh tests` 0 errors.
+
+### Files Changed (PR2c)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `agh/cli/main.py` | Modified | Replaced public `agent` command with `target`; added workspace/global target show, set, and clear behavior; updated APP_HELP. |
+| `agh/cli/agent_integrations.py` | Modified | Removed dead `format_agent_preference` helper. |
+| `agh/cli/workspace_pull.py` | Modified | Updated missing-target guidance and prompt/error wording to `target`. |
+| `tests/test_agent_command.py` | Deleted | Replaced legacy public `agent` command tests. |
+| `tests/test_target_command.py` | Created | Covers target help, workspace/global set/show/clear, removal of `agent`, and detection behavior. |
+| `tests/test_cli_help_map.py` | Modified | Root-map pins updated from PR2b `agent` to PR2c `target`; `link` remains not-yet-implemented. |
+| `tests/test_cli_pull.py` | Modified | Missing-target guidance now asserts `agh target set ...`. |
+| `tests/test_integration_smoke.py` | Modified | Smoke flow uses `agh target set opencode` before pull. |
+| `openspec/changes/cli-ux-redesign/tasks.md` | Modified | PR2c sub-tasks marked done. |
+| `openspec/changes/cli-ux-redesign/apply-progress.md` | Modified | Recorded PR2c implementation progress, validation evidence, and Judgment Day fixes. |
+
+### Review surface accounting
+
+| Surface | Files | Changed lines | vs 400 budget |
+|---------|-------|---------------|---------------|
+| Runtime code | `agh/cli/agent_integrations.py`, `agh/cli/main.py`, `agh/cli/workspace_pull.py` | 158 (104+ / 54−) | under |
+| Tests | `test_agent_command.py`, `test_target_command.py`, `test_cli_help_map.py`, `test_cli_pull.py`, `test_integration_smoke.py` | 393 (260+ / 133−) | over alone |
+| OpenSpec governance | `tasks.md`, `apply-progress.md` | 88 (80+ / 8−) | n/a (governance) |
+| **Full PR2c slice total** | | **639 (444+ / 195−)** | **over** |
+
+### Size disposition
+
+`size:exception` required. The full PR2c slice is **639 changed lines** vs its
+parent (`feat/cli-ux-auth`), exceeding the 400-line budget. Splitting Phase 2
+into config/auth/target reduced each slice's conceptual scope, but the
+`agent`→`target` rename, workspace/global target UX, pull-guidance alignment,
+and the replacement test suite plus additive OpenSpec governance artifacts
+keep this slice over 400. Runtime code alone stays within budget; the overage
+is tests plus governance docs, not logic complexity.
+
+### Out of scope (deferred)
+
 - README/changelog (PR6).

@@ -224,9 +224,9 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
         assert project_link["project_id"] == project["id"]
         assert project_link["repo_url_normalized"] == "github.com/acme/app"
 
-        select_agent = runner.invoke(cli_app, ["agent", "select", "opencode"], env=env)
-        assert select_agent.exit_code == 0, select_agent.stdout
-        assert "Selected OpenCode for this workspace." in select_agent.stdout
+        set_target = runner.invoke(cli_app, ["target", "set", "opencode"], env=env)
+        assert set_target.exit_code == 0, set_target.stdout
+        assert "Set workspace target to OpenCode (opencode)." in set_target.stdout
 
         dry_run = runner.invoke(cli_app, ["pull", "--dry-run"], env=env)
         assert dry_run.exit_code == 0, dry_run.stdout

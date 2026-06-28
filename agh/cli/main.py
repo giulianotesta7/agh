@@ -22,7 +22,6 @@ from agh.cli.agent_integrations import (
     clear_global_skill_default_agent,
     detect_agent_availability,
     format_agent_availability,
-    format_agent_preference,
     read_agent_preference,
     read_global_skill_default_agent,
     write_agent_preference,
@@ -88,7 +87,7 @@ Commands:
   collection          Manage collections.
     collection package  Manage collection package assignments.
   package             Create, publish, and list guidance packages.
-  agent               Show and manage local agent selection.
+  target              Show and manage local target selection.
   skill               Discover, install, and remove collection-backed global skills.
     skill agent       Manage the default agent for global skills.
   sync                Link this git repository to its matching AGH project.
@@ -252,9 +251,9 @@ package_app = typer.Typer(
     no_args_is_help=False,
     rich_markup_mode=None,
 )
-agent_app = typer.Typer(
+target_app = typer.Typer(
     cls=AghSubcommandGroup,
-    help="Show and manage local agent selection.",
+    help="Show and manage local target selection.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
@@ -282,7 +281,7 @@ app.add_typer(token_app, name="token")
 app.add_typer(project_app, name="project")
 app.add_typer(collection_app, name="collection")
 app.add_typer(package_app, name="package")
-app.add_typer(agent_app, name="agent")
+app.add_typer(target_app, name="target")
 app.add_typer(skill_app, name="skill")
 project_app.add_typer(project_member_app, name="member")
 project_app.add_typer(project_package_app, name="package")
@@ -521,50 +520,117 @@ def _plural(count: int, singular: str) -> str:
     return f"{singular}s"
 
 
-@agent_app.callback(invoke_without_command=True)
-def agent(
+@target_app.callback(invoke_without_command=True)
+def target(
     ctx: typer.Context,
+    global_scope: Annotated[
+        bool,
+        typer.Option(
+            "--global",
+            help="Operate on the global target instead of the workspace target.",
+        ),
+    ] = False,
 ) -> None:
-    """Show detected integrations and the local workspace selection."""
-    if ctx.invoked_subcommand is None:
-        _echo_agent_show()
+    """Show the current target selection (workspace by default, or global)."""
+    if ctx.invoked_subcommand is not None:
+        return
+    _echo_target_show(global_scope=global_scope)
 
 
-@agent_app.command("show", help="Show local agent availability and selection.")
-def agent_show() -> None:
-    """Show detected integrations and the local workspace selection."""
-    _echo_agent_show()
-
-
-@agent_app.command("select", help="Select this workspace's local agent target.")
-def agent_select(
-    target: Annotated[
+@target_app.command("set", help="Set the workspace or global target.")
+def target_set(
+    ctx: typer.Context,
+    target_name: Annotated[
         str,
-        typer.Argument(help="Agent target: claude or opencode."),
+        typer.Argument(help="Target: claude or opencode."),
     ],
+    global_scope: Annotated[
+        bool,
+        typer.Option(
+            "--global",
+            help="Set the global target instead of the workspace target.",
+        ),
+    ] = False,
 ) -> None:
-    """Write .agh-cache/preferences.toml for this developer/workspace."""
-    if target not in SUPPORTED_AGENT_TARGETS:
-        _fail("agent target must be 'claude' or 'opencode'", code=2)
+    """Persist the workspace (.agh-cache/preferences.toml) or global target."""
+    if target_name not in SUPPORTED_AGENT_TARGETS:
+        _fail("target must be 'claude' or 'opencode'", code=2)
+    label = AGENT_LABELS[target_name]
+    effective_global_scope = _target_global_scope(ctx, global_scope=global_scope)
+    if effective_global_scope:
+        try:
+            write_global_skill_default_agent(target_name)
+        except AgentPreferenceError as exc:
+            _fail(str(exc), code=exc.code)
+        typer.echo(f"Set global target to {label} ({target_name}).")
+        return
     try:
-        preference = write_agent_preference(target)
+        preference = write_agent_preference(target_name)
     except AgentPreferenceError as exc:
         _fail(str(exc), code=exc.code)
-    typer.echo(f"Selected {AGENT_LABELS[target]} for this workspace.")
+    typer.echo(f"Set workspace target to {label} ({target_name}).")
     typer.echo(f"Preferences: {_format_cli_path(preference.path)}")
 
 
-@agent_app.command("clear", help="Clear this workspace's local agent selection.")
-def agent_clear() -> None:
-    """Remove .agh-cache/preferences.toml if present."""
+@target_app.command("clear", help="Clear the workspace or global target.")
+def target_clear(
+    ctx: typer.Context,
+    global_scope: Annotated[
+        bool,
+        typer.Option(
+            "--global",
+            help="Clear the global target instead of the workspace target.",
+        ),
+    ] = False,
+) -> None:
+    """Remove the workspace or global target selection if present."""
+    effective_global_scope = _target_global_scope(ctx, global_scope=global_scope)
+    if effective_global_scope:
+        try:
+            removed = clear_global_skill_default_agent()
+        except AgentPreferenceError as exc:
+            _fail(str(exc), code=exc.code)
+        if removed:
+            typer.echo("Cleared global target.")
+        else:
+            typer.echo("No global target was set.")
+        return
     try:
         removed = clear_agent_preference()
     except AgentPreferenceError as exc:
         _fail(str(exc), code=exc.code)
     if removed:
-        typer.echo("Cleared local agent selection.")
+        typer.echo("Cleared workspace target.")
     else:
-        typer.echo("No local agent selection was set.")
+        typer.echo("No workspace target was set.")
+
+
+def _target_global_scope(ctx: typer.Context, *, global_scope: bool) -> bool:
+    """Return whether target commands should use the global target scope."""
+    parent_params = ctx.parent.params if ctx.parent is not None else {}
+    return global_scope or bool(parent_params.get("global_scope"))
+
+
+def _echo_target_show(*, global_scope: bool) -> None:
+    if global_scope:
+        try:
+            default = read_global_skill_default_agent()
+        except AgentPreferenceError as exc:
+            _fail(str(exc), code=exc.code)
+        if default is None:
+            typer.echo("Global target: not set")
+        else:
+            typer.echo(f"Global target: {AGENT_LABELS[default]} ({default}).")
+        return
+    try:
+        preference = read_agent_preference()
+    except AgentPreferenceError as exc:
+        _fail(str(exc), code=exc.code)
+    if preference is None:
+        typer.echo("Workspace target: not set")
+    else:
+        typer.echo(f"Workspace target: {preference.label} ({preference.target}).")
+    typer.echo(format_agent_availability(detect_agent_availability()))
 
 
 def _resolve_global_skill_agent(agent_option: str | None) -> str:
@@ -773,15 +839,6 @@ def skill_agent_clear() -> None:
         typer.echo("Cleared default global skill agent.")
     else:
         typer.echo("No default global skill agent was set.")
-
-
-def _echo_agent_show() -> None:
-    try:
-        preference = read_agent_preference()
-    except AgentPreferenceError as exc:
-        _fail(str(exc), code=exc.code)
-    typer.echo(format_agent_preference(preference))
-    typer.echo(format_agent_availability(detect_agent_availability()))
 
 
 def _format_cli_path(path: Path) -> str:
