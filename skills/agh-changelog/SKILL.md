@@ -29,6 +29,9 @@ release-note coverage.
    changes for someone installing, upgrading, operating, or scripting AGH.
 2. **Create one Towncrier fragment per user-facing work unit.** Keep tests,
    docs, and the fragment with the behavior they describe.
+   Do not defer fragments to a later aggregate/final PR when the current PR
+   changes user-visible behavior; AGH CI runs `towncrier check` on every PR
+   unless the documented `no-changelog-needed` label is present.
 3. **Do not map commit types blindly.** A `feat` or `fix` usually needs a
    fragment; `build`, `ci`, `docs`, or `refactor` need one only when the result
    is observable by AGH users or operators.
@@ -45,6 +48,9 @@ release-note coverage.
    never invent a replacement label.
 9. **Generated technical artifacts stay in English.** Changelog fragments,
    release notes, filenames, and validation commands are English by default.
+10. **SDD/chained PR slices still need fragments per user-facing slice.** A
+   later docs/changelog cleanup slice may consolidate README or release-note
+   prose, but it does not satisfy CI for earlier behavior-changing PRs.
 
 ## Fragment Types
 
@@ -88,6 +94,9 @@ use/request the documented `no-changelog-needed` label when CI needs a skip.
    language unless they are user-visible.
 7. Validate with `uv run towncrier check` when the branch should contain a
    fragment, and `git diff --check` for whitespace sanity.
+8. For SDD or stacked/chained work, repeat this decision for each PR slice. If
+   the slice is user-facing, add the fragment in that slice; if it is not,
+   document why `no-changelog-needed` applies.
 
 ## Examples
 
