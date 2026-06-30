@@ -26,6 +26,6 @@ def resolve_project_ref(project_ref: str, api_request: ApiRequest) -> str:
     project_id = payload.get("id") if isinstance(payload, dict) else None
     if not isinstance(project_id, str) or not project_id:
         raise ProjectRefResolutionError(
-            "project resolver response did not include a project id"
+            "PROJECT_REF resolver response did not include a project id"
         )
     return project_id

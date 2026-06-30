@@ -1031,6 +1031,40 @@ def deactivate_project(
         connection.close()
 
 
+@router.get("/{project_id}/members")
+def list_project_members(
+    project_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, list[dict[str, str | bool]]]:
+    _require_project_admin(current_user)
+    connection = _connect(request)
+    try:
+        _get_active_project(connection, project_id)
+        rows = connection.execute(
+            """
+            SELECT users.id, users.email, users.active
+            FROM project_members
+            JOIN users ON users.id = project_members.user_id
+            WHERE project_members.project_id = ?
+            ORDER BY users.email ASC, users.id ASC
+            """,
+            (project_id,),
+        ).fetchall()
+        return {
+            "members": [
+                {
+                    "id": row["id"],
+                    "email": row["email"],
+                    "active": bool(row["active"]),
+                }
+                for row in rows
+            ]
+        }
+    finally:
+        connection.close()
+
+
 @router.put("/{project_id}/members/{user_id}")
 def add_project_member(
     project_id: str,

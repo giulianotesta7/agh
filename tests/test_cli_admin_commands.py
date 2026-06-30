@@ -43,7 +43,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
                 "body": body,
             }
         )
-        status, payload = _response_for(self.command, self.path)
+        status, payload = _response_for(self.command, self.path, body)
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -53,7 +53,9 @@ class _ApiHandler(BaseHTTPRequestHandler):
         return
 
 
-def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
+def _response_for(
+    method: str, path: str, body: dict[str, Any] | None = None
+) -> tuple[int, dict[str, Any]]:
     if (method, path) == ("POST", "/api/v1/users/missing-token"):
         return 200, {"user": {"id": "usr_missing", "email": "missing@example.com"}}
     if (method, path) == ("POST", "/api/v1/users/usr_2/token:missing"):
@@ -95,7 +97,7 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
             "id": "usr_2",
             "email": "renamed@example.com",
             "role": "member",
-            "active": False,
+            "active": bool(body.get("active")) if body and "active" in body else False,
         }
     if (method, path) == ("DELETE", "/api/v1/users/usr_2"):
         return 200, {
@@ -142,7 +144,7 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
             "name": "API2",
             "repo_url": "git@github.com:org/api2.git",
             "repo_url_normalized": "github.com/org/api2",
-            "active": False,
+            "active": bool(body.get("active")) if body and "active" in body else False,
         }
     if (method, path) == ("DELETE", "/api/v1/projects/prj_2"):
         return 200, {
@@ -156,6 +158,10 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
         return 200, {"project_id": "prj_2", "user_id": "usr_2"}
     if (method, path) == ("DELETE", "/api/v1/projects/prj_2/members/usr_2"):
         return 200, {"project_id": "prj_2", "user_id": "usr_2", "removed": True}
+    if (method, path) == ("GET", "/api/v1/projects/prj_2/members"):
+        return 200, {
+            "members": [{"id": "usr_2", "email": "member@example.com", "active": True}]
+        }
     if (method, path) == ("GET", "/api/v1/collections"):
         return 200, {
             "collections": [
@@ -186,7 +192,7 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
             "id": "col_0000000000000002",
             "name": "Ops Skills2",
             "description": "ops2",
-            "active": False,
+            "active": bool(body.get("active")) if body and "active" in body else False,
         }
     if (method, path) == ("DELETE", "/api/v1/collections/col_0000000000000002"):
         return 200, {
@@ -290,7 +296,7 @@ def test_cli_admin_unknown_subcommands_exit_2_with_local_help() -> None:
 
     cases = {
         ("user", "wrong-command"): "Manage AGH users.",
-        ("token", "wrong-command"): "Rotate or reset user API tokens.",
+        ("user", "token", "wrong-command"): "Rotate user API tokens.",
         ("project", "wrong-command"): "Manage AGH projects.",
         ("collection", "wrong-command"): "Manage AGH collections.",
     }
@@ -320,26 +326,26 @@ def test_cli_user_token_project_commands_map_to_api_and_mask_stored_token(
             ["user", "create", "new@example.com", "--role", "member"],
             "issued-user-token",
         ),
-        (["user", "show", "usr_2"], "renamed@example.com"),
+        (["user", "describe", "usr_2"], "renamed@example.com"),
         (
             ["user", "update", "usr_2", "--email", "renamed@example.com", "--inactive"],
             "renamed@example.com",
         ),
-        (["user", "delete", "usr_2"], "usr_2"),
-        (["token", "rotate", "usr_2"], "rotated-token"),
-        (["token", "reset", "usr_2"], "reset-token"),
+        (["user", "deactivate", "usr_2"], "usr_2"),
+        (["user", "activate", "usr_2"], "Status: active"),
+        (["user", "token", "rotate", "usr_2"], "rotated-token"),
         (["project", "list"], "github.com/org/app"),
         (
             [
                 "project",
                 "create",
                 "API",
-                "--repo-url",
+                "--git-url",
                 "https://github.com/org/api.git",
             ],
             "github.com/org/api",
         ),
-        (["project", "get", "prj_2"], "prj_2"),
+        (["project", "describe", "prj_2"], "prj_2"),
         (
             [
                 "project",
@@ -347,15 +353,17 @@ def test_cli_user_token_project_commands_map_to_api_and_mask_stored_token(
                 "prj_2",
                 "--name",
                 "API2",
-                "--repo-url",
+                "--git-url",
                 "git@github.com:org/api2.git",
                 "--inactive",
             ],
             "github.com/org/api2",
         ),
         (["project", "member", "add", "prj_2", "usr_2"], "Added user usr_2"),
+        (["project", "member", "list", "prj_2"], "member@example.com"),
         (["project", "member", "remove", "prj_2", "usr_2"], "Removed user usr_2"),
-        (["project", "delete", "prj_2"], "prj_2"),
+        (["project", "deactivate", "prj_2"], "prj_2"),
+        (["project", "activate", "prj_2"], "Status: active"),
     ]
     try:
         for args, expected_output in commands:
@@ -373,14 +381,17 @@ def test_cli_user_token_project_commands_map_to_api_and_mask_stored_token(
     assert ("POST", "/api/v1/users") in {
         (request["method"], request["path"]) for request in handler.requests
     }
-    assert {
-        (request["method"], request["path"]): request["body"]
+    project_patch_bodies = [
+        request["body"]
         for request in handler.requests
-    }[("PATCH", "/api/v1/projects/prj_2")] == {
+        if (request["method"], request["path"]) == ("PATCH", "/api/v1/projects/prj_2")
+    ]
+    assert {
         "name": "API2",
         "repo_url": "git@github.com:org/api2.git",
         "active": False,
-    }
+    } in project_patch_bodies
+    assert {"active": True} in project_patch_bodies
 
 
 def test_cli_user_token_mutations_use_human_output_and_preserve_one_time_tokens(
@@ -400,9 +411,9 @@ def test_cli_user_token_mutations_use_human_output_and_preserve_one_time_tokens(
             ["user", "update", "usr_2", "--email", "renamed@example.com", "--inactive"],
             env=env,
         )
-        deactivated = runner.invoke(cli_app, ["user", "delete", "usr_2"], env=env)
-        rotated = runner.invoke(cli_app, ["token", "rotate", "usr_2"], env=env)
-        reset = runner.invoke(cli_app, ["token", "reset", "usr_2"], env=env)
+        deactivated = runner.invoke(cli_app, ["user", "deactivate", "usr_2"], env=env)
+        activated = runner.invoke(cli_app, ["user", "activate", "usr_2"], env=env)
+        rotated = runner.invoke(cli_app, ["user", "token", "rotate", "usr_2"], env=env)
     finally:
         server.shutdown()
 
@@ -424,17 +435,15 @@ def test_cli_user_token_mutations_use_human_output_and_preserve_one_time_tokens(
     assert deactivated.exit_code == 0, deactivated.stdout
     assert deactivated.stdout == "Deactivated user renamed@example.com (usr_2).\n"
 
+    assert activated.exit_code == 0, activated.stdout
+    assert activated.stdout == (
+        "Activated user renamed@example.com (usr_2).\nRole: member\nStatus: active\n"
+    )
+
     assert rotated.exit_code == 0, rotated.stdout
     assert rotated.stdout == (
         "Rotated token for user usr_2.\n"
         "Token: rotated-token\n"
-        "Store this token now. AGH will not show it again.\n"
-    )
-
-    assert reset.exit_code == 0, reset.stdout
-    assert reset.stdout == (
-        "Reset token for user usr_2.\n"
-        "Token: reset-token\n"
         "Store this token now. AGH will not show it again.\n"
     )
 
@@ -443,15 +452,14 @@ def test_cli_user_token_mutations_use_human_output_and_preserve_one_time_tokens(
             created.stdout,
             updated.stdout,
             deactivated.stdout,
+            activated.stdout,
             rotated.stdout,
-            reset.stdout,
         ]
     )
     assert "stored-secret-token" not in combined
     assert "token_hash" not in combined
     assert "issued-hash-secret" not in combined
     assert "rotated-hash-secret" not in combined
-    assert "reset-hash-secret" not in combined
     for json_field in ['"user"', '"token"', '"email"', '"role"', '"active"']:
         assert json_field not in combined
 
@@ -462,7 +470,6 @@ def test_cli_token_flows_fail_if_plaintext_token_is_missing(monkeypatch) -> None
     responses = {
         "/users": {"user": {"id": "usr_missing", "email": "missing@example.com"}},
         "/users/usr_2/token:rotate": {},
-        "/users/usr_2/token:reset": {"token": ""},
     }
     monkeypatch.setattr(
         cli_main,
@@ -472,10 +479,9 @@ def test_cli_token_flows_fail_if_plaintext_token_is_missing(monkeypatch) -> None
     runner = CliRunner()
 
     created = runner.invoke(cli_app, ["user", "create", "missing@example.com"])
-    rotated = runner.invoke(cli_app, ["token", "rotate", "usr_2"])
-    reset = runner.invoke(cli_app, ["token", "reset", "usr_2"])
+    rotated = runner.invoke(cli_app, ["user", "token", "rotate", "usr_2"])
 
-    for result in [created, rotated, reset]:
+    for result in [created, rotated]:
         assert result.exit_code == 1, result.stdout
         assert (
             "server response did not include the one-time plaintext token"
@@ -524,7 +530,7 @@ def test_cli_project_mutation_commands_use_human_output(tmp_path: Path) -> None:
                 "project",
                 "create",
                 "API",
-                "--repo-url",
+                "--git-url",
                 "https://github.com/org/api.git",
             ],
             env=env,
@@ -537,20 +543,26 @@ def test_cli_project_mutation_commands_use_human_output(tmp_path: Path) -> None:
                 "prj_2",
                 "--name",
                 "API2",
-                "--repo-url",
+                "--git-url",
                 "git@github.com:org/api2.git",
                 "--inactive",
             ],
             env=env,
         )
-        deactivated = runner.invoke(cli_app, ["project", "delete", "prj_2"], env=env)
+        deactivated = runner.invoke(
+            cli_app, ["project", "deactivate", "prj_2"], env=env
+        )
+        activated = runner.invoke(cli_app, ["project", "activate", "prj_2"], env=env)
         member_added = runner.invoke(
             cli_app, ["project", "member", "add", "prj_2", "usr_2"], env=env
+        )
+        member_listed = runner.invoke(
+            cli_app, ["project", "member", "list", "prj_2"], env=env
         )
         member_removed = runner.invoke(
             cli_app, ["project", "member", "remove", "prj_2", "usr_2"], env=env
         )
-        project_get = runner.invoke(cli_app, ["project", "get", "prj_2"], env=env)
+        project_get = runner.invoke(cli_app, ["project", "describe", "prj_2"], env=env)
     finally:
         server.shutdown()
 
@@ -568,8 +580,18 @@ def test_cli_project_mutation_commands_use_human_output(tmp_path: Path) -> None:
     assert deactivated.exit_code == 0, deactivated.stdout
     assert deactivated.stdout == "Deactivated project API2 (prj_2).\n"
 
+    assert activated.exit_code == 0, activated.stdout
+    assert activated.stdout == (
+        "Activated project API2 (prj_2).\nRepo: github.com/org/api2\nStatus: active\n"
+    )
+
     assert member_added.exit_code == 0, member_added.stdout
     assert member_added.stdout == "Added user usr_2 to project prj_2.\n"
+
+    assert member_listed.exit_code == 0, member_listed.stdout
+    member_lines = member_listed.stdout.splitlines()
+    assert member_lines[0].split() == ["USER_ID", "EMAIL", "STATUS"]
+    assert member_lines[1].split() == ["usr_2", "member@example.com", "active"]
 
     assert member_removed.exit_code == 0, member_removed.stdout
     assert member_removed.stdout == "Removed user usr_2 from project prj_2.\n"
@@ -600,11 +622,11 @@ def test_cli_project_refs_resolve_names_and_keep_numeric_refs_as_ids(
 
     monkeypatch.setattr(cli_main, "_api_request", fake_api)
     runner = CliRunner()
-    by_name = runner.invoke(cli_app, ["project", "get", "API"])
+    by_name = runner.invoke(cli_app, ["project", "describe", "API"])
     member_by_name = runner.invoke(
         cli_app, ["project", "member", "add", "API", "usr_2"]
     )
-    numeric = runner.invoke(cli_app, ["project", "get", "12345"])
+    numeric = runner.invoke(cli_app, ["project", "describe", "12345"])
 
     assert by_name.exit_code == 0, by_name.stdout
     assert "Project ID: prj_2" in by_name.stdout
@@ -642,9 +664,11 @@ def test_cli_user_refs_resolve_emails_and_keep_user_ids(monkeypatch) -> None:
 
     monkeypatch.setattr(cli_main, "_api_request", fake_api)
     runner = CliRunner()
-    by_email = runner.invoke(cli_app, ["user", "show", "member@example.com"])
-    by_id = runner.invoke(cli_app, ["user", "show", "usr_2"])
-    token_by_email = runner.invoke(cli_app, ["token", "rotate", "member@example.com"])
+    by_email = runner.invoke(cli_app, ["user", "describe", "member@example.com"])
+    by_id = runner.invoke(cli_app, ["user", "describe", "usr_2"])
+    token_by_email = runner.invoke(
+        cli_app, ["user", "token", "rotate", "member@example.com"]
+    )
     member_by_email = runner.invoke(
         cli_app, ["project", "member", "add", "prj_2", "member@example.com"]
     )
@@ -681,7 +705,7 @@ def test_cli_user_refs_prefer_valid_usr_prefixed_email_over_id(monkeypatch) -> N
 
     monkeypatch.setattr(cli_main, "_api_request", fake_api)
 
-    result = CliRunner().invoke(cli_app, ["user", "show", "usr_jane@example.com"])
+    result = CliRunner().invoke(cli_app, ["user", "describe", "usr_jane@example.com"])
 
     assert result.exit_code == 0, result.stdout
     assert "User ID: usr_2" in result.stdout
@@ -709,8 +733,6 @@ def test_cli_user_email_refs_cover_mutation_token_and_member_remove(
                 "role": "member",
                 "active": True,
             }
-        if path == "/users/usr_2/token:reset":
-            return {"token": "reset-token"}
         if path == "/projects/prj_2/members/usr_2":
             return {"project_id": "prj_2", "user_id": "usr_2"}
         raise AssertionError(path)
@@ -721,8 +743,7 @@ def test_cli_user_email_refs_cover_mutation_token_and_member_remove(
         cli_app,
         ["user", "update", "member@example.com", "--email", "renamed@example.com"],
     )
-    deleted = runner.invoke(cli_app, ["user", "delete", "member@example.com"])
-    reset = runner.invoke(cli_app, ["token", "reset", "member@example.com"])
+    deleted = runner.invoke(cli_app, ["user", "deactivate", "member@example.com"])
     member_removed = runner.invoke(
         cli_app, ["project", "member", "remove", "prj_2", "member@example.com"]
     )
@@ -733,15 +754,12 @@ def test_cli_user_email_refs_cover_mutation_token_and_member_remove(
     )
     assert deleted.exit_code == 0, deleted.stdout
     assert deleted.stdout == "Deactivated user renamed@example.com (usr_2).\n"
-    assert reset.exit_code == 0, reset.stdout
-    assert reset.stdout.startswith("Reset token for user usr_2.")
     assert member_removed.exit_code == 0, member_removed.stdout
     assert member_removed.stdout == "Removed user usr_2 from project prj_2.\n"
 
-    assert calls.count(("GET", "/users/by-email/member%40example.com")) == 4
+    assert calls.count(("GET", "/users/by-email/member%40example.com")) == 3
     assert ("PATCH", "/users/usr_2") in calls
     assert ("DELETE", "/users/usr_2") in calls
-    assert ("POST", "/users/usr_2/token:reset") in calls
     assert ("DELETE", "/projects/prj_2/members/usr_2") in calls
 
 
@@ -755,10 +773,10 @@ def test_cli_user_ref_validation_rejects_malformed_email_without_api_call(
         cli_main, "_api_request", lambda *args, **_kwargs: calls.append(args)
     )
 
-    result = CliRunner().invoke(cli_app, ["user", "show", "not-an-email"])
+    result = CliRunner().invoke(cli_app, ["user", "describe", "not-an-email"])
 
     assert result.exit_code == 2
-    assert "user ref must be a user id" in result.stdout
+    assert "USER_REF must be a user id" in result.stdout
     assert calls == []
 
 
@@ -774,7 +792,7 @@ def test_cli_project_name_validation_rejects_digit_only_names_without_api_call(
     runner = CliRunner()
     created = runner.invoke(
         cli_app,
-        ["project", "create", "12345", "--repo-url", "https://github.com/org/x.git"],
+        ["project", "create", "12345", "--git-url", "https://github.com/org/x.git"],
     )
     updated = runner.invoke(cli_app, ["project", "update", "prj_2", "--name", "12345"])
 
@@ -791,6 +809,7 @@ def test_cli_read_commands_show_empty_messages(monkeypatch) -> None:
     responses = {
         "/users": {"users": []},
         "/projects": {"projects": []},
+        "/projects/prj_2/members": {"members": []},
     }
 
     monkeypatch.setattr(
@@ -802,11 +821,14 @@ def test_cli_read_commands_show_empty_messages(monkeypatch) -> None:
 
     users = runner.invoke(cli_app, ["user", "list"])
     projects = runner.invoke(cli_app, ["project", "list"])
+    project_members = runner.invoke(cli_app, ["project", "member", "list", "prj_2"])
 
     assert users.exit_code == 0, users.stdout
     assert users.stdout == "No users found.\n"
     assert projects.exit_code == 0, projects.stdout
     assert projects.stdout == "No projects found.\n"
+    assert project_members.exit_code == 0, project_members.stdout
+    assert project_members.stdout == "No project members found.\n"
 
 
 def test_cli_admin_commands_convert_auth_failures_to_exit_code_4(
@@ -819,7 +841,7 @@ def test_cli_admin_commands_convert_auth_failures_to_exit_code_4(
     try:
         result = CliRunner().invoke(
             cli_app,
-            ["user", "delete", "usr_forbidden"],
+            ["user", "deactivate", "usr_forbidden"],
             env=_write_config(tmp_path, url),
         )
     finally:
@@ -840,7 +862,7 @@ def test_cli_admin_commands_redact_token_fields_from_error_payloads(
     try:
         result = CliRunner().invoke(
             cli_app,
-            ["project", "get", "prj_leaky"],
+            ["project", "describe", "prj_leaky"],
             env=_write_config(tmp_path, url),
         )
     finally:
@@ -866,7 +888,7 @@ def test_cli_collection_commands_map_to_api_and_mask_stored_token(
             ["collection", "create", "Ops Skills", "--description", "ops"],
             "col_0000000000000002",
         ),
-        (["collection", "get", "col_0000000000000002"], "Ops Skills"),
+        (["collection", "describe", "col_0000000000000002"], "Ops Skills"),
         (
             [
                 "collection",
@@ -880,7 +902,8 @@ def test_cli_collection_commands_map_to_api_and_mask_stored_token(
             ],
             "Ops Skills2",
         ),
-        (["collection", "delete", "col_0000000000000002"], "col_0000000000000002"),
+        (["collection", "deactivate", "col_0000000000000002"], "col_0000000000000002"),
+        (["collection", "activate", "col_0000000000000002"], "Status: active"),
     ]
     try:
         for args, expected_output in commands:
@@ -903,11 +926,18 @@ def test_cli_collection_commands_map_to_api_and_mask_stored_token(
         "name": "Ops Skills",
         "description": "ops",
     }
-    assert observed[("PATCH", "/api/v1/collections/col_0000000000000002")] == {
+    collection_patch_bodies = [
+        request["body"]
+        for request in handler.requests
+        if (request["method"], request["path"])
+        == ("PATCH", "/api/v1/collections/col_0000000000000002")
+    ]
+    assert {
         "name": "Ops Skills2",
         "description": "ops2",
         "active": False,
-    }
+    } in collection_patch_bodies
+    assert {"active": True} in collection_patch_bodies
 
 
 def test_cli_collection_read_and_mutation_commands_use_human_output(
@@ -924,7 +954,7 @@ def test_cli_collection_read_and_mutation_commands_use_human_output(
             env=env,
         )
         fetched = runner.invoke(
-            cli_app, ["collection", "get", "col_0000000000000002"], env=env
+            cli_app, ["collection", "describe", "col_0000000000000002"], env=env
         )
         updated = runner.invoke(
             cli_app,
@@ -941,7 +971,10 @@ def test_cli_collection_read_and_mutation_commands_use_human_output(
             env=env,
         )
         deactivated = runner.invoke(
-            cli_app, ["collection", "delete", "col_0000000000000002"], env=env
+            cli_app, ["collection", "deactivate", "col_0000000000000002"], env=env
+        )
+        activated = runner.invoke(
+            cli_app, ["collection", "activate", "col_0000000000000002"], env=env
         )
     finally:
         server.shutdown()
@@ -989,6 +1022,11 @@ def test_cli_collection_read_and_mutation_commands_use_human_output(
         == "Deactivated collection Ops Skills2 (col_0000000000000002).\n"
     )
 
+    assert activated.exit_code == 0, activated.stdout
+    assert activated.stdout == (
+        "Activated collection Ops Skills2 (col_0000000000000002).\nStatus: active\n"
+    )
+
 
 def test_cli_collection_list_empty_message(monkeypatch) -> None:
     from agh.cli import main as cli_main
@@ -1034,9 +1072,9 @@ def test_cli_collection_refs_resolve_names_and_pass_through_col_ids(
 
     monkeypatch.setattr(cli_main, "_api_request", fake_api)
     runner = CliRunner()
-    by_name = runner.invoke(cli_app, ["collection", "get", "Team Skills"])
-    col_prefixed_name = runner.invoke(cli_app, ["collection", "get", "col_team"])
-    col_id = runner.invoke(cli_app, ["collection", "get", "col_0000000000000123"])
+    by_name = runner.invoke(cli_app, ["collection", "describe", "Team Skills"])
+    col_prefixed_name = runner.invoke(cli_app, ["collection", "describe", "col_team"])
+    col_id = runner.invoke(cli_app, ["collection", "describe", "col_0000000000000123"])
     update_by_name = runner.invoke(
         cli_app,
         ["collection", "update", "Team Skills", "--description", "refreshed"],
@@ -1087,8 +1125,11 @@ def test_cli_admin_help_preserves_main_manual_and_command_help() -> None:
 
     assert user_group_help.exit_code == 0
     assert "create" in user_group_help.stdout
-    assert "show" in user_group_help.stdout
-    assert "delete" in user_group_help.stdout
+    assert "describe" in user_group_help.stdout
+    assert "activate" in user_group_help.stdout
+    assert "deactivate" in user_group_help.stdout
+    assert "show" not in user_group_help.stdout
+    assert "delete" not in user_group_help.stdout
     assert project_group_help.exit_code == 0
     assert "member" in project_group_help.stdout
     assert "create" in project_group_help.stdout
@@ -1099,16 +1140,19 @@ def test_cli_admin_help_preserves_main_manual_and_command_help() -> None:
     assert "new@example.com" not in user_help.stdout
     assert "--role" in user_help.stdout
     assert project_help.exit_code == 0
-    assert "--repo-url" in project_help.stdout
+    assert "--git-url" in project_help.stdout
     assert member_help.exit_code == 0
-    assert "PROJECT_ID" in member_help.stdout or "project_id" in member_help.stdout
-    assert "USER_ID" in member_help.stdout or "user_id" in member_help.stdout
+    assert "PROJECT_REF" in member_help.stdout or "project_ref" in member_help.stdout
+    assert "USER_REF" in member_help.stdout or "user_ref" in member_help.stdout
     collection_group_help = runner.invoke(cli_app, ["collection", "--help"])
     collection_help = runner.invoke(cli_app, ["collection", "create", "--help"])
     assert collection_group_help.exit_code == 0
     assert "create" in collection_group_help.stdout
-    assert "get" in collection_group_help.stdout
-    assert "delete" in collection_group_help.stdout
+    assert "describe" in collection_group_help.stdout
+    assert "activate" in collection_group_help.stdout
+    assert "deactivate" in collection_group_help.stdout
+    assert "get" not in collection_group_help.stdout
+    assert "delete" not in collection_group_help.stdout
     assert collection_help.exit_code == 0
     assert "--description" in collection_help.stdout
 
@@ -1127,7 +1171,7 @@ def test_cli_main_help_lists_collection_command() -> None:
 def test_cli_collection_target_arguments_use_collection_ref_metavar() -> None:
     """R2: targeted collection args accept id or name, so the metavar is COLLECTION_REF."""
     runner = CliRunner()
-    for subcommand in ["get", "update", "delete"]:
+    for subcommand in ["describe", "update", "activate", "deactivate"]:
         help_output = runner.invoke(cli_app, ["collection", subcommand, "--help"])
         assert help_output.exit_code == 0, help_output.stdout
         usage_line = help_output.stdout.splitlines()[0]
@@ -1135,8 +1179,8 @@ def test_cli_collection_target_arguments_use_collection_ref_metavar() -> None:
         assert "COLLECTION_ID" not in usage_line, (subcommand, usage_line)
 
 
-def test_cli_collection_delete_resolves_name_before_delete(monkeypatch) -> None:
-    """R3: `collection delete <name>` resolves to a col_ id before issuing DELETE."""
+def test_cli_collection_deactivate_resolves_name_before_delete(monkeypatch) -> None:
+    """R3: `collection deactivate <name>` resolves to a col_ id before issuing DELETE."""
     from agh.cli import main as cli_main
 
     calls: list[tuple[str, str]] = []
@@ -1155,7 +1199,7 @@ def test_cli_collection_delete_resolves_name_before_delete(monkeypatch) -> None:
         raise AssertionError((method, path))
 
     monkeypatch.setattr(cli_main, "_api_request", fake_api)
-    result = CliRunner().invoke(cli_app, ["collection", "delete", "Team Skills"])
+    result = CliRunner().invoke(cli_app, ["collection", "deactivate", "Team Skills"])
 
     assert result.exit_code == 0, result.stdout
     assert (
@@ -1182,11 +1226,12 @@ def test_cli_collection_resolver_failure_exits_with_message(monkeypatch) -> None
         raise AssertionError((method, path))
 
     monkeypatch.setattr(cli_main, "_api_request", fake_api)
-    result = CliRunner().invoke(cli_app, ["collection", "get", "Ghost"])
+    result = CliRunner().invoke(cli_app, ["collection", "describe", "Ghost"])
 
     assert result.exit_code == 1, result.stdout
     assert (
-        "collection resolver response did not include a collection id" in result.stdout
+        "COLLECTION_REF resolver response did not include a collection id"
+        in result.stdout
     )
     # No follow-up fetch against an unresolved id should occur.
     assert not any(

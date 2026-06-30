@@ -18,17 +18,17 @@ from typer.testing import CliRunner
 
 from agh.cli.main import app as cli_app
 
-# PR2c root command map. The target slice renames the local selection UX from
-# `agent` to `target`. Legacy names still awaiting their
-# own slices (sync, token, show/get/delete verbs, nested project/collection
-# package) are retained until those slices land. This pins what PR2c advertises.
-PR2C_TOP_LEVEL_COMMANDS = [
+# PR3 root command map. The resource vocabulary slice renames the resource
+# verbs to describe/activate/deactivate and nests token rotation under
+# `user token`. The package assignment UX unification (PR4) has not landed yet,
+# so the legacy `project package` / `collection package` subgroups stay. This
+# pins what PR3 advertises.
+PR3_TOP_LEVEL_COMMANDS = [
     "config",
     "login",
     "whoami",
     "logout",
     "user",
-    "token",
     "project",
     "collection",
     "package",
@@ -37,15 +37,16 @@ PR2C_TOP_LEVEL_COMMANDS = [
     "sync",
     "pull",
 ]
-PR2C_NESTED_COMMANDS = [
+PR3_NESTED_COMMANDS = [
     "config set",
     "config clear",
+    "user token",
     "project member",
     "project package",
     "collection package",
     "skill agent",
 ]
-# Names promised by the final redesign that are NOT backed by any PR2c command
+# Names promised by the final redesign that are NOT backed by any PR3 command
 # yet, and therefore MUST NOT be advertised from root help.
 NOT_YET_IMPLEMENTED_COMMANDS = ["link"]
 
@@ -228,8 +229,8 @@ def test_root_map_pins_intended_current_command_rows() -> None:
     runner = CliRunner()
     top_level, nested = _root_command_rows(_root_help(runner))
 
-    assert top_level == PR2C_TOP_LEVEL_COMMANDS
-    assert nested == PR2C_NESTED_COMMANDS
+    assert top_level == PR3_TOP_LEVEL_COMMANDS
+    assert nested == PR3_NESTED_COMMANDS
 
 
 def test_root_help_does_not_advertise_not_yet_implemented_commands() -> None:
@@ -247,6 +248,57 @@ def test_root_help_does_not_advertise_not_yet_implemented_commands() -> None:
         assert name not in advertised, name
 
 
+def test_resource_help_uses_phase3_vocabulary_and_ref_metavars() -> None:
+    """PR3 resources expose canonical verbs and honest *_REF arguments."""
+    runner = CliRunner()
+
+    user_help = runner.invoke(cli_app, ["user", "--help"])
+    project_help = runner.invoke(cli_app, ["project", "--help"])
+    collection_help = runner.invoke(cli_app, ["collection", "--help"])
+    user_token_help = runner.invoke(cli_app, ["user", "token", "rotate", "--help"])
+
+    assert user_help.exit_code == 0, user_help.stdout
+    for verb in ["list", "create", "describe", "update", "activate", "deactivate"]:
+        assert verb in user_help.stdout
+    assert "token" in user_help.stdout
+    assert "show" not in user_help.stdout
+    assert "delete" not in user_help.stdout
+
+    assert project_help.exit_code == 0, project_help.stdout
+    for verb in ["list", "create", "describe", "update", "activate", "deactivate"]:
+        assert verb in project_help.stdout
+    assert "member" in project_help.stdout
+    assert "get" not in project_help.stdout
+    assert "delete" not in project_help.stdout
+
+    assert collection_help.exit_code == 0, collection_help.stdout
+    for verb in ["list", "create", "describe", "update", "activate", "deactivate"]:
+        assert verb in collection_help.stdout
+    assert "get" not in collection_help.stdout
+    assert "delete" not in collection_help.stdout
+
+    assert user_token_help.exit_code == 0, user_token_help.stdout
+    assert "USER_REF" in user_token_help.stdout
+
+
+def test_legacy_resource_commands_are_not_supported() -> None:
+    runner = CliRunner()
+
+    cases = [
+        ["token"],
+        ["user", "token", "reset", "usr_2"],
+        ["user", "show", "usr_2"],
+        ["user", "delete", "usr_2"],
+        ["project", "get", "prj_2"],
+        ["project", "delete", "prj_2"],
+        ["collection", "get", "col_0000000000000001"],
+        ["collection", "delete", "col_0000000000000001"],
+    ]
+    for argv in cases:
+        result = runner.invoke(cli_app, argv)
+        assert result.exit_code == 2, (argv, result.stdout)
+
+
 def test_nested_leaf_help_uses_concise_wording() -> None:
     """Nested leaf ``--help`` must use AGH's concise wording.
 
@@ -258,6 +310,7 @@ def test_nested_leaf_help_uses_concise_wording() -> None:
     cases = (
         ["config", "set", "--help"],
         ["project", "member", "add", "--help"],
+        ["user", "token", "rotate", "--help"],
     )
     for argv in cases:
         result = runner.invoke(cli_app, argv)

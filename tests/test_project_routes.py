@@ -241,6 +241,20 @@ def test_member_reads_only_active_developer_projects_and_membership_removal_revo
     assert added.status_code == 200, added.text
     assert added.json() == {"project_id": accessible["id"], "user_id": member["id"]}
 
+    member_listing = client.get(
+        f"/api/v1/projects/{accessible['id']}/members", headers=_auth(owner_token)
+    )
+    assert member_listing.status_code == 200, member_listing.text
+    assert member_listing.json() == {
+        "members": [
+            {
+                "id": member["id"],
+                "email": "dev@example.com",
+                "active": True,
+            }
+        ]
+    }
+
     listed = client.get("/api/v1/projects", headers=_auth(member_token))
     assert listed.status_code == 200
     assert listed.json() == {"projects": [accessible]}
@@ -268,6 +282,52 @@ def test_member_reads_only_active_developer_projects_and_membership_removal_revo
     )
     assert client.get("/api/v1/projects", headers=_auth(member_token)).json() == {
         "projects": []
+    }
+
+    empty_listing = client.get(
+        f"/api/v1/projects/{accessible['id']}/members", headers=_auth(owner_token)
+    )
+    assert empty_listing.status_code == 200, empty_listing.text
+    assert empty_listing.json() == {"members": []}
+
+
+def test_deactivated_member_user_still_listed_with_inactive_status(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client, owner_token = _client_with_owner(tmp_path, monkeypatch)
+    member, _member_token = _create_user(
+        client, owner_token, "dev@example.com", "member"
+    )
+    project = _create_project(client, owner_token)
+
+    assert (
+        client.put(
+            f"/api/v1/projects/{project['id']}/members/{member['id']}",
+            headers=_auth(owner_token),
+        ).status_code
+        == 200
+    )
+
+    before = client.get(
+        f"/api/v1/projects/{project['id']}/members", headers=_auth(owner_token)
+    )
+    assert before.status_code == 200, before.text
+    assert before.json() == {
+        "members": [{"id": member["id"], "email": "dev@example.com", "active": True}]
+    }
+
+    deactivated = client.delete(
+        f"/api/v1/users/{member['id']}", headers=_auth(owner_token)
+    )
+    assert deactivated.status_code == 200
+    assert deactivated.json()["active"] is False
+
+    after = client.get(
+        f"/api/v1/projects/{project['id']}/members", headers=_auth(owner_token)
+    )
+    assert after.status_code == 200, after.text
+    assert after.json() == {
+        "members": [{"id": member["id"], "email": "dev@example.com", "active": False}]
     }
 
 
@@ -395,6 +455,7 @@ def test_project_routes_require_bearer_and_admin_for_mutations(
         ("DELETE", f"/api/v1/projects/{project['id']}", None),
         ("PUT", f"/api/v1/projects/{project['id']}/members/{member['id']}", None),
         ("DELETE", f"/api/v1/projects/{project['id']}/members/{member['id']}", None),
+        ("GET", f"/api/v1/projects/{project['id']}/members", None),
     ]
     for method, path, body in forbidden_requests:
         response = client.request(method, path, json=body, headers=_auth(member_token))

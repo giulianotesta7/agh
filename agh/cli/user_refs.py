@@ -31,7 +31,7 @@ def resolve_user_ref(user_ref: str, api_request: ApiRequest) -> str:
         user_id = payload.get("id") if isinstance(payload, dict) else None
         if not isinstance(user_id, str) or not user_id:
             raise UserRefResolutionError(
-                "user resolver response did not include a user id"
+                "USER_REF resolver response did not include a user id"
             )
         return user_id
 
@@ -39,5 +39,5 @@ def resolve_user_ref(user_ref: str, api_request: ApiRequest) -> str:
         return user_ref
 
     raise UserRefResolutionError(
-        "user ref must be a user id (usr_...) or exact email", code=2
+        "USER_REF must be a user id (usr_...) or exact email", code=2
     )

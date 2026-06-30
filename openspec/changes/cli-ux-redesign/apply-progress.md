@@ -1,7 +1,14 @@
 # Apply Progress: CLI UX Redesign
 
 Status: PR1 (Help / Root Infrastructure), PR2a (Instance Config), PR2b
-(Auth), and PR2c (Target) complete and verified.
+(Auth), PR2c (Target), and PR3 (User / Project / Collection Vocabulary)
+complete. PR1/PR2 were previously verified; PR3 is verified and its Judgment
+Day review findings are addressed in the "Judgment Day Fix Round (Phase 3 /
+PR3)" section below (specifically: changelog fragment wording, verify-report
+task counts and Towncrier evidence limitation, and regression coverage for
+removed `user token reset`, deactivated project members, and empty-state
+`project member list` output). Later phases (PR4 Package Assignment UX, PR5
+Skill / Link / Pull, PR6 Docs / Changelog) remain pending on their own slices.
 
 ## Delivery
 
@@ -137,7 +144,7 @@ later slices:
   - [x] 2a instance config (PR2a)
   - [x] 2b auth (PR2b)
   - [x] 2c target (PR2c) — DONE (this branch)
-- [ ] Phase 3: User / Project / Collection vocabulary (PR3)
+- [x] Phase 3: User / Project / Collection vocabulary (PR3) — DONE (this branch)
 - [ ] Phase 4: Package assignment UX (PR4)
 - [ ] Phase 5: Skill / Link / Pull cleanup (PR5)
 - [ ] Phase 6: Docs / Changelog / Final validation (PR6)
@@ -378,3 +385,168 @@ is tests plus governance docs, not logic complexity.
 ### Out of scope (deferred)
 
 - README/changelog (PR6).
+
+## Phase 3: User / Project / Collection Vocabulary (PR3) — DONE
+
+Stacked-to-main slice on current `main` after PR1/PR2 and the changelog skill
+guidance slice were squash-merged. The public resource vocabulary now matches
+the SDD command contract for user, project, and collection resources.
+
+### What shipped (PR3)
+
+- **Resource verbs renamed.** `user`, `project`, and `collection` now expose
+  `list/create/describe/update/activate/deactivate`; legacy `show`, `get`, and
+  `delete` forms are not registered as aliases.
+- **Token rotation nested under users.** Removed the public top-level `token`
+  group and exposed rotation as `agh user token rotate USER_REF`; legacy token
+  reset remains unsupported in the new public contract.
+- **Project member list.** Added `agh project member list PROJECT_REF`, backed by
+  `GET /api/v1/projects/{project_id}/members`, with admin-only route access and
+  human CLI table output.
+- **Project URL flag aligned.** Project create/update now use `--git-url` while
+  still sending `repo_url` to the existing API payload.
+- **Reference wording aligned.** User, project, and collection reference help and
+  resolver errors use `USER_REF`, `PROJECT_REF`, and `COLLECTION_REF` wording.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|-----|-------|-------------|----------|
+| 3.1 | `tests/test_cli_admin_commands.py`, `tests/test_cli_help_map.py`, `tests/test_project_routes.py` | Unit/API via CliRunner + TestClient | 26 failing after RED tests | 48 focused passing | resource verbs, nested token, project member list, legacy unsupported cases | n/a |
+| 3.2 | `agh/cli/main.py`, `agh/server/routes/projects.py` | Unit/API via CliRunner + TestClient | covered by 3.1 | 48 focused passing | activation/deactivation, describe, member list, route auth | command wiring kept in Typer groups |
+| 3.3 | `agh/cli/user_refs.py`, `agh/cli/project_refs.py`, `agh/cli/collection_refs.py` | Unit (CliRunner) | USER_REF/COLLECTION_REF expectations fail before wording change | 48 focused passing | help metavar + resolver error assertions | constants and resolver messages aligned |
+
+Test Summary:
+- Safety net before RED: `uv run pytest tests/test_cli_admin_commands.py tests/test_cli_help_map.py tests/test_project_routes.py -q` → 46 passed.
+- RED run: same focused command → 26 failed, 22 passed after tests were updated before production changes.
+- Focused GREEN: same focused command → 48 passed.
+- Full suite: `uv run pytest -q` → 535 passed.
+- Quality gates: `ruff check` clean; `ruff format --check` clean after formatting; `pyright agh tests` 0 errors; `uv run towncrier check` printed `On origin/main branch, or no diffs, so no newsfragment required.` because the PR3 worktree has no committed diffs and the fragment is untracked — this is a limited local check, not authoritative branch CI evidence.
+
+### Files Changed (PR3)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `agh/cli/main.py` | Modified | Rewired resource verbs; nested user token rotation; removed top-level token registration; added project member list; switched project URL option to `--git-url`; updated APP_HELP. |
+| `agh/server/routes/projects.py` | Modified | Added admin-only `GET /projects/{project_id}/members` route. |
+| `agh/cli/user_refs.py` | Modified | Aligned user resolver errors with `USER_REF`. |
+| `agh/cli/project_refs.py` | Modified | Aligned project resolver errors with `PROJECT_REF`. |
+| `agh/cli/collection_refs.py` | Modified | Aligned collection resolver errors with `COLLECTION_REF`. |
+| `tests/test_cli_admin_commands.py` | Modified | RED/GREEN coverage for resource verbs, nested token rotate, project member list, refs, and human output. |
+| `tests/test_cli_help_map.py` | Modified | Root-map/resource-help pins and legacy resource command absence. |
+| `tests/test_project_routes.py` | Modified | API coverage for project member list and admin-only access. |
+| `changelog.d/+cli-resource-vocabulary.breaking.md` | Created | Towncrier breaking fragment for user-facing CLI vocabulary changes. |
+| `openspec/changes/cli-ux-redesign/tasks.md` | Modified | Marked Phase 3 tasks complete. |
+| `openspec/changes/cli-ux-redesign/apply-progress.md` | Modified | Recorded this PR3 progress and validation evidence. |
+
+### Review surface accounting (corrected)
+
+| Surface | Files | Changed lines | vs 800 budget |
+|---------|-------|---------------|---------------|
+| Runtime code | `agh/cli/main.py`, `agh/server/routes/projects.py`, `agh/cli/*_refs.py` | 217 (152+ / 65−) | under |
+| Tests | `test_cli_admin_commands.py`, `test_cli_help_map.py`, `test_project_routes.py` | 337 (248+ / 89−) | over 400 alone |
+| OpenSpec governance + changelog | `tasks.md`, `apply-progress.md`, `verify-report.md`, `changelog.d/+cli-resource-vocabulary.breaking.md` | 394 (278+ / 116−, incl. 1 untracked fragment line) | n/a (docs/fragment) |
+| **Runtime + test subtotal** | | **554 (400+ / 154−)** | **under 800** |
+| **Full PR3 review footprint (tracked + untracked fragment)** | | **~948 (678+ / 270−)** | **over 800** |
+
+### Size disposition
+
+The runtime + test subtotal (~554 changed lines) is the smallest reviewable
+surface and would be under an 800-line ceiling, but that ceiling did not
+account for the OpenSpec governance artifacts and the Towncrier fragment.
+The **full PR3 review footprint is ~948 changed lines** (947 tracked plus the
+one-line untracked `changelog.d/+cli-resource-vocabulary.breaking.md` fragment),
+which **exceeds the user-approved 800-line budget**.
+
+The prior "within the user-approved 800-line review budget" claim in this
+artifact was therefore misleading: it counted only runtime + tests and treated
+the governance docs/fragment as outside the budget. For a real PR reviewer the
+whole diff matters, so this corrected accounting records PR3 as a
+`size:exception` slice for the full review surface. Runtime code remains the
+smallest part of the diff; most of the footprint is behavior tests and additive
+SDD governance documentation.
+
+### Out of scope (deferred)
+
+- Phase 4 package assignment UX.
+- Phase 5 skill/link/pull cleanup.
+- Phase 6 README/README.es final migration prose beyond the required per-slice
+  Towncrier fragment.
+
+## Judgment Day Fix Round (Phase 3 / PR3)
+
+Addressed confirmed Phase 3 review findings on top of the completed slice. No
+runtime behavior change; docs, changelog wording, and test coverage only.
+
+### What shipped
+
+- **Changelog fragment made explicit.** `changelog.d/+cli-resource-vocabulary.breaking.md`
+  now states that the legacy `token reset` command was removed and that the
+  project create/update option was renamed `--repo-url` -> `--git-url`, in
+  addition to the resource verbs, nested token rotation, and member listing.
+- **Verify-report counts corrected.** `verify-report.md` now reports 25 total
+  tasks, 16 completed through Phase 3, and 9 remaining archive blockers in
+  Phases 4-6 (was 22 / 16/22 / 6).
+- **Verify-report tooling honesty.** Added a Towncrier evidence limitation note:
+  because the PR3 worktree has no committed diffs and the fragment is untracked,
+  `towncrier check` only reports `On origin/main branch, or no diffs, so no
+  newsfragment required.` Branch CI after commit is the authority that validates
+  the fragment against the real diff.
+- **Regression coverage for removed `user token reset`.** Added
+  `["user", "token", "reset", "usr_2"]` to
+  `test_legacy_resource_commands_are_not_supported` so the removed legacy token
+  reset CLI path is pinned as exit-2 unsupported.
+- **Coverage for deactivated project members.** New
+  `test_deactivated_member_user_still_listed_with_inactive_status` in
+  `tests/test_project_routes.py` verifies that a member whose user account is
+  deactivated still appears in `GET /projects/{id}/members` with `active: false`
+  (the membership row is retained; the listing reflects the user status).
+- **CLI empty-state coverage for `project member list`.** Extended
+  `test_cli_read_commands_show_empty_messages` to assert the
+  `No project members found.` empty-state output.
+
+### TDD note
+
+Fixes 4-6 add regression/coverage tests for ALREADY-SHIPPED green behavior
+(legacy command removal, deactivated-member listing, empty-state message). They
+pass immediately because the production code already implements the behavior;
+they cannot be meaningfully RED without breaking already-merged code. This is
+coverage hardening, not new-feature TDD, and is recorded honestly as such.
+
+### Validation
+
+- Focused: `/tmp/opencode/uvpkg/bin/uv run pytest tests/test_cli_help_map.py tests/test_cli_admin_commands.py tests/test_project_routes.py -q` -> 49 passed.
+- Full suite: `/tmp/opencode/uvpkg/bin/uv run pytest -q` -> 536 passed.
+- `ruff check .` clean; `ruff format --check .` clean (67 files); `pyright agh tests` 0 errors; `git diff --check` clean.
+- `uv` is absent from PATH in this shell; all commands used `/tmp/opencode/uvpkg/bin/uv` (`uv 0.11.25`).
+
+### Files Changed (Judgment Day fix round)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `changelog.d/+cli-resource-vocabulary.breaking.md` | Modified | Added explicit `token reset` removal and `--repo-url` -> `--git-url` rename. |
+| `openspec/changes/cli-ux-redesign/verify-report.md` | Modified | Corrected task counts (25/16/9); added Towncrier evidence limitation note. |
+| `tests/test_cli_help_map.py` | Modified | Added `user token reset` to legacy-unsupported regression cases. |
+| `tests/test_cli_admin_commands.py` | Modified | Added `project member list` empty-state coverage. |
+| `tests/test_project_routes.py` | Modified | Added deactivated-member-still-listed-with-inactive-status route test. |
+| `openspec/changes/cli-ux-redesign/apply-progress.md` | Modified | Recorded this Judgment Day fix round. |
+
+## PR3-Only Worktree Cleanup
+
+This worktree was prepared as the clean PR3 slice for the stacked-to-main chain.
+The source reference tree contained combined PR3+PR4 uncommitted changes; this
+slice keeps only the PR3 surface:
+
+- Retained pre-PR4 `project package` / `collection package` subgroups in `agh/cli/main.py`.
+- Retained legacy `collection package` test coverage in `tests/test_cli_admin_commands.py`.
+- Retained pre-PR4 package help text (`Create, publish, and list guidance packages.`) in `tests/test_cli_help_map.py`.
+- Excluded PR4-only files (`tests/test_cli_package_assignment.py`, `changelog.d/+cli-package-assignment.breaking.md`).
+- Refreshed `verify-report.md` to describe PR3 only and removed PR4 verification content.
+
+### Validation (this batch)
+
+- Focused: `/tmp/opencode/uvpkg/bin/uv run pytest tests/test_cli_admin_commands.py tests/test_cli_help_map.py tests/test_project_routes.py -q` -> 49 passed.
+- `/tmp/opencode/uvpkg/bin/uv run --with ruff ruff check .` -> All checks passed.
+- `/tmp/opencode/uvpkg/bin/uv run --with ruff ruff format --check .` -> 67 files already formatted.
+- `/tmp/opencode/uvpkg/bin/uv run --with pyright pyright agh tests` -> 0 errors, 0 warnings, 0 informations.
+- `git diff --check` -> clean.

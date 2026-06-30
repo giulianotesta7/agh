@@ -81,9 +81,9 @@ Delivery strategy: ask-always (approved chained PRs)
 
 ## Phase 3: User / Project / Collection Vocabulary
 
-- [ ] 3.1 RED: Test resource verbs, `user token rotate`, and `project member`.
-- [ ] 3.2 GREEN: Rename resource wiring in `agh/cli/main.py`; add `projects.py` member route only if required.
-- [ ] 3.3 REFACTOR: Align `*_REF` help/errors in `agh/cli/*_refs.py`.
+- [x] 3.1 RED: Test resource verbs, `user token rotate`, and `project member`.
+- [x] 3.2 GREEN: Rename resource wiring in `agh/cli/main.py`; add `projects.py` member route only if required.
+- [x] 3.3 REFACTOR: Align `*_REF` help/errors in `agh/cli/*_refs.py`.
 
 ## Phase 4: Package Assignment UX
 

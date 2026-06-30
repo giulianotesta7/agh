@@ -79,10 +79,10 @@ Commands:
   login               Validate credentials for the configured instance.
   whoami              Show the authenticated user.
   logout              Clear stored credentials.
-  user                Manage users (list/create/show/update/delete).
-  token               Rotate or reset user API tokens (rotate/reset).
+  user                Manage users.
+    user token        Rotate user API tokens.
   project             Manage projects and developer memberships.
-    project member    Manage project developer memberships (add/remove).
+    project member    Manage project developer memberships (list/add/remove).
     project package   Manage project package assignments.
   collection          Manage collections.
     collection package  Manage collection package assignments.
@@ -103,9 +103,9 @@ Arguments:
 USAGE_ERROR_EXIT_CODE = 2
 COMMAND_CANCELLED_EXIT_CODE = 130
 HELP_OPTION_TEXT = "Show this help page."
-PROJECT_REF_HELP = "Project id or exact name. Numeric refs are treated as ids."
-USER_REF_HELP = "User id or exact email."
-COLLECTION_REF_HELP = "Collection id (col_...) or exact active collection name."
+PROJECT_REF_HELP = "Project ref: prj_..., numeric id, or exact project name."
+USER_REF_HELP = "User ref: usr_... or exact email."
+COLLECTION_REF_HELP = "Collection ref: col_... or exact active collection name."
 PACKAGE_VERSION_REF_HELP = (
     "Package ref: pkgv_..., domain/name@version, or name@version."
 )
@@ -209,9 +209,9 @@ user_app = typer.Typer(
     no_args_is_help=False,
     rich_markup_mode=None,
 )
-token_app = typer.Typer(
+user_token_app = typer.Typer(
     cls=AghSubcommandGroup,
-    help="Rotate or reset user API tokens.",
+    help="Rotate user API tokens.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
@@ -277,12 +277,12 @@ skill_agent_app = typer.Typer(
 )
 app.add_typer(config_app, name="config")
 app.add_typer(user_app, name="user")
-app.add_typer(token_app, name="token")
 app.add_typer(project_app, name="project")
 app.add_typer(collection_app, name="collection")
 app.add_typer(package_app, name="package")
 app.add_typer(target_app, name="target")
 app.add_typer(skill_app, name="skill")
+user_app.add_typer(user_token_app, name="token")
 project_app.add_typer(project_member_app, name="member")
 project_app.add_typer(project_package_app, name="package")
 collection_app.add_typer(collection_package_app, name="package")
@@ -1073,8 +1073,8 @@ def _echo_user_created(payload: dict[str, Any]) -> None:
     typer.echo(ONE_TIME_TOKEN_WARNING)
 
 
-def _echo_user_updated(user: dict[str, Any]) -> None:
-    typer.echo(f"Updated user {user.get('email', '')} ({user.get('id', '')}).")
+def _echo_user_updated(user: dict[str, Any], *, verb: str = "Updated") -> None:
+    typer.echo(f"{verb} user {user.get('email', '')} ({user.get('id', '')}).")
     typer.echo(f"Role: {user.get('role', '')}")
     typer.echo(f"Status: {_status_label(user)}")
 
@@ -1290,6 +1290,24 @@ def _echo_project_member_success(
     )
 
 
+def _echo_project_member_list(payload: dict[str, Any]) -> None:
+    members = payload.get("members", [])
+    if not members:
+        typer.echo("No project members found.")
+        return
+    _echo_table(
+        ["USER_ID", "EMAIL", "STATUS"],
+        [
+            [
+                str(member.get("id", "")),
+                str(member.get("email", "")),
+                _status_label(member),
+            ]
+            for member in members
+        ],
+    )
+
+
 def _echo_project_package_assigned(payload: dict[str, Any], *, project_id: str) -> None:
     package_ref = str(payload.get("package_ref", ""))
     typer.echo(f"Assigned {package_ref} to project {project_id}.")
@@ -1423,17 +1441,17 @@ def user_create(
     _echo_user_created(payload)
 
 
-@user_app.command("show", help="Show one user by id or exact email.")
-def user_show(
-    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
+@user_app.command("describe", help="Describe one user by USER_REF.")
+def user_describe(
+    user_ref: Annotated[str, typer.Argument(help=USER_REF_HELP)],
 ) -> None:
-    resolved_user_id = _resolve_user_ref(user_id)
+    resolved_user_id = _resolve_user_ref(user_ref)
     _echo_user_detail(_api_request("GET", user_path(resolved_user_id)))
 
 
 @user_app.command("update", help="Update user email, role, or active flag.")
 def user_update(
-    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
+    user_ref: Annotated[str, typer.Argument(help=USER_REF_HELP)],
     email: Annotated[str | None, typer.Option("--email", help="New email.")] = None,
     role: Annotated[
         str | None,
@@ -1444,7 +1462,7 @@ def user_update(
         typer.Option("--active/--inactive", help="Set whether the user is active."),
     ] = None,
 ) -> None:
-    resolved_user_id = _resolve_user_ref(user_id)
+    resolved_user_id = _resolve_user_ref(user_ref)
     _echo_user_updated(
         _api_request(
             "PATCH",
@@ -1454,11 +1472,22 @@ def user_update(
     )
 
 
-@user_app.command("delete", help="Deactivate a user.")
-def user_delete(
-    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
+@user_app.command("activate", help="Activate a user by USER_REF.")
+def user_activate(
+    user_ref: Annotated[str, typer.Argument(help=USER_REF_HELP)],
 ) -> None:
-    resolved_user_id = _resolve_user_ref(user_id)
+    resolved_user_id = _resolve_user_ref(user_ref)
+    _echo_user_updated(
+        _api_request("PATCH", user_path(resolved_user_id), body={"active": True}),
+        verb="Activated",
+    )
+
+
+@user_app.command("deactivate", help="Deactivate a user by USER_REF.")
+def user_deactivate(
+    user_ref: Annotated[str, typer.Argument(help=USER_REF_HELP)],
+) -> None:
+    resolved_user_id = _resolve_user_ref(user_ref)
     _echo_user_deactivated(_api_request("DELETE", user_path(resolved_user_id)))
 
 
@@ -1466,33 +1495,23 @@ def user_path(user_id: str) -> str:
     return f"/users/{user_id}"
 
 
-@token_app.callback(invoke_without_command=True)
+@user_token_app.callback(invoke_without_command=True)
 def token_main(ctx: typer.Context) -> None:
     """Token lifecycle commands."""
     if ctx.invoked_subcommand is None:
         _show_local_help(ctx)
 
 
-@token_app.command("rotate", help="Rotate a user's token and print the new token once.")
+@user_token_app.command(
+    "rotate", help="Rotate a user's token and print the new token once."
+)
 def token_rotate(
-    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
+    user_ref: Annotated[str, typer.Argument(help=USER_REF_HELP)],
 ) -> None:
-    resolved_user_id = _resolve_user_ref(user_id)
+    resolved_user_id = _resolve_user_ref(user_ref)
     _echo_token_issued(
         "Rotated",
         _api_request("POST", f"/users/{resolved_user_id}/token:rotate"),
-        user_id=resolved_user_id,
-    )
-
-
-@token_app.command("reset", help="Reset a user's token and print the new token once.")
-def token_reset(
-    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
-) -> None:
-    resolved_user_id = _resolve_user_ref(user_id)
-    _echo_token_issued(
-        "Reset",
-        _api_request("POST", f"/users/{resolved_user_id}/token:reset"),
         user_id=resolved_user_id,
     )
 
@@ -1514,7 +1533,7 @@ def project_create(
     name: Annotated[str, typer.Argument(help="Project display name.")],
     repo_url: Annotated[
         str,
-        typer.Option("--repo-url", help="Git repository URL linked to the project."),
+        typer.Option("--git-url", help="Git repository URL linked to the project."),
     ],
 ) -> None:
     cleaned_name = _clean_project_name_or_exit(name)
@@ -1526,11 +1545,11 @@ def project_create(
     )
 
 
-@project_app.command("get", help="Show one project by id or exact name.")
-def project_get(
-    project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
+@project_app.command("describe", help="Describe one project by PROJECT_REF.")
+def project_describe(
+    project_ref: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
 ) -> None:
-    resolved_project_id = _resolve_project_ref(project_id)
+    resolved_project_id = _resolve_project_ref(project_ref)
     _echo_project_detail(_api_request("GET", project_path(resolved_project_id)))
 
 
@@ -1538,13 +1557,13 @@ def project_get(
     "update", help="Update project name, repo URL, or active flag by id or exact name."
 )
 def project_update(
-    project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
+    project_ref: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
     name: Annotated[
         str | None, typer.Option("--name", help="New project name.")
     ] = None,
     repo_url: Annotated[
         str | None,
-        typer.Option("--repo-url", help="New linked Git repository URL."),
+        typer.Option("--git-url", help="New linked Git repository URL."),
     ] = None,
     active: Annotated[
         bool | None,
@@ -1552,7 +1571,7 @@ def project_update(
     ] = None,
 ) -> None:
     cleaned_name = _clean_project_name_or_exit(name) if name is not None else None
-    resolved_project_id = _resolve_project_ref(project_id)
+    resolved_project_id = _resolve_project_ref(project_ref)
     _echo_project_success(
         "Updated",
         _api_request(
@@ -1567,11 +1586,22 @@ def project_update(
     )
 
 
-@project_app.command("delete", help="Deactivate a project by id or exact name.")
-def project_delete(
-    project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
+@project_app.command("activate", help="Activate a project by PROJECT_REF.")
+def project_activate(
+    project_ref: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
 ) -> None:
-    resolved_project_id = _resolve_project_ref(project_id)
+    resolved_project_id = _resolve_project_ref(project_ref)
+    _echo_project_success(
+        "Activated",
+        _api_request("PATCH", project_path(resolved_project_id), body={"active": True}),
+    )
+
+
+@project_app.command("deactivate", help="Deactivate a project by PROJECT_REF.")
+def project_deactivate(
+    project_ref: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
+) -> None:
+    resolved_project_id = _resolve_project_ref(project_ref)
     _echo_project_deactivated(_api_request("DELETE", project_path(resolved_project_id)))
 
 
@@ -1611,8 +1641,8 @@ def collection_create(
     )
 
 
-@collection_app.command("get", help="Show one collection by id or exact name.")
-def collection_get(
+@collection_app.command("describe", help="Describe one collection by COLLECTION_REF.")
+def collection_describe(
     collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
 ) -> None:
     resolved_collection_id = _resolve_collection_ref(collection_ref)
@@ -1655,8 +1685,21 @@ def collection_update(
     )
 
 
-@collection_app.command("delete", help="Deactivate a collection by id or exact name.")
-def collection_delete(
+@collection_app.command("activate", help="Activate a collection by COLLECTION_REF.")
+def collection_activate(
+    collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
+) -> None:
+    resolved_collection_id = _resolve_collection_ref(collection_ref)
+    _echo_collection_success(
+        "Activated",
+        _api_request(
+            "PATCH", collection_path(resolved_collection_id), body={"active": True}
+        ),
+    )
+
+
+@collection_app.command("deactivate", help="Deactivate a collection by COLLECTION_REF.")
+def collection_deactivate(
     collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
 ) -> None:
     resolved_collection_id = _resolve_collection_ref(collection_ref)
@@ -1832,11 +1875,11 @@ def project_member_main(ctx: typer.Context) -> None:
 
 @project_member_app.command("add", help="Add an active user as a project developer.")
 def project_member_add(
-    project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
-    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
+    project_ref: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
+    user_ref: Annotated[str, typer.Argument(help=USER_REF_HELP)],
 ) -> None:
-    resolved_project_id = _resolve_project_ref(project_id)
-    resolved_user_id = _resolve_user_ref(user_id)
+    resolved_project_id = _resolve_project_ref(project_ref)
+    resolved_user_id = _resolve_user_ref(user_ref)
     _echo_project_member_success(
         "Added",
         _api_request(
@@ -1847,13 +1890,23 @@ def project_member_add(
     )
 
 
+@project_member_app.command("list", help="List project developer memberships.")
+def project_member_list(
+    project_ref: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
+) -> None:
+    resolved_project_id = _resolve_project_ref(project_ref)
+    _echo_project_member_list(
+        _api_request("GET", f"/projects/{resolved_project_id}/members")
+    )
+
+
 @project_member_app.command("remove", help="Remove a project developer membership.")
 def project_member_remove(
-    project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
-    user_id: Annotated[str, typer.Argument(help=USER_REF_HELP)],
+    project_ref: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
+    user_ref: Annotated[str, typer.Argument(help=USER_REF_HELP)],
 ) -> None:
-    resolved_project_id = _resolve_project_ref(project_id)
-    resolved_user_id = _resolve_user_ref(user_id)
+    resolved_project_id = _resolve_project_ref(project_ref)
+    resolved_user_id = _resolve_user_ref(user_ref)
     _echo_project_member_success(
         "Removed",
         _api_request(

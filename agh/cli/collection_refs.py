@@ -30,6 +30,6 @@ def resolve_collection_ref(collection_ref: str, api_request: ApiRequest) -> str:
     collection_id = payload.get("id") if isinstance(payload, dict) else None
     if not isinstance(collection_id, str) or not collection_id:
         raise CollectionRefResolutionError(
-            "collection resolver response did not include a collection id"
+            "COLLECTION_REF resolver response did not include a collection id"
         )
     return collection_id
