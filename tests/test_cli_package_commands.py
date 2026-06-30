@@ -1,4 +1,4 @@
-"""CLI package publish/list and project package assignment tests."""
+"""CLI package publish/list and describe tests."""
 
 from __future__ import annotations
 
@@ -58,6 +58,7 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
             "packages": [
                 {
                     "id": "acme/onboarding@1.0.0",
+                    "package_id": "pkg_1",
                     "domain": "acme",
                     "name": "onboarding",
                     "version": "1.0.0",
@@ -73,38 +74,6 @@ def _response_for(method: str, path: str) -> tuple[int, dict[str, Any]]:
             "checksum": "sha256:" + "a" * 64,
             "token_hash": "server-secret",
         }
-    if (method, path) == ("GET", "/api/v1/projects/prj_1/packages"):
-        return 200, {
-            "project_packages": [
-                {
-                    "id": "asn_1",
-                    "package_ref": "acme/onboarding@latest",
-                    "resolved_ref": "acme/onboarding@1.0.0",
-                    "position": 0,
-                    "active": True,
-                }
-            ]
-        }
-    if (method, path) == ("POST", "/api/v1/projects/prj_1/packages"):
-        return 201, {
-            "id": "asn_1",
-            "project_id": "prj_1",
-            "package_ref": "acme/onboarding@latest",
-            "resolved_ref": "acme/onboarding@1.0.0",
-            "position": 5,
-            "active": True,
-        }
-    if (method, path) == ("PATCH", "/api/v1/projects/prj_1/packages/asn_1"):
-        return 200, {
-            "id": "asn_1",
-            "project_id": "prj_1",
-            "package_ref": "acme/onboarding@1.0.0",
-            "resolved_ref": "acme/onboarding@1.0.0",
-            "position": 7,
-            "active": False,
-        }
-    if (method, path) == ("DELETE", "/api/v1/projects/prj_1/packages/asn_1"):
-        return 200, {"id": "asn_1", "project_id": "prj_1", "active": False}
     return 404, {"detail": f"unexpected {method} {path}"}
 
 
@@ -134,16 +103,10 @@ def test_cli_package_unknown_subcommands_exit_2_with_local_help() -> None:
     root_help = runner.invoke(cli_app, []).stdout
 
     package_unknown = runner.invoke(cli_app, ["package", "wrong-command"])
-    project_package_unknown = runner.invoke(
-        cli_app, ["project", "package", "wrong-command"]
-    )
 
-    for result in (package_unknown, project_package_unknown):
-        assert result.exit_code == 2
-        assert result.stdout != root_help
-
-    assert "Create, publish, and list guidance packages." in package_unknown.stdout
-    assert "package assignments" in project_package_unknown.stdout.lower()
+    assert package_unknown.exit_code == 2
+    assert package_unknown.stdout != root_help
+    assert "Manage guidance packages and assignments." in package_unknown.stdout
 
 
 def _package_dir(tmp_path: Path) -> Path:
@@ -359,7 +322,7 @@ def test_cli_package_init_rejects_existing_path_and_invalid_values(
     assert not duplicate_skill_path.exists()
 
 
-def test_cli_package_publish_list_and_project_package_commands_map_to_api(
+def test_cli_package_publish_list_map_to_api(
     tmp_path: Path,
 ) -> None:
     server, handler, url = _serve_api()
@@ -369,38 +332,6 @@ def test_cli_package_publish_list_and_project_package_commands_map_to_api(
     commands = [
         (["package", "list"], "acme/onboarding@1.0.0"),
         (["package", "publish", str(package_dir)], "acme/onboarding@1.0.0"),
-        (["project", "package", "list", "prj_1"], "asn_1"),
-        (
-            [
-                "project",
-                "package",
-                "add",
-                "prj_1",
-                "acme/onboarding@latest",
-                "--position",
-                "5",
-            ],
-            "Assigned acme/onboarding@latest",
-        ),
-        (
-            [
-                "project",
-                "package",
-                "update",
-                "prj_1",
-                "asn_1",
-                "--package-ref",
-                "acme/onboarding@1.0.0",
-                "--position",
-                "7",
-                "--inactive",
-            ],
-            "Status: inactive",
-        ),
-        (
-            ["project", "package", "remove", "prj_1", "asn_1"],
-            "Removed assignment asn_1",
-        ),
     ]
     try:
         for args, expected in commands:
@@ -429,15 +360,6 @@ def test_cli_package_publish_list_and_project_package_commands_map_to_api(
             "instructions/AGENTS.md": "# Agents\n",
             "skills/lint/SKILL.md": "# Skill\n",
         }
-    }
-    assert bodies[("POST", "/api/v1/projects/prj_1/packages")] == {
-        "package_ref": "acme/onboarding@latest",
-        "position": 5,
-    }
-    assert bodies[("PATCH", "/api/v1/projects/prj_1/packages/asn_1")] == {
-        "package_ref": "acme/onboarding@1.0.0",
-        "position": 7,
-        "active": False,
     }
 
 
@@ -497,9 +419,6 @@ def test_cli_package_read_commands_use_human_output(tmp_path: Path) -> None:
     runner = CliRunner()
     try:
         packages = runner.invoke(cli_app, ["package", "list"], env=env)
-        assignments = runner.invoke(
-            cli_app, ["project", "package", "list", "prj_1"], env=env
-        )
     finally:
         server.shutdown()
 
@@ -512,579 +431,12 @@ def test_cli_package_read_commands_use_human_output(tmp_path: Path) -> None:
     ]
     assert '"packages"' not in packages.stdout
 
-    assert assignments.exit_code == 0, assignments.stdout
-    assignment_lines = assignments.stdout.splitlines()
-    assert assignment_lines[0].split() == [
-        "ASSIGNMENT_ID",
-        "PACKAGE_REF",
-        "RESOLVED",
-        "POSITION",
-        "STATUS",
-    ]
-    assert assignment_lines[1].split() == [
-        "asn_1",
-        "acme/onboarding@latest",
-        "acme/onboarding@1.0.0",
-        "0",
-        "active",
-    ]
-    assert '"project_packages"' not in assignments.stdout
-
-
-def test_cli_project_package_mutation_commands_use_human_output(tmp_path: Path) -> None:
-    server, _handler, url = _serve_api()
-    env = _write_config(tmp_path, url)
-    runner = CliRunner()
-    try:
-        added = runner.invoke(
-            cli_app,
-            [
-                "project",
-                "package",
-                "add",
-                "prj_1",
-                "acme/onboarding@latest",
-                "--position",
-                "5",
-            ],
-            env=env,
-        )
-        updated = runner.invoke(
-            cli_app,
-            [
-                "project",
-                "package",
-                "update",
-                "prj_1",
-                "asn_1",
-                "--package-ref",
-                "acme/onboarding@1.0.0",
-                "--position",
-                "7",
-                "--inactive",
-            ],
-            env=env,
-        )
-        removed = runner.invoke(
-            cli_app, ["project", "package", "remove", "prj_1", "asn_1"], env=env
-        )
-    finally:
-        server.shutdown()
-
-    assert added.exit_code == 0, added.stdout
-    assert added.stdout == (
-        "Assigned acme/onboarding@latest to project prj_1.\n"
-        "Resolved: acme/onboarding@1.0.0\n"
-        "Assignment: asn_1\n"
-    )
-    assert '"project_id"' not in added.stdout
-
-    assert updated.exit_code == 0, updated.stdout
-    assert updated.stdout == (
-        "Updated assignment asn_1 on project prj_1.\n"
-        "Package: acme/onboarding@1.0.0\n"
-        "Resolved: acme/onboarding@1.0.0\n"
-        "Position: 7\n"
-        "Status: inactive\n"
-    )
-
-    assert removed.exit_code == 0, removed.stdout
-    assert removed.stdout == "Removed assignment asn_1 from project prj_1.\n"
-
-
-def test_cli_project_package_commands_resolve_package_version_refs(monkeypatch) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        if (method, path) == (
-            "GET",
-            "/packages/versions:resolve?ref=onboarding%401.0.0",
-        ):
-            return {"package_ref": "acme/onboarding@1.0.0"}
-        if (method, path) == (
-            "GET",
-            "/packages/versions:resolve?ref=pkgv_0123456789abcdef",
-        ):
-            return {"package_ref": "acme/onboarding@1.2.0"}
-        if (method, path) == ("POST", "/projects/prj_1/packages"):
-            return {
-                "id": "asn_1",
-                "package_ref": kwargs["body"]["package_ref"],
-                "resolved_ref": kwargs["body"]["package_ref"],
-            }
-        if (method, path) == ("PATCH", "/projects/prj_1/packages/asn_1"):
-            return {
-                "id": "asn_1",
-                "package_ref": kwargs["body"]["package_ref"],
-                "resolved_ref": kwargs["body"]["package_ref"],
-                "position": 0,
-                "active": True,
-            }
-        raise AssertionError(f"unexpected {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    runner = CliRunner()
-
-    added = runner.invoke(
-        cli_app, ["project", "package", "add", "prj_1", "onboarding@1.0.0"]
-    )
-    updated = runner.invoke(
-        cli_app,
-        [
-            "project",
-            "package",
-            "update",
-            "prj_1",
-            "asn_1",
-            "--package-ref",
-            "pkgv_0123456789abcdef",
-        ],
-    )
-
-    assert added.exit_code == 0, added.stdout
-    assert updated.exit_code == 0, updated.stdout
-    assert calls[1]["body"] == {"package_ref": "acme/onboarding@1.0.0", "position": 0}
-    assert calls[3]["body"] == {"package_ref": "acme/onboarding@1.2.0"}
-
-
-def test_cli_project_package_add_without_ref_prompts_and_confirms(monkeypatch) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        if (method, path) == ("GET", "/projects/prj_1/packages:available"):
-            return {
-                "packages": [
-                    {
-                        "package_ref": "acme/onboarding@1.2.0",
-                        "description": "Onboarding guidance",
-                    },
-                    {
-                        "package_ref": "acme/baseline@2.0.0",
-                        "description": "Baseline guidance",
-                    },
-                ]
-            }
-        if (method, path) == ("POST", "/projects/prj_1/packages"):
-            return {
-                "id": "asn_1",
-                "package_ref": kwargs["body"]["package_ref"],
-                "resolved_ref": kwargs["body"]["package_ref"],
-            }
-        raise AssertionError(f"unexpected {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(
-        cli_app, ["project", "package", "add", "prj_1"], input="1\ny\n"
-    )
-
-    assert result.exit_code == 0, result.stdout
-    assert "1. acme/onboarding@1.2.0 - Onboarding guidance" in result.stdout
-    assert calls[1]["body"] == {"package_ref": "acme/onboarding@1.2.0", "position": 0}
-
-
-def test_cli_project_package_add_without_ref_cancels_with_130(monkeypatch) -> None:
-    from agh.cli import main as cli_main
-
-    monkeypatch.setattr(
-        cli_main,
-        "_api_request",
-        lambda method, path, **kwargs: {
-            "packages": [{"package_ref": "acme/onboarding@1.2.0", "description": ""}]
-        },
-    )
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(
-        cli_app, ["project", "package", "add", "prj_1"], input="1\nn\n"
-    )
-
-    assert result.exit_code == 130
-    assert "Cancelled.\n" in result.stdout
-
-
-def test_cli_project_package_add_without_ref_invalid_package_selection_exits_2(
-    monkeypatch,
-) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        if (method, path) == ("GET", "/projects/prj_1/packages:available"):
-            return {
-                "packages": [
-                    {
-                        "package_ref": "acme/onboarding@1.2.0",
-                        "description": "Onboarding guidance",
-                    }
-                ]
-            }
-        raise AssertionError(f"unexpected {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(
-        cli_app, ["project", "package", "add", "prj_1"], input="abc\n"
-    )
-
-    assert result.exit_code == 2
-    assert "selection must be a number" in result.stdout
-    assert calls == [{"method": "GET", "path": "/projects/prj_1/packages:available"}]
-
-
-def test_cli_project_package_add_without_ref_exhausted_package_input_exits_2(
-    monkeypatch,
-) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        if (method, path) == ("GET", "/projects/prj_1/packages:available"):
-            return {
-                "packages": [
-                    {"package_ref": "acme/onboarding@1.2.0", "description": ""}
-                ]
-            }
-        raise AssertionError(f"unexpected {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(cli_app, ["project", "package", "add", "prj_1"])
-
-    assert result.exit_code == 2
-    assert "selection requires input" in result.stdout
-    assert calls == [{"method": "GET", "path": "/projects/prj_1/packages:available"}]
-
-
-def test_cli_project_package_add_without_ref_non_tty_exits_2(monkeypatch) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        raise AssertionError(
-            f"non-TTY omitted-ref add must not call API: {method} {path}"
-        )
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-
-    result = CliRunner().invoke(cli_app, ["project", "package", "add", "prj_1"])
-
-    assert result.exit_code == 2
-    assert "requires an interactive terminal" in result.stdout
-    assert calls == []
-
-
-def test_cli_project_package_add_without_ref_project_name_non_tty_exits_before_api(
-    monkeypatch,
-) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        raise AssertionError(
-            f"non-TTY omitted-ref add must not call API: {method} {path}"
-        )
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: False)
-
-    result = CliRunner().invoke(cli_app, ["project", "package", "add", "Docs"])
-
-    assert result.exit_code == 2
-    assert "requires an interactive terminal" in result.stdout
-    assert calls == []
-
-
-def test_cli_project_package_add_without_ref_reports_all_assigned(monkeypatch) -> None:
-    from agh.cli import main as cli_main
-
-    monkeypatch.setattr(
-        cli_main,
-        "_api_request",
-        lambda method, path, **kwargs: {"packages": []},
-    )
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(cli_app, ["project", "package", "add", "prj_1"])
-
-    assert result.exit_code == 0
-    assert "No unassigned packages are available for project prj_1." in result.stdout
-    assert "agh project package list prj_1" in result.stdout
-
-
-def test_cli_project_package_add_without_args_selects_project_then_package(
-    monkeypatch,
-) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        if (method, path) == ("GET", "/projects"):
-            return {
-                "projects": [
-                    {
-                        "id": "prj_docs",
-                        "name": "Docs",
-                        "repo_url_normalized": "github.com/acme/docs",
-                        "active": True,
-                    },
-                    {
-                        "id": "prj_api",
-                        "name": "API",
-                        "repo_url_normalized": "github.com/acme/api",
-                        "active": True,
-                    },
-                ]
-            }
-        if (method, path) == ("GET", "/projects/prj_api/packages:available"):
-            return {
-                "packages": [
-                    {
-                        "package_ref": "acme/api@2.0.0",
-                        "description": "API guidance",
-                    }
-                ]
-            }
-        if (method, path) == ("POST", "/projects/prj_api/packages"):
-            return {
-                "id": "asn_api",
-                "package_ref": kwargs["body"]["package_ref"],
-                "resolved_ref": kwargs["body"]["package_ref"],
-            }
-        raise AssertionError(f"unexpected {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(
-        cli_app, ["project", "package", "add"], input="2\n1\ny\n"
-    )
-
-    assert result.exit_code == 0, result.stdout
-    assert "Visible projects:" in result.stdout
-    assert "2. API (prj_api) - github.com/acme/api" in result.stdout
-    assert "1. acme/api@2.0.0 - API guidance" in result.stdout
-    assert calls == [
-        {"method": "GET", "path": "/projects"},
-        {"method": "GET", "path": "/projects/prj_api/packages:available"},
-        {
-            "method": "POST",
-            "path": "/projects/prj_api/packages",
-            "body": {"package_ref": "acme/api@2.0.0", "position": 0},
-        },
-    ]
-
-
-def test_cli_project_package_add_without_args_non_tty_exits_2_without_api(
-    monkeypatch,
-) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        raise AssertionError(f"non-TTY no-arg add must not call API: {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: False)
-
-    result = CliRunner().invoke(cli_app, ["project", "package", "add"])
-
-    assert result.exit_code == 2
-    assert "requires an interactive terminal" in result.stdout
-    assert calls == []
-
-
-def test_cli_project_package_add_without_args_reports_no_visible_projects(
-    monkeypatch,
-) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        if (method, path) == ("GET", "/projects"):
-            return {"projects": []}
-        raise AssertionError(f"unexpected {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(cli_app, ["project", "package", "add"])
-
-    assert result.exit_code == 0
-    assert result.stdout == "No projects found.\n"
-    assert calls == [{"method": "GET", "path": "/projects"}]
-
-
-def test_cli_project_package_add_without_args_invalid_project_selection_exits_2(
-    monkeypatch,
-) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        if (method, path) == ("GET", "/projects"):
-            return {
-                "projects": [
-                    {
-                        "id": "prj_docs",
-                        "name": "Docs",
-                        "repo_url_normalized": "github.com/acme/docs",
-                        "active": True,
-                    }
-                ]
-            }
-        raise AssertionError(f"unexpected {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(cli_app, ["project", "package", "add"], input="2\n")
-
-    assert result.exit_code == 2
-    assert "selection is out of range" in result.stdout
-    assert calls == [{"method": "GET", "path": "/projects"}]
-
-
-def test_cli_project_package_add_without_args_invalid_project_input_exits_2(
-    monkeypatch,
-) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        if (method, path) == ("GET", "/projects"):
-            return {
-                "projects": [
-                    {
-                        "id": "prj_docs",
-                        "name": "Docs",
-                        "repo_url_normalized": "github.com/acme/docs",
-                        "active": True,
-                    }
-                ]
-            }
-        raise AssertionError(f"unexpected {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(cli_app, ["project", "package", "add"], input="abc\n")
-
-    assert result.exit_code == 2
-    assert "selection must be a number" in result.stdout
-    assert calls == [{"method": "GET", "path": "/projects"}]
-
-
-def test_cli_project_package_add_without_args_exhausted_project_input_exits_2(
-    monkeypatch,
-) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        if (method, path) == ("GET", "/projects"):
-            return {
-                "projects": [
-                    {
-                        "id": "prj_docs",
-                        "name": "Docs",
-                        "repo_url_normalized": "github.com/acme/docs",
-                        "active": True,
-                    }
-                ]
-            }
-        raise AssertionError(f"unexpected {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(cli_app, ["project", "package", "add"])
-
-    assert result.exit_code == 2
-    assert "selection requires input" in result.stdout
-    assert calls == [{"method": "GET", "path": "/projects"}]
-
-
-def test_cli_project_package_add_one_positional_is_project_even_if_package_like(
-    monkeypatch,
-) -> None:
-    from agh.cli import main as cli_main
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_api_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append({"method": method, "path": path, **kwargs})
-        if (method, path) == ("GET", "/projects/by-name/acme%2Fonboarding%401.2.0"):
-            return {"id": "prj_package_like", "name": "acme/onboarding@1.2.0"}
-        if (method, path) == ("GET", "/projects/prj_package_like/packages:available"):
-            return {
-                "packages": [
-                    {
-                        "package_ref": "acme/baseline@2.0.0",
-                        "description": "Baseline guidance",
-                    }
-                ]
-            }
-        if (method, path) == ("POST", "/projects/prj_package_like/packages"):
-            return {
-                "id": "asn_1",
-                "package_ref": kwargs["body"]["package_ref"],
-                "resolved_ref": kwargs["body"]["package_ref"],
-            }
-        raise AssertionError(f"unexpected {method} {path}")
-
-    monkeypatch.setattr(cli_main, "_api_request", fake_api_request)
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(
-        cli_app,
-        ["project", "package", "add", "acme/onboarding@1.2.0"],
-        input="1\ny\n",
-    )
-
-    assert result.exit_code == 0, result.stdout
-    assert {call["path"] for call in calls} == {
-        "/projects/by-name/acme%2Fonboarding%401.2.0",
-        "/projects/prj_package_like/packages:available",
-        "/projects/prj_package_like/packages",
-    }
-
 
 def test_cli_package_read_commands_show_empty_messages(monkeypatch) -> None:
     from agh.cli import main as cli_main
 
     responses = {
         "/packages": {"packages": []},
-        "/projects/prj_1/packages": {"project_packages": []},
     }
 
     monkeypatch.setattr(
@@ -1095,12 +447,9 @@ def test_cli_package_read_commands_show_empty_messages(monkeypatch) -> None:
     runner = CliRunner()
 
     packages = runner.invoke(cli_app, ["package", "list"])
-    assignments = runner.invoke(cli_app, ["project", "package", "list", "prj_1"])
 
     assert packages.exit_code == 0, packages.stdout
     assert packages.stdout == "No packages found.\n"
-    assert assignments.exit_code == 0, assignments.stdout
-    assert assignments.stdout == "No assigned packages found.\n"
 
 
 def test_cli_package_publish_local_validation_errors_exit_2_without_api_call(
@@ -1310,10 +659,7 @@ def test_cli_package_help_is_discoverable() -> None:
     runner = CliRunner()
 
     package_help = runner.invoke(cli_app, ["package", "--help"])
-    project_package_help = runner.invoke(cli_app, ["project", "package", "--help"])
-    project_package_add_help = runner.invoke(
-        cli_app, ["project", "package", "add", "--help"]
-    )
+    describe_help = runner.invoke(cli_app, ["package", "describe", "--help"])
     publish_help = runner.invoke(cli_app, ["package", "publish", "--help"])
     init_help = runner.invoke(cli_app, ["package", "init", "--help"])
 
@@ -1321,12 +667,11 @@ def test_cli_package_help_is_discoverable() -> None:
     assert "init" in package_help.stdout
     assert "publish" in package_help.stdout
     assert "list" in package_help.stdout
-    assert project_package_help.exit_code == 0
-    assert "add" in project_package_help.stdout
-    assert "remove" in project_package_help.stdout
-    assert project_package_add_help.exit_code == 0
-    assert "pkgv_" in project_package_add_help.stdout
-    assert "name@version" in project_package_add_help.stdout
+    assert "describe" in package_help.stdout
+    assert "assign" in package_help.stdout
+    assert describe_help.exit_code == 0
+    assert "pkgv_" in describe_help.stdout
+    assert "name@version" in describe_help.stdout
     assert publish_help.exit_code == 0
     assert "PATH" in publish_help.stdout or "path" in publish_help.stdout
     assert init_help.exit_code == 0

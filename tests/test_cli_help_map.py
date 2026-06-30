@@ -18,11 +18,10 @@ from typer.testing import CliRunner
 
 from agh.cli.main import app as cli_app
 
-# PR3 root command map. The resource vocabulary slice renames the resource
-# verbs to describe/activate/deactivate and nests token rotation under
-# `user token`. The package assignment UX unification (PR4) has not landed yet,
-# so the legacy `project package` / `collection package` subgroups stay. This
-# pins what PR3 advertises.
+# PR3/PR4 root command map. The resource vocabulary slice nests token rotation
+# under user and exposes describe/activate/deactivate verbs for resources. PR4
+# moves package assignment under `package` and removes the legacy nested
+# `project package` / `collection package` subgroups, so those rows are gone.
 PR3_TOP_LEVEL_COMMANDS = [
     "config",
     "login",
@@ -42,11 +41,9 @@ PR3_NESTED_COMMANDS = [
     "config clear",
     "user token",
     "project member",
-    "project package",
-    "collection package",
     "skill agent",
 ]
-# Names promised by the final redesign that are NOT backed by any PR3 command
+# Names promised by the final redesign that are NOT backed by any PR2c command
 # yet, and therefore MUST NOT be advertised from root help.
 NOT_YET_IMPLEMENTED_COMMANDS = ["link"]
 
@@ -130,7 +127,7 @@ def test_subgroup_no_args_shows_local_help_not_root_map() -> None:
         (runner.invoke(cli_app, ["user"]), "Manage AGH users."),
         (
             runner.invoke(cli_app, ["package"]),
-            "Create, publish, and list guidance packages.",
+            "Manage guidance packages and assignments.",
         ),
     )
 
@@ -190,7 +187,7 @@ def test_package_help_describes_package_only_commands() -> None:
     package_help = runner.invoke(cli_app, ["package", "--help"])
 
     assert package_help.exit_code == 0, package_help.stdout
-    assert "Create, publish, and list guidance packages." in package_help.stdout
+    assert "Manage guidance packages and assignments." in package_help.stdout
     assert package_help.stdout != root_help
 
 

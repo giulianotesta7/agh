@@ -87,9 +87,9 @@ Delivery strategy: ask-always (approved chained PRs)
 
 ## Phase 4: Package Assignment UX
 
-- [ ] 4.1 RED: Test exclusive `--project/--collection`, no position/positional target, verbs, and `@latest` SemVer.
-- [ ] 4.2 GREEN: Move assignment under `package` in `agh/cli/main.py`; update `package_refs.py` messages.
-- [ ] 4.3 REFACTOR: Ensure assignment errors name package ref and target.
+- [x] 4.1 RED: Test exclusive `--project/--collection`, no position/positional target, verbs, and `@latest` SemVer.
+- [x] 4.2 GREEN: Move assignment under `package` in `agh/cli/main.py`; update `package_refs.py` messages.
+- [x] 4.3 REFACTOR: Ensure assignment errors name package ref and target.
 
 ## Phase 5: Skill / Link / Pull Cleanup
 

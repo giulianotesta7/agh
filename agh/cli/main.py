@@ -65,7 +65,7 @@ from agh.cli.workspace_pull import (
     pull_workspace,
 )
 from agh.cli.workspace_sync import SyncResult, WorkspaceSyncError, sync_workspace
-from agh.common.validation import validate_project_name
+from agh.common.validation import parse_package_ref, validate_project_name
 
 APP_HELP = """Agent Guidance Hub — manage and distribute agent guidance packages.
 
@@ -83,10 +83,8 @@ Commands:
     user token        Rotate user API tokens.
   project             Manage projects and developer memberships.
     project member    Manage project developer memberships (list/add/remove).
-    project package   Manage project package assignments.
   collection          Manage collections.
-    collection package  Manage collection package assignments.
-  package             Create, publish, and list guidance packages.
+  package             Manage guidance packages and assignments.
   target              Show and manage local target selection.
   skill               Discover, install, and remove collection-backed global skills.
     skill agent       Manage the default agent for global skills.
@@ -227,27 +225,15 @@ project_member_app = typer.Typer(
     no_args_is_help=False,
     rich_markup_mode=None,
 )
-project_package_app = typer.Typer(
-    cls=AghSubcommandGroup,
-    help="Manage project package assignments.",
-    no_args_is_help=False,
-    rich_markup_mode=None,
-)
 collection_app = typer.Typer(
     cls=AghSubcommandGroup,
     help="Manage AGH collections.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
-collection_package_app = typer.Typer(
-    cls=AghSubcommandGroup,
-    help="Manage collection package assignments.",
-    no_args_is_help=False,
-    rich_markup_mode=None,
-)
 package_app = typer.Typer(
     cls=AghSubcommandGroup,
-    help="Create, publish, and list guidance packages.",
+    help="Manage guidance packages and assignments.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
@@ -284,8 +270,6 @@ app.add_typer(target_app, name="target")
 app.add_typer(skill_app, name="skill")
 user_app.add_typer(user_token_app, name="token")
 project_app.add_typer(project_member_app, name="member")
-project_app.add_typer(project_package_app, name="package")
-collection_app.add_typer(collection_package_app, name="package")
 skill_app.add_typer(skill_agent_app, name="agent")
 
 
@@ -1146,26 +1130,58 @@ def _echo_package_published(package: dict[str, Any]) -> None:
         typer.echo(f"Checksum: {package.get('checksum')}")
 
 
-def _echo_project_package_list(payload: dict[str, Any]) -> None:
-    assignments = payload.get("project_packages", [])
+def _echo_package_detail(package: dict[str, Any]) -> None:
+    typer.echo(f"Package: {_package_ref(package)}")
+    if package.get("package_id"):
+        typer.echo(f"Package ID: {package.get('package_id')}")
+    if package.get("description"):
+        typer.echo(f"Description: {package.get('description')}")
+    if package.get("checksum"):
+        typer.echo(f"Checksum: {package.get('checksum')}")
+
+
+def _assignment_payload_key(scope: str) -> str:
+    return "project_packages" if scope == "project" else "collection_packages"
+
+
+def _echo_package_assignments(scope: str, payload: dict[str, Any]) -> None:
+    assignments = payload.get(_assignment_payload_key(scope), [])
     if not assignments:
         typer.echo("No assigned packages found.")
         return
     _echo_table(
-        ["ASSIGNMENT_ID", "PACKAGE_REF", "RESOLVED", "POSITION", "STATUS"],
+        ["PACKAGE_REF", "RESOLVED", "STATUS"],
         [
             [
-                str(assignment.get("id", "")),
                 str(assignment.get("package_ref", "")),
                 str(
                     assignment.get("resolved_ref") or assignment.get("package_ref", "")
                 ),
-                str(assignment.get("position", 0)),
                 _status_label(assignment),
             ]
             for assignment in assignments
         ],
     )
+
+
+def _echo_package_assigned(
+    payload: dict[str, Any], *, scope: str, scope_id: str
+) -> None:
+    package_ref = str(payload.get("package_ref", ""))
+    typer.echo(f"Assigned {package_ref} to {scope} {scope_id}.")
+    typer.echo(f"Resolved: {payload.get('resolved_ref') or package_ref}")
+
+
+def _echo_package_status(
+    payload: dict[str, Any], *, scope: str, scope_id: str, verb: str
+) -> None:
+    package_ref = str(payload.get("package_ref", ""))
+    typer.echo(f"{verb} {package_ref} on {scope} {scope_id}.")
+    typer.echo(f"Resolved: {payload.get('resolved_ref') or package_ref}")
+
+
+def _echo_package_removed(*, scope: str, scope_id: str, package_ref: str) -> None:
+    typer.echo(f"Removed {package_ref} from {scope} {scope_id}.")
 
 
 def _echo_project_detail(project: dict[str, Any]) -> None:
@@ -1226,60 +1242,6 @@ def _echo_collection_deactivated(collection: dict[str, Any]) -> None:
     )
 
 
-def _echo_collection_package_list(payload: dict[str, Any]) -> None:
-    assignments = payload.get("collection_packages", [])
-    if not assignments:
-        typer.echo("No assigned packages found.")
-        return
-    _echo_table(
-        ["ASSIGNMENT_ID", "PACKAGE_REF", "RESOLVED", "POSITION", "STATUS"],
-        [
-            [
-                str(assignment.get("id", "")),
-                str(assignment.get("package_ref", "")),
-                str(
-                    assignment.get("resolved_ref") or assignment.get("package_ref", "")
-                ),
-                str(assignment.get("position", 0)),
-                _status_label(assignment),
-            ]
-            for assignment in assignments
-        ],
-    )
-
-
-def _echo_collection_package_assigned(
-    payload: dict[str, Any], *, collection_id: str
-) -> None:
-    package_ref = str(payload.get("package_ref", ""))
-    typer.echo(f"Assigned {package_ref} to collection {collection_id}.")
-    typer.echo(f"Resolved: {payload.get('resolved_ref') or package_ref}")
-    typer.echo(f"Assignment: {payload.get('id', '')}")
-
-
-def _echo_collection_package_updated(
-    payload: dict[str, Any], *, collection_id: str, assignment_id: str
-) -> None:
-    returned_assignment_id = str(payload.get("id") or assignment_id)
-    package_ref = str(payload.get("package_ref", ""))
-    typer.echo(
-        f"Updated assignment {returned_assignment_id} on collection {collection_id}."
-    )
-    typer.echo(f"Package: {package_ref}")
-    typer.echo(f"Resolved: {payload.get('resolved_ref') or package_ref}")
-    typer.echo(f"Position: {payload.get('position', 0)}")
-    typer.echo(f"Status: {_status_label(payload)}")
-
-
-def _echo_collection_package_removed(
-    payload: dict[str, Any], *, collection_id: str, assignment_id: str
-) -> None:
-    returned_assignment_id = str(payload.get("id") or assignment_id)
-    typer.echo(
-        f"Removed assignment {returned_assignment_id} from collection {collection_id}."
-    )
-
-
 def _echo_project_member_success(
     verb: str, payload: dict[str, Any], *, project_id: str, user_id: str
 ) -> None:
@@ -1308,34 +1270,6 @@ def _echo_project_member_list(payload: dict[str, Any]) -> None:
     )
 
 
-def _echo_project_package_assigned(payload: dict[str, Any], *, project_id: str) -> None:
-    package_ref = str(payload.get("package_ref", ""))
-    typer.echo(f"Assigned {package_ref} to project {project_id}.")
-    typer.echo(f"Resolved: {payload.get('resolved_ref') or package_ref}")
-    typer.echo(f"Assignment: {payload.get('id', '')}")
-
-
-def _echo_project_package_updated(
-    payload: dict[str, Any], *, project_id: str, assignment_id: str
-) -> None:
-    returned_assignment_id = str(payload.get("id") or assignment_id)
-    package_ref = str(payload.get("package_ref", ""))
-    typer.echo(f"Updated assignment {returned_assignment_id} on project {project_id}.")
-    typer.echo(f"Package: {package_ref}")
-    typer.echo(f"Resolved: {payload.get('resolved_ref') or package_ref}")
-    typer.echo(f"Position: {payload.get('position', 0)}")
-    typer.echo(f"Status: {_status_label(payload)}")
-
-
-def _echo_project_package_removed(
-    payload: dict[str, Any], *, project_id: str, assignment_id: str
-) -> None:
-    returned_assignment_id = str(payload.get("id") or assignment_id)
-    typer.echo(
-        f"Removed assignment {returned_assignment_id} from project {project_id}."
-    )
-
-
 def _stdin_is_interactive() -> bool:
     return sys.stdin.isatty()
 
@@ -1354,67 +1288,6 @@ def _prompt_selection_index(label: str, *, count: int) -> int:
     if choice < 1 or choice > count:
         _fail("selection is out of range", code=USAGE_ERROR_EXIT_CODE)
     return choice - 1
-
-
-def _select_available_package_ref(project_id: str) -> str | None:
-    if not _stdin_is_interactive():
-        _fail_omitted_package_ref_requires_tty()
-    payload = _api_request("GET", f"/projects/{project_id}/packages:available")
-    packages = payload.get("packages", []) if isinstance(payload, dict) else []
-    if not packages:
-        typer.echo(f"No unassigned packages are available for project {project_id}.")
-        typer.echo(
-            f"Run `agh project package list {project_id}` to review assignments or "
-            "`agh project package update` to change an existing assignment."
-        )
-        return None
-    typer.echo("Available packages:")
-    for index, package in enumerate(packages, start=1):
-        package_ref = str(package.get("package_ref", ""))
-        description = str(package.get("description", ""))
-        suffix = f" - {description}" if description else ""
-        typer.echo(f"{index}. {package_ref}{suffix}")
-
-    choice_index = _prompt_selection_index("Select a package", count=len(packages))
-    package_ref = str(packages[choice_index].get("package_ref", ""))
-    if not package_ref:
-        _fail("available package response did not include package_ref")
-    if not typer.confirm(f"Assign {package_ref} to project {project_id}?"):
-        typer.echo("Cancelled.")
-        raise typer.Exit(COMMAND_CANCELLED_EXIT_CODE)
-    return package_ref
-
-
-def _select_visible_project_id() -> str | None:
-    if not _stdin_is_interactive():
-        _fail_omitted_package_ref_requires_tty()
-    payload = _api_request("GET", "/projects")
-    projects = payload.get("projects", []) if isinstance(payload, dict) else []
-    if not projects:
-        typer.echo("No projects found.")
-        return None
-
-    typer.echo("Visible projects:")
-    for index, project in enumerate(projects, start=1):
-        project_id = str(project.get("id", ""))
-        name = str(project.get("name", ""))
-        repo_url = str(project.get("repo_url_normalized", ""))
-        suffix = f" - {repo_url}" if repo_url else ""
-        typer.echo(f"{index}. {name} ({project_id}){suffix}")
-
-    choice_index = _prompt_selection_index("Select a project", count=len(projects))
-    project_id = str(projects[choice_index].get("id", ""))
-    if not project_id:
-        _fail("project response did not include project id")
-    return project_id
-
-
-def _fail_omitted_package_ref_requires_tty() -> None:
-    _fail(
-        "agh project package add without a package ref requires an "
-        "interactive terminal",
-        code=USAGE_ERROR_EXIT_CODE,
-    )
 
 
 @user_app.callback(invoke_without_command=True)
@@ -1712,105 +1585,260 @@ def collection_path(collection_id: str) -> str:
     return f"/collections/{collection_id}"
 
 
-@collection_package_app.callback(invoke_without_command=True)
-def collection_package_main(ctx: typer.Context) -> None:
-    """Collection package assignment commands."""
-    if ctx.invoked_subcommand is None:
-        _show_local_help(ctx)
-
-
-@collection_package_app.command("list", help="List collection package assignments.")
-def collection_package_list(
-    collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
-) -> None:
-    resolved_collection_id = _resolve_collection_ref(collection_ref)
-    _echo_collection_package_list(
-        _api_request("GET", f"/collections/{resolved_collection_id}/packages")
-    )
-
-
-@collection_package_app.command(
-    "add", help="Assign a skill-only package to a collection."
-)
-def collection_package_add(
-    collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
-    package_ref: Annotated[str, typer.Argument(help=PACKAGE_VERSION_REF_HELP)],
-    position: Annotated[int, typer.Option("--position", help="Assignment order.")] = 0,
-) -> None:
-    resolved_collection_id = _resolve_collection_ref(collection_ref)
-    resolved_package_ref = _resolve_package_version_ref(package_ref)
-    _echo_collection_package_assigned(
-        _api_request(
-            "POST",
-            f"/collections/{resolved_collection_id}/packages",
-            body={"package_ref": resolved_package_ref, "position": position},
-        ),
-        collection_id=resolved_collection_id,
-    )
-
-
-@collection_package_app.command(
-    "update", help="Update a collection package assignment."
-)
-def collection_package_update(
-    collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
-    assignment_id: Annotated[str, typer.Argument(help="Assignment id, e.g. casn_...")],
-    package_ref: Annotated[
-        str | None, typer.Option("--package-ref", help=PACKAGE_VERSION_REF_HELP)
-    ] = None,
-    position: Annotated[
-        int | None, typer.Option("--position", help="New order.")
-    ] = None,
-    active: Annotated[
-        bool | None,
-        typer.Option("--active/--inactive", help="Set whether assignment is active."),
-    ] = None,
-) -> None:
-    resolved_collection_id = _resolve_collection_ref(collection_ref)
-    resolved_package_ref = (
-        _resolve_package_version_ref(package_ref) if package_ref is not None else None
-    )
-    _echo_collection_package_updated(
-        _api_request(
-            "PATCH",
-            f"/collections/{resolved_collection_id}/packages/{assignment_id}",
-            body=_body_without_none(
-                package_ref=resolved_package_ref, position=position, active=active
-            ),
-        ),
-        collection_id=resolved_collection_id,
-        assignment_id=assignment_id,
-    )
-
-
-@collection_package_app.command(
-    "remove", help="Deactivate a collection package assignment."
-)
-def collection_package_remove(
-    collection_ref: Annotated[str, typer.Argument(help=COLLECTION_REF_HELP)],
-    assignment_id: Annotated[str, typer.Argument(help="Assignment id, e.g. casn_...")],
-) -> None:
-    resolved_collection_id = _resolve_collection_ref(collection_ref)
-    _echo_collection_package_removed(
-        _api_request(
-            "DELETE",
-            f"/collections/{resolved_collection_id}/packages/{assignment_id}",
-        ),
-        collection_id=resolved_collection_id,
-        assignment_id=assignment_id,
-    )
-
-
 @package_app.callback(invoke_without_command=True)
 def package_main(ctx: typer.Context) -> None:
-    """Package init/publish/list commands."""
+    """Package init/publish/list/describe and assignment commands."""
     if ctx.invoked_subcommand is None:
         _show_local_help(ctx)
 
 
-@package_app.command("list", help="List published package versions.")
-def package_list() -> None:
+PACKAGE_ASSIGN_TARGET_REQUIRED_MESSAGE = (
+    "package assignment requires exactly one of --project or --collection"
+)
+
+
+def _fail_package_assign_target_required() -> None:
+    _fail(PACKAGE_ASSIGN_TARGET_REQUIRED_MESSAGE, code=USAGE_ERROR_EXIT_CODE)
+
+
+def _resolve_package_assignment_target(
+    *, project: str | None, collection: str | None
+) -> tuple[str, str]:
+    """Resolve the mutually exclusive assignment target to ``(scope, scope_id)``.
+
+    ``scope`` is ``"project"`` or ``"collection"``. Exits with usage guidance when
+    both or neither target flag is supplied.
+    """
+    if project is not None and collection is not None:
+        _fail_package_assign_target_required()
+    if project is None and collection is None:
+        _fail_package_assign_target_required()
+    if project is not None:
+        return "project", _resolve_project_ref(project)
+    assert collection is not None
+    return "collection", _resolve_collection_ref(collection)
+
+
+def _package_identity(package_ref: str) -> tuple[str, str]:
+    """Return the ``(domain, name)`` identity for a canonical package ref."""
+    parsed = parse_package_ref(package_ref, allow_latest=True)
+    return parsed.domain, parsed.name
+
+
+def _find_package_assignment_id(*, scope: str, scope_id: str, package_ref: str) -> str:
+    """Look up the assignment id for a package within a project/collection target.
+
+    Matches by package identity (domain + name); the server enforces a single
+    assignment per package per target. Exits naming the package ref and target
+    when no assignment exists, so users know what to list.
+    """
+    domain, name = _package_identity(package_ref)
+    payload = _api_request("GET", f"/{scope}s/{scope_id}/packages")
+    assignments = payload.get(_assignment_payload_key(scope), [])
+    for assignment in assignments:
+        if (
+            str(assignment.get("domain")) == domain
+            and str(assignment.get("name")) == name
+        ):
+            assignment_id = str(assignment.get("id", ""))
+            if assignment_id:
+                return assignment_id
+    _fail(
+        f"package {package_ref} is not assigned to {scope} {scope_id}; "
+        f"run `agh package list --{scope} {scope_id}` to review assignments"
+    )
+
+
+def _semver_sort_key(version: str) -> tuple[int, int, int]:
+    return tuple(int(part) for part in version.split("."))  # type: ignore[return-value]
+
+
+def _find_describe_package(package_ref: str) -> dict[str, Any]:
+    """Resolve PACKAGE_REF to the published package record for describe.
+
+    Fetches ``/packages`` once. ``@latest`` resolves to the highest published
+    SemVer version (SemVer-aware, not string sort: ``1.10.0`` beats ``1.2.0``);
+    ``pkgv_`` ids and ``name@version`` refs resolve through the package version
+    resolver to their canonical ``domain/name@version`` first.
+    """
+    resolved = _resolve_package_version_ref(package_ref)
+    parsed = parse_package_ref(resolved, allow_latest=True)
+    payload = _api_request("GET", "/packages")
+    packages = payload.get("packages", []) if isinstance(payload, dict) else []
+    if parsed.version == "latest":
+        candidates = [
+            package
+            for package in packages
+            if str(package.get("domain")) == parsed.domain
+            and str(package.get("name")) == parsed.name
+        ]
+        if not candidates:
+            _fail(f"package {resolved} not found")
+        return max(
+            candidates,
+            key=lambda package: _semver_sort_key(str(package.get("version"))),
+        )
+    for package in packages:
+        if _package_ref(package) == resolved:
+            return package
+    _fail(f"package {resolved} not found")
+
+
+@package_app.command("list", help="List packages or scoped assignments.")
+def package_list(
+    project: Annotated[
+        str | None,
+        typer.Option("--project", help=PROJECT_REF_HELP),
+    ] = None,
+    collection: Annotated[
+        str | None,
+        typer.Option("--collection", help=COLLECTION_REF_HELP),
+    ] = None,
+) -> None:
+    if project is not None and collection is not None:
+        _fail_package_assign_target_required()
+    if project is not None:
+        scope_id = _resolve_project_ref(project)
+        _echo_package_assignments(
+            "project",
+            _api_request("GET", f"/projects/{scope_id}/packages"),
+        )
+        return
+    if collection is not None:
+        scope_id = _resolve_collection_ref(collection)
+        _echo_package_assignments(
+            "collection",
+            _api_request("GET", f"/collections/{scope_id}/packages"),
+        )
+        return
     _echo_package_list(_api_request("GET", "/packages"))
+
+
+@package_app.command("describe", help="Describe a package version by PACKAGE_REF.")
+def package_describe(
+    package_ref: Annotated[str, typer.Argument(help=PACKAGE_VERSION_REF_HELP)],
+) -> None:
+    _echo_package_detail(_find_describe_package(package_ref))
+
+
+@package_app.command("assign", help="Assign a package to a project or collection.")
+def package_assign(
+    package_ref: Annotated[str, typer.Argument(help=PACKAGE_VERSION_REF_HELP)],
+    project: Annotated[
+        str | None,
+        typer.Option("--project", help=PROJECT_REF_HELP),
+    ] = None,
+    collection: Annotated[
+        str | None,
+        typer.Option("--collection", help=COLLECTION_REF_HELP),
+    ] = None,
+) -> None:
+    scope, scope_id = _resolve_package_assignment_target(
+        project=project, collection=collection
+    )
+    resolved_package_ref = _resolve_package_version_ref(package_ref)
+    _echo_package_assigned(
+        _api_request(
+            "POST",
+            f"/{scope}s/{scope_id}/packages",
+            body={"package_ref": resolved_package_ref},
+        ),
+        scope=scope,
+        scope_id=scope_id,
+    )
+
+
+@package_app.command(
+    "activate", help="Activate a package assignment on a project or collection."
+)
+def package_activate(
+    package_ref: Annotated[str, typer.Argument(help=PACKAGE_VERSION_REF_HELP)],
+    project: Annotated[
+        str | None,
+        typer.Option("--project", help=PROJECT_REF_HELP),
+    ] = None,
+    collection: Annotated[
+        str | None,
+        typer.Option("--collection", help=COLLECTION_REF_HELP),
+    ] = None,
+) -> None:
+    scope, scope_id = _resolve_package_assignment_target(
+        project=project, collection=collection
+    )
+    resolved_package_ref = _resolve_package_version_ref(package_ref)
+    assignment_id = _find_package_assignment_id(
+        scope=scope, scope_id=scope_id, package_ref=resolved_package_ref
+    )
+    _echo_package_status(
+        _api_request(
+            "PATCH",
+            f"/{scope}s/{scope_id}/packages/{assignment_id}",
+            body={"active": True},
+        ),
+        scope=scope,
+        scope_id=scope_id,
+        verb="Activated",
+    )
+
+
+@package_app.command(
+    "deactivate", help="Deactivate a package assignment on a project or collection."
+)
+def package_deactivate(
+    package_ref: Annotated[str, typer.Argument(help=PACKAGE_VERSION_REF_HELP)],
+    project: Annotated[
+        str | None,
+        typer.Option("--project", help=PROJECT_REF_HELP),
+    ] = None,
+    collection: Annotated[
+        str | None,
+        typer.Option("--collection", help=COLLECTION_REF_HELP),
+    ] = None,
+) -> None:
+    scope, scope_id = _resolve_package_assignment_target(
+        project=project, collection=collection
+    )
+    resolved_package_ref = _resolve_package_version_ref(package_ref)
+    assignment_id = _find_package_assignment_id(
+        scope=scope, scope_id=scope_id, package_ref=resolved_package_ref
+    )
+    _echo_package_status(
+        _api_request(
+            "PATCH",
+            f"/{scope}s/{scope_id}/packages/{assignment_id}",
+            body={"active": False},
+        ),
+        scope=scope,
+        scope_id=scope_id,
+        verb="Deactivated",
+    )
+
+
+@package_app.command(
+    "unassign", help="Remove a package assignment from a project or collection."
+)
+def package_unassign(
+    package_ref: Annotated[str, typer.Argument(help=PACKAGE_VERSION_REF_HELP)],
+    project: Annotated[
+        str | None,
+        typer.Option("--project", help=PROJECT_REF_HELP),
+    ] = None,
+    collection: Annotated[
+        str | None,
+        typer.Option("--collection", help=COLLECTION_REF_HELP),
+    ] = None,
+) -> None:
+    scope, scope_id = _resolve_package_assignment_target(
+        project=project, collection=collection
+    )
+    resolved_package_ref = _resolve_package_version_ref(package_ref)
+    assignment_id = _find_package_assignment_id(
+        scope=scope, scope_id=scope_id, package_ref=resolved_package_ref
+    )
+    _api_request("DELETE", f"/{scope}s/{scope_id}/packages/{assignment_id}")
+    _echo_package_removed(
+        scope=scope, scope_id=scope_id, package_ref=resolved_package_ref
+    )
 
 
 @package_app.command("init", help="Create a local package template.")
@@ -1914,102 +1942,6 @@ def project_member_remove(
         ),
         project_id=resolved_project_id,
         user_id=resolved_user_id,
-    )
-
-
-@project_package_app.callback(invoke_without_command=True)
-def project_package_main(ctx: typer.Context) -> None:
-    """Project package assignment commands."""
-    if ctx.invoked_subcommand is None:
-        _show_local_help(ctx)
-
-
-@project_package_app.command("list", help="List project package assignments.")
-def project_package_list(
-    project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
-) -> None:
-    resolved_project_id = _resolve_project_ref(project_id)
-    _echo_project_package_list(
-        _api_request("GET", f"/projects/{resolved_project_id}/packages")
-    )
-
-
-@project_package_app.command("add", help="Assign a package to a project.")
-def project_package_add(
-    project_id: Annotated[str | None, typer.Argument(help=PROJECT_REF_HELP)] = None,
-    package_ref: Annotated[
-        str | None, typer.Argument(help=PACKAGE_VERSION_REF_HELP)
-    ] = None,
-    position: Annotated[int, typer.Option("--position", help="Assignment order.")] = 0,
-) -> None:
-    if package_ref is None and not _stdin_is_interactive():
-        _fail_omitted_package_ref_requires_tty()
-    if project_id is None:
-        resolved_project_id = _select_visible_project_id()
-        if resolved_project_id is None:
-            return
-    else:
-        resolved_project_id = _resolve_project_ref(project_id)
-    if package_ref is None:
-        resolved_package_ref = _select_available_package_ref(resolved_project_id)
-        if resolved_package_ref is None:
-            return
-    else:
-        resolved_package_ref = _resolve_package_version_ref(package_ref)
-    _echo_project_package_assigned(
-        _api_request(
-            "POST",
-            f"/projects/{resolved_project_id}/packages",
-            body={"package_ref": resolved_package_ref, "position": position},
-        ),
-        project_id=resolved_project_id,
-    )
-
-
-@project_package_app.command("update", help="Update a project package assignment.")
-def project_package_update(
-    project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
-    assignment_id: Annotated[str, typer.Argument(help="Assignment id, e.g. asn_...")],
-    package_ref: Annotated[
-        str | None, typer.Option("--package-ref", help=PACKAGE_VERSION_REF_HELP)
-    ] = None,
-    position: Annotated[
-        int | None, typer.Option("--position", help="New order.")
-    ] = None,
-    active: Annotated[
-        bool | None,
-        typer.Option("--active/--inactive", help="Set whether assignment is active."),
-    ] = None,
-) -> None:
-    resolved_project_id = _resolve_project_ref(project_id)
-    resolved_package_ref = (
-        _resolve_package_version_ref(package_ref) if package_ref is not None else None
-    )
-    _echo_project_package_updated(
-        _api_request(
-            "PATCH",
-            f"/projects/{resolved_project_id}/packages/{assignment_id}",
-            body=_body_without_none(
-                package_ref=resolved_package_ref, position=position, active=active
-            ),
-        ),
-        project_id=resolved_project_id,
-        assignment_id=assignment_id,
-    )
-
-
-@project_package_app.command("remove", help="Deactivate a project package assignment.")
-def project_package_remove(
-    project_id: Annotated[str, typer.Argument(help=PROJECT_REF_HELP)],
-    assignment_id: Annotated[str, typer.Argument(help="Assignment id, e.g. asn_...")],
-) -> None:
-    resolved_project_id = _resolve_project_ref(project_id)
-    _echo_project_package_removed(
-        _api_request(
-            "DELETE", f"/projects/{resolved_project_id}/packages/{assignment_id}"
-        ),
-        project_id=resolved_project_id,
-        assignment_id=assignment_id,
     )
 
 
