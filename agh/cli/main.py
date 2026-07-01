@@ -86,10 +86,9 @@ Commands:
   collection          Manage collections.
   package             Manage guidance packages and assignments.
   target              Show and manage local target selection.
-  skill               Discover, install, and remove collection-backed global skills.
-    skill agent       Manage the default agent for global skills.
-  sync                Link this git repository to its matching AGH project.
-  pull                Pull assigned guidance packages into this repository.
+  skill               Discover and install collection-backed global skills.
+  link                Link this git repository to its matching AGH project.
+  pull                Pull assigned guidance packages into the linked repository.
 
 Global options:
   --help              Show this help page.
@@ -246,18 +245,13 @@ target_app = typer.Typer(
 skill_app = typer.Typer(
     cls=AghSubcommandGroup,
     help=(
-        "Discover, install, and remove collection-backed global skills.\n\n"
+        "Discover and install collection-backed global skills.\n\n"
         "OpenCode: ~/.config/opencode/skills\n\n"
         "Claude: ~/.claude/skills\n\n"
-        "Agent selection uses the saved global-skills default; otherwise AGH "
-        "prompts with `Select the agent for global skills:`."
+        "Target resolution: explicit --target, workspace target, global target, "
+        "interactive prompt (`Select the target for global skills:`), then "
+        "non-interactive error."
     ),
-    no_args_is_help=False,
-    rich_markup_mode=None,
-)
-skill_agent_app = typer.Typer(
-    cls=AghSubcommandGroup,
-    help="Manage the saved default agent for global skill commands.",
     no_args_is_help=False,
     rich_markup_mode=None,
 )
@@ -270,7 +264,6 @@ app.add_typer(target_app, name="target")
 app.add_typer(skill_app, name="skill")
 user_app.add_typer(user_token_app, name="token")
 project_app.add_typer(project_member_app, name="member")
-skill_app.add_typer(skill_agent_app, name="agent")
 
 
 def _fail(message: str, *, code: int = 1) -> NoReturn:
@@ -412,7 +405,10 @@ def _resolve_package_version_ref(package_ref: str) -> str:
 global_skills_module.configure_api_request(_api_request)
 
 
-@app.command("pull", help="Pull assigned guidance packages into this repository.")
+@app.command(
+    "pull",
+    help="Pull assigned guidance packages into the linked repository. Run `agh link` first.",
+)
 def pull(
     dry_run: Annotated[
         bool,
@@ -617,11 +613,22 @@ def _echo_target_show(*, global_scope: bool) -> None:
     typer.echo(format_agent_availability(detect_agent_availability()))
 
 
-def _resolve_global_skill_agent(agent_option: str | None) -> str:
-    if agent_option is not None:
-        if agent_option not in SUPPORTED_AGENT_TARGETS:
-            _fail("agent target must be 'claude' or 'opencode'", code=2)
-        return agent_option
+def _resolve_skill_target(target_option: str | None) -> str:
+    """Resolve the target for `skill install`.
+
+    Resolution order: explicit ``--target``, workspace target, global target,
+    interactive prompt, then non-interactive usage error.
+    """
+    if target_option is not None:
+        if target_option not in SUPPORTED_AGENT_TARGETS:
+            _fail("target must be 'claude' or 'opencode'", code=2)
+        return target_option
+    try:
+        workspace = read_agent_preference()
+    except AgentPreferenceError as exc:
+        _fail(str(exc), code=exc.code)
+    if workspace is not None:
+        return workspace.target
     try:
         default = read_global_skill_default_agent()
     except AgentPreferenceError as exc:
@@ -629,16 +636,19 @@ def _resolve_global_skill_agent(agent_option: str | None) -> str:
     if default is not None:
         return default
     if not _stdin_is_interactive():
-        _fail("no default global skill agent; use --agent or run interactively", code=2)
-    return _prompt_global_skill_agent()
+        _fail(
+            "no target selected for global skills; use --target or run `agh target set`",
+            code=2,
+        )
+    return _prompt_skill_target()
 
 
-def _prompt_global_skill_agent() -> str:
-    typer.echo("Select the agent for global skills:")
+def _prompt_skill_target() -> str:
+    typer.echo("Select the target for global skills:")
     for index, target in enumerate(SUPPORTED_AGENT_TARGETS, start=1):
         typer.echo(f"{index}. {AGENT_LABELS[target]} ({target})")
     choice_index = _prompt_selection_index(
-        "Select an agent", count=len(SUPPORTED_AGENT_TARGETS)
+        "Select a target", count=len(SUPPORTED_AGENT_TARGETS)
     )
     selected = SUPPORTED_AGENT_TARGETS[choice_index]
     try:
@@ -646,7 +656,7 @@ def _prompt_global_skill_agent() -> str:
     except AgentPreferenceError:
         has_default = False
     if not has_default and typer.confirm(
-        "Save this as the default agent for global skills?"
+        "Save this as the default target for global skills?"
     ):
         try:
             write_global_skill_default_agent(selected)
@@ -679,20 +689,20 @@ def skill_list() -> None:
 
 
 @skill_app.command(
-    "install", help="Install a collection-backed skill into the selected global agent."
+    "install", help="Install a collection-backed skill into the selected target."
 )
 def skill_install(
     package_ref: Annotated[
         str, typer.Argument(help="Package ref such as acme/pkg@latest.")
     ],
     skill_name: Annotated[str, typer.Argument(help="Skill name to install.")],
-    agent: Annotated[
+    target: Annotated[
         str | None,
         typer.Option(
-            "--agent",
+            "--target",
             help=(
-                "Use --agent to choose claude or opencode. If omitted, use the "
-                "saved default or prompt interactively."
+                "Use --target to choose claude or opencode. If omitted, use the "
+                "workspace target, global target, or prompt interactively."
             ),
         ),
     ] = None,
@@ -702,127 +712,22 @@ def skill_install(
     ] = False,
 ) -> None:
     """Resolve, download, and install a collection skill."""
-    selected_agent = _resolve_global_skill_agent(agent)
+    selected_target = _resolve_skill_target(target)
     try:
         result = global_skills_module.install_skill_global(
-            selected_agent, package_ref, skill_name, force=force
+            selected_target, package_ref, skill_name, force=force
         )
     except GlobalSkillError as exc:
         _fail(str(exc), code=exc.code)
     if result.changed:
         typer.echo(
-            f"Installed {skill_name} for {AGENT_LABELS[selected_agent]} "
+            f"Installed {skill_name} for {AGENT_LABELS[selected_target]} "
             f"at {_format_cli_path(result.target_path)}."
         )
     else:
         typer.echo(
-            f"{skill_name} is already up to date for {AGENT_LABELS[selected_agent]}."
+            f"{skill_name} is already up to date for {AGENT_LABELS[selected_target]}."
         )
-
-
-@skill_app.command("remove", help="Remove a globally installed skill.")
-def skill_remove(
-    skill_name: Annotated[str, typer.Argument(help="Skill name to remove.")],
-    agent: Annotated[
-        str | None,
-        typer.Option(
-            "--agent",
-            help=(
-                "Use --agent to choose claude or opencode. If omitted, use the "
-                "saved default or prompt interactively."
-            ),
-        ),
-    ] = None,
-) -> None:
-    """Remove a global skill from the selected agent and lock file."""
-    selected_agent = _resolve_global_skill_agent(agent)
-    try:
-        global_skills_module.remove_skill_global(selected_agent, skill_name)
-    except GlobalSkillError as exc:
-        _fail(str(exc), code=exc.code)
-    typer.echo(f"Removed {skill_name} for {AGENT_LABELS[selected_agent]}.")
-
-
-@skill_app.command("installed", help="List globally installed skills for the agent.")
-def skill_installed(
-    agent: Annotated[
-        str | None,
-        typer.Option(
-            "--agent",
-            help=(
-                "Use --agent to choose claude or opencode. If omitted, use the "
-                "saved default or prompt interactively."
-            ),
-        ),
-    ] = None,
-) -> None:
-    """Show installed global skills from the local lock file."""
-    selected_agent = _resolve_global_skill_agent(agent)
-    entries = global_skills_module.list_installed_skills(selected_agent)
-    if not entries:
-        typer.echo(f"No global skills installed for {AGENT_LABELS[selected_agent]}.")
-        return
-    _echo_table(
-        ["SKILL_NAME", "PACKAGE_REF", "CHECKSUM"],
-        [
-            [
-                str(entry.get("name", "")),
-                str(entry.get("package_ref_resolved", "")),
-                str(entry.get("checksum", "")),
-            ]
-            for entry in entries
-        ],
-    )
-
-
-@skill_agent_app.callback(invoke_without_command=True)
-def skill_agent_main(ctx: typer.Context) -> None:
-    """Show the current default global skill agent."""
-    if ctx.invoked_subcommand is None:
-        skill_agent_show()
-
-
-@skill_agent_app.command("show", help="Show the default agent for global skills.")
-def skill_agent_show() -> None:
-    """Read and display the saved default global skill agent."""
-    try:
-        default = read_global_skill_default_agent()
-    except AgentPreferenceError as exc:
-        _fail(str(exc), code=exc.code)
-    if default is None:
-        typer.echo("Default global skill agent: not set.")
-    else:
-        typer.echo(f"Default global skill agent: {AGENT_LABELS[default]} ({default}).")
-
-
-@skill_agent_app.command("select", help="Set the default agent for global skills.")
-def skill_agent_select(
-    target: Annotated[
-        str,
-        typer.Argument(help="Default agent target: claude or opencode."),
-    ],
-) -> None:
-    """Persist the default agent for future global skill commands."""
-    if target not in SUPPORTED_AGENT_TARGETS:
-        _fail("agent target must be 'claude' or 'opencode'", code=2)
-    try:
-        write_global_skill_default_agent(target)
-    except AgentPreferenceError as exc:
-        _fail(str(exc), code=exc.code)
-    typer.echo(f"Set default global skill agent to {AGENT_LABELS[target]} ({target}).")
-
-
-@skill_agent_app.command("clear", help="Clear the default agent for global skills.")
-def skill_agent_clear() -> None:
-    """Remove the saved default global skill agent."""
-    try:
-        removed = clear_global_skill_default_agent()
-    except AgentPreferenceError as exc:
-        _fail(str(exc), code=exc.code)
-    if removed:
-        typer.echo("Cleared default global skill agent.")
-    else:
-        typer.echo("No default global skill agent was set.")
 
 
 def _format_cli_path(path: Path) -> str:
@@ -840,8 +745,8 @@ def _echo_sync_success(result: SyncResult) -> None:
     typer.echo(f"Server: {result.instance_url}")
 
 
-@app.command("sync", help="Link this git repository to its matching AGH project.")
-def sync(
+@app.command("link", help="Link this git repository to its matching AGH project.")
+def link(
     remote: Annotated[
         str,
         typer.Option("--remote", help="Git remote name to match against AGH projects."),

@@ -361,7 +361,7 @@ def _read_project_link(workspace: Path) -> ProjectLink:
     link_path = workspace / ".agh" / "project.toml"
     if not link_path.exists():
         raise WorkspacePullError(
-            "workspace is not linked; run `agh sync` first", code=EXIT_NOT_LINKED
+            "workspace is not linked; run `agh link` first", code=EXIT_NOT_LINKED
         )
     if link_path.is_symlink() or link_path.parent.is_symlink():
         raise WorkspacePullError(

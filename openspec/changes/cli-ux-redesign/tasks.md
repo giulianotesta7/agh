@@ -93,9 +93,9 @@ Delivery strategy: ask-always (approved chained PRs)
 
 ## Phase 5: Skill / Link / Pull Cleanup
 
-- [ ] 5.1 RED: Test target resolution, non-interactive error, `link`, absent `sync`, and `pull` help.
-- [ ] 5.2 GREEN: Wire supported `skill`, `link`, and `pull` help in `main.py`/`workspace_sync.py`.
-- [ ] 5.3 REFACTOR: Remove unsupported `skill installed/remove/agent` exposure.
+- [x] 5.1 RED: Test target resolution, non-interactive error, `link`, absent `sync`, and `pull` help.
+- [x] 5.2 GREEN: Wire supported `skill`, `link`, and `pull` help in `main.py`/`workspace_sync.py`.
+- [x] 5.3 REFACTOR: Remove unsupported `skill installed/remove/agent` exposure.
 
 ## Phase 6: Docs / Changelog / Final Validation
 

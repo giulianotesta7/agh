@@ -1,4 +1,4 @@
-"""CLI workspace sync tests."""
+"""CLI workspace link tests."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def _serve_projects(projects: list[dict[str, Any]], *, status_code: int = 200):
 
 
 def _write_config(
-    tmp_path: Path, url: str, token: str = "sync-secret-token"
+    tmp_path: Path, url: str, token: str = "link-secret-token"
 ) -> dict[str, str]:
     path = tmp_path / "config.toml"
     path.write_text(
@@ -75,7 +75,7 @@ def _linked_project_toml(repo: Path) -> dict[str, Any]:
     return tomllib.loads((repo / ".agh" / "project.toml").read_text(encoding="utf-8"))
 
 
-def test_sync_links_default_remote_and_uses_saved_config_auth(
+def test_link_links_default_remote_and_uses_saved_config_auth(
     tmp_path: Path, monkeypatch
 ) -> None:
     repo = _git_repo(tmp_path, remotes={"origin": "git@github.com:Org/App.GIT"})
@@ -92,7 +92,7 @@ def test_sync_links_default_remote_and_uses_saved_config_auth(
     )
     monkeypatch.chdir(repo)
     try:
-        result = CliRunner().invoke(cli_app, ["sync"], env=_write_config(tmp_path, url))
+        result = CliRunner().invoke(cli_app, ["link"], env=_write_config(tmp_path, url))
     finally:
         server.shutdown()
 
@@ -103,9 +103,9 @@ def test_sync_links_default_remote_and_uses_saved_config_auth(
     assert f"Server: {url}" in result.stdout
     assert '"project_id"' not in result.stdout
     assert '"replaced"' not in result.stdout
-    assert "sync-secret-token" not in result.stdout
+    assert "link-secret-token" not in result.stdout
     assert handler.requests == [
-        {"path": "/api/v1/projects", "authorization": "Bearer sync-secret-token"}
+        {"path": "/api/v1/projects", "authorization": "Bearer link-secret-token"}
     ]
     link = _linked_project_toml(repo)
     assert link["instance_url"] == url
@@ -114,7 +114,7 @@ def test_sync_links_default_remote_and_uses_saved_config_auth(
     assert "synced_at" in link
 
 
-def test_sync_supports_non_default_remote(tmp_path: Path, monkeypatch) -> None:
+def test_link_supports_non_default_remote(tmp_path: Path, monkeypatch) -> None:
     repo = _git_repo(
         tmp_path,
         remotes={
@@ -136,7 +136,7 @@ def test_sync_supports_non_default_remote(tmp_path: Path, monkeypatch) -> None:
     try:
         result = CliRunner().invoke(
             cli_app,
-            ["sync", "--remote", "upstream"],
+            ["link", "--remote", "upstream"],
             env=_write_config(tmp_path, url),
         )
     finally:
@@ -146,7 +146,7 @@ def test_sync_supports_non_default_remote(tmp_path: Path, monkeypatch) -> None:
     assert _linked_project_toml(repo)["project_id"] == "prj_upstream"
 
 
-def test_sync_refuses_symlinked_agh_directory(tmp_path: Path, monkeypatch) -> None:
+def test_link_refuses_symlinked_agh_directory(tmp_path: Path, monkeypatch) -> None:
     repo = _git_repo(tmp_path, remotes={"origin": "git@github.com:org/app.git"})
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -163,7 +163,7 @@ def test_sync_refuses_symlinked_agh_directory(tmp_path: Path, monkeypatch) -> No
     )
     monkeypatch.chdir(repo)
     try:
-        result = CliRunner().invoke(cli_app, ["sync"], env=_write_config(tmp_path, url))
+        result = CliRunner().invoke(cli_app, ["link"], env=_write_config(tmp_path, url))
     finally:
         server.shutdown()
 
@@ -172,7 +172,7 @@ def test_sync_refuses_symlinked_agh_directory(tmp_path: Path, monkeypatch) -> No
     assert not (outside / "project.toml").exists()
 
 
-def test_sync_refuses_existing_link_without_force_and_force_replaces_link_only(
+def test_link_refuses_existing_link_without_force_and_force_replaces_link_only(
     tmp_path: Path, monkeypatch
 ) -> None:
     repo = _git_repo(tmp_path, remotes={"origin": "git@github.com:org/app.git"})
@@ -195,9 +195,9 @@ def test_sync_refuses_existing_link_without_force_and_force_replaces_link_only(
     )
     monkeypatch.chdir(repo)
     try:
-        first = CliRunner().invoke(cli_app, ["sync"], env=_write_config(tmp_path, url))
+        first = CliRunner().invoke(cli_app, ["link"], env=_write_config(tmp_path, url))
         forced = CliRunner().invoke(
-            cli_app, ["sync", "--force"], env=_write_config(tmp_path, url)
+            cli_app, ["link", "--force"], env=_write_config(tmp_path, url)
         )
     finally:
         server.shutdown()
@@ -212,7 +212,7 @@ def test_sync_refuses_existing_link_without_force_and_force_replaces_link_only(
     assert (agh_dir / "lock.toml").read_text(encoding="utf-8") == "version = 1\n"
 
 
-def test_sync_fails_for_missing_remote_and_no_matching_project(
+def test_link_fails_for_missing_remote_and_no_matching_project(
     tmp_path: Path, monkeypatch
 ) -> None:
     repo = _git_repo(tmp_path, remotes={"origin": "git@github.com:org/app.git"})
@@ -229,10 +229,10 @@ def test_sync_fails_for_missing_remote_and_no_matching_project(
     monkeypatch.chdir(repo)
     try:
         missing_remote = CliRunner().invoke(
-            cli_app, ["sync", "--remote", "missing"], env=_write_config(tmp_path, url)
+            cli_app, ["link", "--remote", "missing"], env=_write_config(tmp_path, url)
         )
         no_match = CliRunner().invoke(
-            cli_app, ["sync"], env=_write_config(tmp_path, url)
+            cli_app, ["link"], env=_write_config(tmp_path, url)
         )
     finally:
         server.shutdown()
@@ -244,7 +244,7 @@ def test_sync_fails_for_missing_remote_and_no_matching_project(
     assert not (repo / ".agh" / "project.toml").exists()
 
 
-def test_sync_remote_lookup_timeout_fails_clearly(tmp_path: Path, monkeypatch) -> None:
+def test_link_remote_lookup_timeout_fails_clearly(tmp_path: Path, monkeypatch) -> None:
     repo = _git_repo(tmp_path, remotes={"origin": "git@github.com:org/app.git"})
     server, handler, url = _serve_projects([])
     monkeypatch.chdir(repo)
@@ -256,7 +256,7 @@ def test_sync_remote_lookup_timeout_fails_clearly(tmp_path: Path, monkeypatch) -
 
     monkeypatch.setattr("agh.cli.workspace_sync.subprocess.run", timeout_run)
     try:
-        result = CliRunner().invoke(cli_app, ["sync"], env=_write_config(tmp_path, url))
+        result = CliRunner().invoke(cli_app, ["link"], env=_write_config(tmp_path, url))
     finally:
         server.shutdown()
 
@@ -267,8 +267,8 @@ def test_sync_remote_lookup_timeout_fails_clearly(tmp_path: Path, monkeypatch) -
     assert not (repo / ".agh" / "project.toml").exists()
 
 
-def test_sync_help_has_no_manual_project_override() -> None:
-    result = CliRunner().invoke(cli_app, ["sync", "--help"])
+def test_link_help_has_no_manual_project_override() -> None:
+    result = CliRunner().invoke(cli_app, ["link", "--help"])
 
     assert result.exit_code == 0
     assert "--remote" in result.stdout
@@ -276,12 +276,12 @@ def test_sync_help_has_no_manual_project_override() -> None:
     assert "--project" not in result.stdout
 
 
-def test_sync_corrupt_config_shows_recovery_guidance(
+def test_link_corrupt_config_shows_recovery_guidance(
     tmp_path: Path, monkeypatch
 ) -> None:
     """Corrupt config surfaces recovery guidance, not a raw error/traceback.
 
-    Regression for the Judgment Day finding that sync/pull failed without the
+    Regression for the Judgment Day finding that link/pull failed without the
     shared corrupt-config recovery guidance. Config is loaded before the git
     remote lookup, so a git repo is not required to exercise this path.
     """
@@ -294,7 +294,7 @@ def test_sync_corrupt_config_shows_recovery_guidance(
     monkeypatch.chdir(repo)
 
     result = CliRunner().invoke(
-        cli_app, ["sync"], env={"AGH_CONFIG_FILE": str(config_path)}
+        cli_app, ["link"], env={"AGH_CONFIG_FILE": str(config_path)}
     )
 
     assert result.exit_code != 0

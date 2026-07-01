@@ -693,3 +693,131 @@ Test Summary:
 - Telemetry/observability architecture (explicitly excluded from this round).
 - README/README.es drift (Phase 6).
 - Phase 5 skill/link/pull cleanup.
+
+## Phase 5: Skill / Link / Pull Cleanup (PR5) — DONE
+
+Stacked-to-main slice. The public UX now exposes `link` instead of `sync`, `pull`
+help points users to `link`, and `skill` only exposes `list` and `install` with
+`--target` target resolution.
+
+### What shipped (PR5)
+
+- **`link` command.** `agh link` links the current git repository to its matching
+  AGH project, with the same `--remote` and `--force` behavior as the previous
+  `sync` command.
+- **`sync` removed.** The legacy `sync` command is no longer registered; invoking
+  `agh sync` exits 2 as an unknown command and is not retained as a hidden alias.
+- **`pull` help aligned.** `agh pull --help` now describes pulling into the
+  "linked repository" and mentions `agh link` first, guiding users who have not
+  yet linked the workspace.
+- **`skill` surface reduced.** Only `skill list` and `skill install` remain public.
+  `skill remove`, `skill installed`, and the `skill agent` subgroup (show/select/
+  clear) are removed and exit 2 as unsupported.
+- **`skill install --target`.** The `--agent` option is replaced by `--target`.
+  Target resolution follows the design contract: explicit `--target`, workspace
+  target (`.agh-cache/preferences.toml`), global target (`global-skills/defaults.toml`),
+  interactive prompt, then non-interactive usage error.
+- **Target language everywhere.** Error messages, prompts, and help text use
+  "target" instead of "agent" for global skill commands.
+- **Changelog fragment.** Added `changelog.d/+cli-skill-link-pull.breaking.md`
+  documenting the breaking CLI changes in this slice.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 5.1 | `tests/test_cli_skill_link_pull.py` | Unit (CliRunner) | 138/138 focused | 14 failing | 14 passing | link, sync removal, pull help, target resolution order, non-interactive error, skill cleanup | n/a |
+| 5.2 | `agh/cli/main.py`, `agh/cli/workspace_pull.py` | Unit | 138/138 focused | covered by 5.1 | 138 passing | `link` command, `--target` option, pull help | renamed `_resolve_global_skill_agent` → `_resolve_skill_target`, removed dead skill commands |
+| 5.3 | `tests/test_cli_help_map.py`, `tests/test_global_skills.py`, `tests/test_workspace_sync.py`, `tests/test_integration_smoke.py` | Unit (CliRunner) | 138/138 focused | existing tests for removed commands fail | updated/removed; 138 passing | root map pins, unsupported command cases | mechanical `sync` → `link` in workspace sync tests |
+
+Test Summary:
+- New tests written: 14 in `tests/test_cli_skill_link_pull.py`
+- Existing tests updated: `tests/test_cli_help_map.py`, `tests/test_global_skills.py`, `tests/test_workspace_sync.py`, `tests/test_integration_smoke.py`
+- Focused run (skill/link/pull + help + workspace sync): 138 passed
+- Full suite: `/tmp/opencode/uvpkg/bin/uv run pytest -q` -> 553 passed
+- Validation: `ruff check` clean; `ruff format --check` clean (69 files); `pyright agh tests` 0 errors; `git diff --check` clean.
+- Towncrier evidence limitation: the new fragment is currently untracked, so any
+  local `uv run towncrier check` would be a limited sanity check only; the PR CI
+  run is the authority that validates it against the real branch diff.
+- `uv` is absent from PATH in this shell; all commands used `/tmp/opencode/uvpkg/bin/uv` (`uv 0.11.25`).
+
+### Files Changed (PR5)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `agh/cli/main.py` | Modified | Added `link` command; removed `sync`; reduced `skill` to `list`/`install`; added `--target` to `skill install`; removed `skill remove`/`installed`/`agent`; updated `_resolve_skill_target` to check workspace then global target; updated APP_HELP and skill/pull help text. |
+| `agh/cli/workspace_pull.py` | Modified | Updated "not linked" guidance from `agh sync` to `agh link`. |
+| `tests/test_cli_skill_link_pull.py` | Created | Phase 5 RED/GREEN coverage for `link`, `sync` removal, `pull` help, `skill install --target` target resolution, and removed skill commands. |
+| `tests/test_cli_help_map.py` | Modified | Root map pins now expect `link` and no `skill agent`; legacy unsupported cases include `sync` and removed skill commands. |
+| `tests/test_global_skills.py` | Modified | Updated skill help/install tests for target vocabulary; removed tests for deleted `skill remove`/`installed`/`agent` commands. |
+| `tests/test_workspace_sync.py` | Modified | Mechanical `sync` → `link` rename for CLI invocations and help assertions. |
+| `tests/test_integration_smoke.py` | Modified | Smoke flow uses `agh link` instead of `agh sync`. |
+| `changelog.d/+cli-skill-link-pull.breaking.md` | Created | Towncrier breaking fragment for the Phase 5 CLI cleanup. |
+| `openspec/changes/cli-ux-redesign/tasks.md` | Modified | Phase 5 tasks marked complete. |
+| `openspec/changes/cli-ux-redesign/apply-progress.md` | Modified | Recorded this Phase 5 progress and validation evidence. |
+
+### Review surface accounting
+
+| Surface | Files | Changed lines | vs 800 budget |
+|---------|-------|---------------|---------------|
+| Runtime code | `agh/cli/main.py`, `agh/cli/workspace_pull.py` | 191 (48+ / 143−) | under |
+| Tests (tracked modifications) | `test_cli_help_map.py`, `test_cli_pull.py`, `test_global_skills.py`, `test_integration_smoke.py`, `test_workspace_sync.py` | 210 (54+ / 156−) | — |
+| New tests | `tests/test_cli_skill_link_pull.py` | 355 (355+ / 0−) | — |
+| **Tests total** | | **565** | **over 400 alone** |
+| Changelog + OpenSpec governance | `changelog.d/+cli-skill-link-pull.breaking.md`, `tasks.md`, `apply-progress.md` | 132 (132+ / 3−) | n/a (governance) |
+| **Runtime + test subtotal** | | **756** | **under 800** |
+| **Full PR5 slice total** | | **888** | **over 800 if governance is counted** |
+
+### Size disposition
+
+Runtime + tests (756 changed lines) stay within the user-approved 800-line
+behavior-review budget, but the full PR5 slice including governance artifacts is
+888 changed lines. The slice exceeds AGH's default 400-line budget on tests
+alone; the runtime code surface remains small.
+
+### Deviations / Scope Decisions
+
+- **README/README.es drift remains deferred to Phase 6.** The README still
+  references `agh sync`, `agh agent`, and the removed `skill` subcommands. This
+  is intentional: Phase 6 is the dedicated docs/changelog final pass, and the
+  README already had pre-existing drift from earlier phases (e.g., `--repo-url`
+  vs `--git-url`). The Phase 5 slice is reviewable on code + tests; the docs
+  follow in the next slice.
+
+### Out of scope (deferred)
+
+- README/README.es comprehensive update and final docs validation (Phase 6).
+- Any further Judgment Day or review-fix rounds for earlier phases.
+
+## Phase 5 Cleanup (fresh-audit fix batch)
+
+Addressed two non-blocking warnings from the fresh Phase 5 audit without
+broadening scope into Phase 6 docs work.
+
+### What changed
+
+- **`tests/test_cli_pull.py`**: Strengthened the missing-link assertion in
+  `test_pull_missing_link_exits_5` from the weak `"not linked" in result.stdout`
+  to the exact guidance substring `"workspace is not linked; run `agh link` first"`.
+  This proves the CLI points users to `agh link` rather than any generic
+  not-linked message.
+- **`openspec/changes/cli-ux-redesign/apply-progress.md`**: Removed the
+  `tests/test_cli_pull.py` row from the "Files Changed (PR5)" table. That row
+  falsely claimed the file was modified during the original PR5 implementation
+  slice; it was not (the missing-link test was last touched in PR2b and was
+  only updated now in this cleanup).
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| cleanup-1 | `tests/test_cli_pull.py` | Unit (CliRunner) | 1/1 (`test_pull_missing_link_exits_5`) | n/a (coverage hardening) | 37/37 focused passing | n/a | n/a |
+| cleanup-2 | `openspec/changes/cli-ux-redesign/apply-progress.md` | docs | n/a | n/a | n/a | n/a | n/a |
+
+### TDD note
+
+This is coverage-hardening of an already-green assertion, not a fresh
+RED/GREEN bug cycle. The production guidance string (`workspace is not linked;
+run `agh link` first`) was already in place; the test just did not pin it
+strongly enough. The strengthened assertion passes immediately on the existing
+implementation.

@@ -209,14 +209,14 @@ def test_server_to_cli_sync_and_pull_smoke(tmp_path: Path, monkeypatch) -> None:
         runner = CliRunner()
         monkeypatch.chdir(repo)
 
-        sync = runner.invoke(cli_app, ["sync"], env=env)
-        assert sync.exit_code == 0, sync.stdout
-        assert f"Linked this repo to App ({project['id']})." in sync.stdout
-        assert "Project file: .agh/project.toml" in sync.stdout
-        assert "Remote: github.com/acme/app" in sync.stdout
-        assert f"Server: {base_url}" in sync.stdout
-        assert '"project_id"' not in sync.stdout
-        assert '"replaced"' not in sync.stdout
+        link = runner.invoke(cli_app, ["link"], env=env)
+        assert link.exit_code == 0, link.stdout
+        assert f"Linked this repo to App ({project['id']})." in link.stdout
+        assert "Project file: .agh/project.toml" in link.stdout
+        assert "Remote: github.com/acme/app" in link.stdout
+        assert f"Server: {base_url}" in link.stdout
+        assert '"project_id"' not in link.stdout
+        assert '"replaced"' not in link.stdout
         project_link = tomllib.loads(
             (repo / ".agh" / "project.toml").read_text(encoding="utf-8")
         )

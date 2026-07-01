@@ -33,7 +33,7 @@ PR3_TOP_LEVEL_COMMANDS = [
     "package",
     "target",
     "skill",
-    "sync",
+    "link",
     "pull",
 ]
 PR3_NESTED_COMMANDS = [
@@ -41,11 +41,10 @@ PR3_NESTED_COMMANDS = [
     "config clear",
     "user token",
     "project member",
-    "skill agent",
 ]
-# Names promised by the final redesign that are NOT backed by any PR2c command
-# yet, and therefore MUST NOT be advertised from root help.
-NOT_YET_IMPLEMENTED_COMMANDS = ["link"]
+# Names promised by the final redesign that are NOT backed by any current
+# command yet, and therefore MUST NOT be advertised from root help.
+NOT_YET_IMPLEMENTED_COMMANDS: list[str] = []
 
 
 def _root_help(runner: CliRunner) -> str:
@@ -107,7 +106,7 @@ def test_root_help_lists_command_tree_and_version_flag() -> None:
     # tokens such as "member" that could match unrelated prose.
     _, nested_rows = _root_command_rows(help_output)
     assert "project member" in nested_rows
-    assert "skill agent" in nested_rows
+    assert "skill agent" not in nested_rows
 
 
 def test_root_no_args_matches_root_help() -> None:
@@ -290,6 +289,13 @@ def test_legacy_resource_commands_are_not_supported() -> None:
         ["project", "delete", "prj_2"],
         ["collection", "get", "col_0000000000000001"],
         ["collection", "delete", "col_0000000000000001"],
+        ["sync"],
+        ["skill", "remove", "reviewer"],
+        ["skill", "installed"],
+        ["skill", "agent"],
+        ["skill", "agent", "show"],
+        ["skill", "agent", "select", "opencode"],
+        ["skill", "agent", "clear"],
     ]
     for argv in cases:
         result = runner.invoke(cli_app, argv)

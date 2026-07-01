@@ -825,7 +825,7 @@ def test_pull_missing_link_exits_5(tmp_path: Path, monkeypatch) -> None:
     )
 
     assert result.exit_code == 5
-    assert "not linked" in result.stdout
+    assert "workspace is not linked; run `agh link` first" in result.stdout
 
 
 def test_pull_auth_error_exits_4(tmp_path: Path, monkeypatch) -> None:

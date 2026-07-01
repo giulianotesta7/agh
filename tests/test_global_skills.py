@@ -1246,44 +1246,31 @@ def test_skill_list_shows_available_skills(monkeypatch: MonkeyPatch) -> None:
     assert "acme/commenting@latest" in result.stdout
 
 
-def test_skill_help_documents_global_paths_and_agent_default() -> None:
+def test_skill_help_documents_target_resolution() -> None:
     runner = CliRunner()
 
     skill_help = runner.invoke(cli_app, ["skill", "--help"])
     install_help = runner.invoke(cli_app, ["skill", "install", "--help"])
-    agent_help = runner.invoke(cli_app, ["skill", "agent", "--help"])
-    select_help = runner.invoke(cli_app, ["skill", "agent", "select", "--help"])
 
     assert skill_help.exit_code == 0, skill_help.stdout
-    assert (
-        "Discover, install, and remove collection-backed global skills."
-        in skill_help.stdout
-    )
+    assert "Discover and install collection-backed global skills." in skill_help.stdout
     assert "Claude: ~/.claude/skills" in skill_help.stdout
     assert "OpenCode: ~/.config/opencode/skills" in skill_help.stdout
-    assert "Select the agent for global skills:" in skill_help.stdout
+    assert "Select the target for global skills:" in skill_help.stdout
+    assert "remove" not in skill_help.stdout
+    assert "installed" not in skill_help.stdout
+    assert "agent" not in skill_help.stdout
 
     assert install_help.exit_code == 0, install_help.stdout
     assert (
-        "Install a collection-backed skill into the selected global agent."
+        "Install a collection-backed skill into the selected target."
         in install_help.stdout
     )
-    assert "Use --agent to choose claude or opencode." in install_help.stdout
+    assert "Use --target to choose claude or opencode." in install_help.stdout
     assert "Overwrite an untracked target skill file." in install_help.stdout
 
-    assert agent_help.exit_code == 0, agent_help.stdout
-    assert (
-        "Manage the saved default agent for global skill commands." in agent_help.stdout
-    )
-    assert "show" in agent_help.stdout
-    assert "select" in agent_help.stdout
-    assert "clear" in agent_help.stdout
 
-    assert select_help.exit_code == 0, select_help.stdout
-    assert "Default agent target: claude or opencode." in select_help.stdout
-
-
-def test_skill_install_uses_agent_option(
+def test_skill_install_uses_target_option(
     agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
 ) -> None:
     from agh.cli import main as cli_main
@@ -1310,7 +1297,7 @@ def test_skill_install_uses_agent_option(
             "install",
             "acme/commenting@latest",
             "reviewer",
-            "--agent",
+            "--target",
             "opencode",
             "--force",
         ],
@@ -1320,98 +1307,3 @@ def test_skill_install_uses_agent_option(
     assert calls == [("opencode", "acme/commenting@latest", "reviewer", True)]
     assert "Installed reviewer" in result.stdout
     assert "OpenCode" in result.stdout
-
-
-def test_skill_remove_uses_default_agent(
-    agh_state: Path, agent_home: Path, monkeypatch: MonkeyPatch
-) -> None:
-    from agh.cli import main as cli_main
-
-    write_global_skill_default_agent("claude")
-    removed: list[tuple[str, str]] = []
-
-    def fake_remove(agent: str, name: str) -> Path:
-        removed.append((agent, name))
-        return agent_home / ".claude" / "skills" / name / "SKILL.md"
-
-    monkeypatch.setattr(
-        cli_main.global_skills_module, "remove_skill_global", fake_remove
-    )
-
-    result = CliRunner().invoke(cli_app, ["skill", "remove", "reviewer"])
-
-    assert result.exit_code == 0, result.stdout
-    assert removed == [("claude", "reviewer")]
-    assert "Removed reviewer" in result.stdout
-
-
-def test_skill_installed_lists_lock_entries(monkeypatch: MonkeyPatch) -> None:
-    from agh.cli import main as cli_main
-
-    checksum = _checksum("# Skill content\n")
-    monkeypatch.setattr(
-        cli_main.global_skills_module,
-        "list_installed_skills",
-        lambda _agent: [
-            {
-                "name": "reviewer",
-                "package_ref_resolved": "acme/commenting@1.2.0",
-                "checksum": checksum,
-            }
-        ],
-    )
-
-    result = CliRunner().invoke(cli_app, ["skill", "installed", "--agent", "opencode"])
-
-    assert result.exit_code == 0, result.stdout
-    assert "reviewer" in result.stdout
-    assert "acme/commenting@1.2.0" in result.stdout
-    assert checksum in result.stdout
-
-
-def test_skill_agent_show_select_and_clear_roundtrip(agh_state: Path) -> None:
-    runner = CliRunner()
-
-    show_empty = runner.invoke(cli_app, ["skill", "agent", "show"])
-    assert show_empty.exit_code == 0, show_empty.stdout
-    assert "not set" in show_empty.stdout
-
-    select = runner.invoke(cli_app, ["skill", "agent", "select", "opencode"])
-    assert select.exit_code == 0, select.stdout
-    assert "OpenCode" in select.stdout
-
-    show_set = runner.invoke(cli_app, ["skill", "agent", "show"])
-    assert show_set.exit_code == 0, show_set.stdout
-    assert "OpenCode" in show_set.stdout
-
-    clear = runner.invoke(cli_app, ["skill", "agent", "clear"])
-    assert clear.exit_code == 0, clear.stdout
-    assert "Cleared" in clear.stdout
-
-
-def test_skill_agent_prompt_saves_default(
-    agh_state: Path, monkeypatch: MonkeyPatch
-) -> None:
-    from agh.cli import main as cli_main
-
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: True)
-
-    result = CliRunner().invoke(cli_app, ["skill", "installed"], input="1\ny\n")
-
-    assert result.exit_code == 0, result.stdout
-    assert "Select the agent for global skills:" in result.stdout
-    assert "Save this as the default agent for global skills?" in result.stdout
-    assert read_global_skill_default_agent() == "claude"
-
-
-def test_skill_agent_prompt_rejects_non_tty(
-    agh_state: Path, monkeypatch: MonkeyPatch
-) -> None:
-    from agh.cli import main as cli_main
-
-    monkeypatch.setattr(cli_main, "_stdin_is_interactive", lambda: False)
-
-    result = CliRunner().invoke(cli_app, ["skill", "installed"])
-
-    assert result.exit_code == 2
-    assert "no default global skill agent" in result.stdout

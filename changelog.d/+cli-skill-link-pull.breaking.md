@@ -1,0 +1,1 @@
+Rename `agh sync` to `agh link`, remove `skill remove`/`installed`/`agent` subcommands, and make `--target` optional on `skill install` with workspace/global fallback resolution.
