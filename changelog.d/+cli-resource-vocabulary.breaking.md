@@ -1,1 +1,0 @@
-Replace user, project, and collection resource commands with the canonical describe, activate, and deactivate verbs, move token rotation under `agh user token rotate` and remove the legacy `token reset` command, rename the project create/update `--repo-url` option to `--git-url`, and add project member listing.
