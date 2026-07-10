@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   validate:
@@ -34,13 +35,31 @@ jobs:
       - name: Check lockfile
         run: uv lock --locked
 
+      - name: Read current PR labels
+        if: github.event_name == 'pull_request'
+        id: pr-labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+            const { data } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number,
+            });
+
+            const labels = data.labels.map((label) => label.name);
+            const skip = labels.includes("no-changelog-needed");
+
+            core.info(`Live PR labels: ${labels.join(", ") || "(none)"}`);
+            core.info(`Skip changelog check: ${skip}`);
+            core.setOutput("skip-changelog", skip ? "true" : "false");
+
       - name: Check changelog fragments
         if: >
           github.event_name != 'pull_request' ||
-          !contains(
-            github.event.pull_request.labels.*.name,
-            'no-changelog-needed'
-          )
+          steps.pr-labels.outputs.skip-changelog != 'true'
         run: uv run towncrier check
 
       - name: Run tests
